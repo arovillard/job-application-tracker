@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+- Link generated application-material files to application records without duplicating Markdown content in SQLite.
+- Display linked Markdown materials on the application detail page.
+- Add a CLI for agents to register generated files with tracker records.
+
 ## 0.1.3
 
 - Add a copy/paste agent-managed setup prompt to the README.

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -15,6 +15,7 @@ import {
   listFollowUps,
   listApplications,
   resetStorageForTests,
+  upsertApplicationArtifact,
   updateApplication
 } from "./storage";
 
@@ -296,5 +297,53 @@ describe("SQLite application storage", () => {
         body: "Unsupported note type"
       })
     ).toThrow(/note type/i);
+  });
+
+  it("associates Markdown artifacts with application details without duplicating content", () => {
+    const created = createApplication(baseInput);
+    const artifactDir = path.join(tempDir, "applications", "Acme");
+    const artifactPath = path.join(artifactDir, "frontend-engineer-fit-analysis.md");
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(
+      artifactPath,
+      [
+        "# Acme - Frontend Engineer Fit Analysis",
+        "",
+        "## Areas Where I Am Well-Qualified",
+        "",
+        "- Built production React workflows."
+      ].join("\n")
+    );
+
+    const artifact = upsertApplicationArtifact(created.id, {
+      type: "fit_analysis",
+      title: "Fit Analysis",
+      filePath: artifactPath,
+      contentType: "text/markdown"
+    });
+    const detail = getApplicationDetail(created.id);
+
+    expect(artifact).toMatchObject({
+      applicationId: created.id,
+      type: "fit_analysis",
+      title: "Fit Analysis",
+      filePath: artifactPath,
+      contentType: "text/markdown"
+    });
+    expect(detail?.artifacts).toEqual([
+      expect.objectContaining({
+        id: artifact.id,
+        type: "fit_analysis",
+        title: "Fit Analysis",
+        content: expect.stringContaining("## Areas Where I Am Well-Qualified"),
+        readError: null
+      })
+    ]);
+
+    writeFileSync(artifactPath, "# Updated Fit Analysis\n\nUpdated from the file.");
+
+    expect(getApplicationDetail(created.id)?.artifacts[0]?.content).toContain(
+      "Updated from the file."
+    );
   });
 });

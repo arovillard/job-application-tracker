@@ -68,6 +68,27 @@ note TEXT,
 created_at TEXT NOT NULL
 ```
 
+`application_artifacts`
+
+```sql
+id TEXT PRIMARY KEY,
+application_id TEXT NOT NULL,
+type TEXT NOT NULL,
+title TEXT NOT NULL,
+file_path TEXT NOT NULL,
+content_type TEXT NOT NULL DEFAULT 'text/markdown',
+created_at TEXT NOT NULL,
+updated_at TEXT NOT NULL
+```
+
+Valid artifact types:
+
+```text
+fit_analysis, outreach_message, referral_message, cover_letter, resume, posting, other
+```
+
+Artifact rows link application records to generated files. The file remains the source of truth; the database stores path and metadata only.
+
 ## App Conventions
 
 - Do not create duplicate records for the same normalized company and role.
@@ -104,4 +125,13 @@ SELECT from_status, to_status, note, created_at
 FROM application_status_changes
 WHERE application_id = 'APPLICATION_ID'
 ORDER BY created_at ASC;
+```
+
+Read linked files:
+
+```sql
+SELECT type, title, file_path, content_type, updated_at
+FROM application_artifacts
+WHERE application_id = 'APPLICATION_ID'
+ORDER BY updated_at DESC;
 ```

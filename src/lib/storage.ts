@@ -1,14 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import Database from "better-sqlite3";
 
 import {
+  APPLICATION_ARTIFACT_TYPES,
   APPLICATION_STATUSES,
   APPLICATION_NOTE_TYPES,
   type Application,
   type ApplicationActivity,
+  type ApplicationArtifact,
+  type ApplicationArtifactInput,
+  type ApplicationArtifactType,
   type ApplicationDetail,
   type ApplicationFilters,
   type ApplicationInput,
@@ -64,6 +68,17 @@ type ApplicationStatusChangeRow = {
   created_at: string;
 };
 
+type ApplicationArtifactRow = {
+  id: string;
+  application_id: string;
+  type: ApplicationArtifactType;
+  title: string;
+  file_path: string;
+  content_type: string;
+  created_at: string;
+  updated_at: string;
+};
+
 type CachedDatabase = {
   path: string;
   db: SqliteDatabase;
@@ -71,6 +86,7 @@ type CachedDatabase = {
 
 const STATUS_SET = new Set<ApplicationStatus>(APPLICATION_STATUSES);
 const NOTE_TYPE_SET = new Set<ApplicationNoteType>(APPLICATION_NOTE_TYPES);
+const ARTIFACT_TYPE_SET = new Set<ApplicationArtifactType>(APPLICATION_ARTIFACT_TYPES);
 const APPLICATION_SELECT_COLUMNS = `
   applications.id,
   applications.company,
@@ -161,15 +177,32 @@ function ensureSchema(db: SqliteDatabase) {
 
     CREATE INDEX IF NOT EXISTS application_status_changes_application_created_idx
       ON application_status_changes(application_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS application_artifacts (
+      id TEXT PRIMARY KEY,
+      application_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      content_type TEXT NOT NULL DEFAULT 'text/markdown',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(application_id, type, file_path),
+      FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS application_artifacts_application_updated_idx
+      ON application_artifacts(application_id, updated_at DESC);
   `);
   ensureColumn(db, "application_notes", "type", "TEXT NOT NULL DEFAULT 'update'");
   ensureColumn(db, "application_notes", "follow_up_date", "TEXT");
+  ensureColumn(db, "application_artifacts", "content_type", "TEXT NOT NULL DEFAULT 'text/markdown'");
   backfillLegacyFollowUps(db);
 }
 
 function ensureColumn(
   db: SqliteDatabase,
-  table: "application_notes",
+  table: "application_notes" | "application_artifacts",
   column: string,
   definition: string
 ) {
@@ -313,6 +346,34 @@ function mapStatusChangeRow(row: ApplicationStatusChangeRow): ApplicationStatusC
   };
 }
 
+function readArtifactContent(filePath: string): Pick<ApplicationArtifact, "content" | "readError"> {
+  try {
+    return {
+      content: readFileSync(filePath, "utf8"),
+      readError: null
+    };
+  } catch (error) {
+    return {
+      content: null,
+      readError: error instanceof Error ? error.message : "Unable to read artifact file"
+    };
+  }
+}
+
+function mapArtifactRow(row: ApplicationArtifactRow): ApplicationArtifact {
+  return {
+    id: row.id,
+    applicationId: row.application_id,
+    type: row.type,
+    title: row.title,
+    filePath: row.file_path,
+    contentType: row.content_type,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...readArtifactContent(row.file_path)
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -370,6 +431,14 @@ function readNoteType(value: unknown) {
   return value as ApplicationNoteType;
 }
 
+function readArtifactType(value: unknown) {
+  if (typeof value !== "string" || !ARTIFACT_TYPE_SET.has(value as ApplicationArtifactType)) {
+    throw new Error("Artifact type is invalid");
+  }
+
+  return value as ApplicationArtifactType;
+}
+
 function normalizeNoteInput(input: string | ApplicationNoteInput): ApplicationNoteInput {
   if (typeof input === "string") {
     return {
@@ -401,6 +470,18 @@ function normalizeNoteInput(input: string | ApplicationNoteInput): ApplicationNo
     type,
     body,
     followUpDate: null
+  };
+}
+
+function normalizeArtifactInput(input: ApplicationArtifactInput): Required<ApplicationArtifactInput> {
+  const record: Record<string, unknown> = isRecord(input) ? input : {};
+  const contentType = optionalText(record.contentType, "Content type") ?? "text/markdown";
+
+  return {
+    type: readArtifactType(record.type),
+    title: requiredText(record.title, "Artifact title"),
+    filePath: path.resolve(requiredText(record.filePath, "Artifact file path")),
+    contentType
   };
 }
 
@@ -653,6 +734,21 @@ function listApplicationStatusHistory(applicationId: string): ApplicationStatusC
   return rows.map(mapStatusChangeRow);
 }
 
+function listApplicationArtifacts(applicationId: string): ApplicationArtifact[] {
+  const rows = getDatabase()
+    .prepare(
+      `
+        SELECT *
+        FROM application_artifacts
+        WHERE application_id = ?
+        ORDER BY updated_at DESC, created_at DESC
+      `
+    )
+    .all(applicationId) as ApplicationArtifactRow[];
+
+  return rows.map(mapArtifactRow);
+}
+
 function buildActivity(
   notes: ApplicationNote[],
   statusHistory: ApplicationStatusChange[]
@@ -678,6 +774,7 @@ export function getApplicationDetail(id: string): ApplicationDetail | null {
 
   const notes = listApplicationNotes(id);
   const statusHistory = listApplicationStatusHistory(id);
+  const artifacts = listApplicationArtifacts(id);
 
   return {
     id: application.id,
@@ -695,8 +792,76 @@ export function getApplicationDetail(id: string): ApplicationDetail | null {
     updatedAt: application.updatedAt,
     notes,
     statusHistory,
+    artifacts,
     activity: buildActivity(notes, statusHistory)
   };
+}
+
+export function upsertApplicationArtifact(
+  applicationId: string,
+  input: ApplicationArtifactInput
+): ApplicationArtifact {
+  const artifact = normalizeArtifactInput(input);
+  const application = getApplication(applicationId);
+
+  if (!application) {
+    throw new Error("Application not found");
+  }
+
+  const now = nowIso();
+  const db = getDatabase();
+  const id = randomUUID();
+  const upsertArtifact = db.prepare(`
+    INSERT INTO application_artifacts (
+      id,
+      application_id,
+      type,
+      title,
+      file_path,
+      content_type,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(application_id, type, file_path)
+    DO UPDATE SET
+      title = excluded.title,
+      content_type = excluded.content_type,
+      updated_at = excluded.updated_at
+  `);
+  const touchApplication = db.prepare("UPDATE applications SET updated_at = ? WHERE id = ?");
+
+  db.transaction(() => {
+    upsertArtifact.run(
+      id,
+      applicationId,
+      artifact.type,
+      artifact.title,
+      artifact.filePath,
+      artifact.contentType,
+      now,
+      now
+    );
+    touchApplication.run(now, applicationId);
+  })();
+
+  const row = db
+    .prepare(
+      `
+        SELECT *
+        FROM application_artifacts
+        WHERE application_id = ?
+          AND type = ?
+          AND file_path = ?
+      `
+    )
+    .get(applicationId, artifact.type, artifact.filePath) as ApplicationArtifactRow | undefined;
+
+  if (!row) {
+    throw new Error("Artifact was not recorded");
+  }
+
+  return mapArtifactRow(row);
 }
 
 export function addApplicationNote(

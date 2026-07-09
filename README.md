@@ -80,6 +80,10 @@ Important settings:
 - `JOBTRACKER_LINKEDIN_URL`: optional public profile URL for AI context.
 - `JOBTRACKER_AI_PROVIDER`: optional human-readable note; configure credentials through the AI tool, not this file.
 
+## Application Materials
+
+Generated resumes, fit analyses, outreach drafts, referral messages, and saved postings should stay as files in `JOBTRACKER_APPLICATIONS_DIR`. The tracker can link those files to an application record and display Markdown content on the application detail page. The Markdown file remains the source of truth; SQLite stores only the file path and metadata.
+
 ## Agent Skills
 
 The skills are packaged for both supported agents:

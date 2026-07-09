@@ -22,6 +22,28 @@ export const APPLICATION_NOTE_TYPES = ["update", "internal", "follow_up"] as con
 
 export type ApplicationNoteType = (typeof APPLICATION_NOTE_TYPES)[number];
 
+export const APPLICATION_ARTIFACT_TYPES = [
+  "fit_analysis",
+  "outreach_message",
+  "referral_message",
+  "cover_letter",
+  "resume",
+  "posting",
+  "other"
+] as const;
+
+export type ApplicationArtifactType = (typeof APPLICATION_ARTIFACT_TYPES)[number];
+
+export const ARTIFACT_TYPE_LABELS: Record<ApplicationArtifactType, string> = {
+  fit_analysis: "Fit analysis",
+  outreach_message: "Outreach message",
+  referral_message: "Referral message",
+  cover_letter: "Cover letter",
+  resume: "Resume",
+  posting: "Posting",
+  other: "Other"
+};
+
 export const NOTE_TYPE_LABELS: Record<ApplicationNoteType, string> = {
   update: "Update",
   internal: "Internal note",
@@ -70,6 +92,26 @@ export type ApplicationStatusChange = {
   createdAt: string;
 };
 
+export type ApplicationArtifact = {
+  id: string;
+  applicationId: string;
+  type: ApplicationArtifactType;
+  title: string;
+  filePath: string;
+  contentType: string;
+  content: string | null;
+  readError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ApplicationArtifactInput = {
+  type: ApplicationArtifactType;
+  title: string;
+  filePath: string;
+  contentType?: string | null;
+};
+
 export type ApplicationActivity =
   | (ApplicationNote & {
       activityType: "note";
@@ -86,6 +128,7 @@ export type ApplicationDetail = Omit<Application, "notes"> & {
   summary: string | null;
   notes: ApplicationNote[];
   statusHistory: ApplicationStatusChange[];
+  artifacts: ApplicationArtifact[];
   activity: ApplicationActivity[];
 };
 

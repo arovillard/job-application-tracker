@@ -18,7 +18,8 @@ Use this workflow for every new job-specific application.
 3. Create `<applications-dir>/<Company Name>/`. If no applications directory is configured, use `applications/<Company Name>/` under the current project. If the folder already exists, preserve it and add role-specific files without overwriting unrelated work.
 4. Tailor the resume and any reach-out message from verified source material. Do not invent production AI, SDK, API, management, revenue, or customer claims that are not supported by the user's source materials.
 5. Create a Markdown fit analysis inside the company folder before final delivery.
-6. If the user wants Google Docs output, deliver the resume as a Google Doc and include the Google Docs link in the final response. Keep local QA artifacts out of the final answer unless requested.
+6. Register generated application-material files with the tracker record using `node scripts/register-application-artifact.mjs` so the app can display them on the application detail page.
+7. If the user wants Google Docs output, deliver the resume as a Google Doc and include the Google Docs link in the final response. Keep local QA artifacts out of the final answer unless requested.
 
 ## Human Context To Collect
 
@@ -45,6 +46,31 @@ Use role-specific Markdown filenames to avoid collisions:
 ```
 
 Use lowercase hyphenated role slugs for filenames. If the role title is unknown, use `application-fit-analysis.md`. If a file already exists for the same role, update it only when the current request is for that same application; otherwise add a dated suffix.
+
+## Register Files In The Tracker
+
+After creating or updating an application-material file, link it to the existing tracker record:
+
+```bash
+node scripts/register-application-artifact.mjs \
+  --company "Company Name" \
+  --role "Role Title" \
+  --type fit_analysis \
+  --title "Fit Analysis" \
+  --file "/absolute/path/to/company/role-fit-analysis.md"
+```
+
+Use these artifact types:
+
+- `fit_analysis` for the qualification analysis Markdown file.
+- `outreach_message` for recruiter, hiring-manager, or cold outreach drafts.
+- `referral_message` for referral request drafts.
+- `cover_letter` for cover letters.
+- `resume` for tailored resumes.
+- `posting` for saved posting files.
+- `other` for supporting materials that do not fit another type.
+
+If company and role matching is ambiguous, rerun the command with `--application-id <id>` from the verified tracker record. The Markdown file remains the source of truth; the database stores only the link and metadata.
 
 ## Required Markdown Analysis
 

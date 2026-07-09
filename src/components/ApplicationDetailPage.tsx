@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import {
   APPLICATION_STATUSES,
   APPLICATION_NOTE_TYPES,
+  ARTIFACT_TYPE_LABELS,
   NOTE_TYPE_LABELS,
   STATUS_LABELS,
   type ApplicationDetail,
@@ -289,6 +290,38 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
 
       <section className="detail-grid" aria-label="Application workspace">
         <div className="detail-main">
+          <section className="tracker-panel">
+            <div className="tracker-panel__header">
+              <h2 className="tracker-panel__title">Application materials</h2>
+              <span className="tracker-panel__meta">{detail.artifacts.length} files</span>
+            </div>
+            {detail.artifacts.length === 0 ? (
+              <p className="artifact-list__empty">No application materials have been linked yet.</p>
+            ) : (
+              <div className="artifact-list">
+                {detail.artifacts.map((artifact) => (
+                  <article className="artifact-card" key={artifact.id}>
+                    <header className="artifact-card__header">
+                      <div>
+                        <p className="artifact-card__type">{ARTIFACT_TYPE_LABELS[artifact.type]}</p>
+                        <h3 className="artifact-card__title">{artifact.title}</h3>
+                      </div>
+                      <span className="artifact-card__meta">{artifact.contentType}</span>
+                    </header>
+                    <p className="artifact-card__path">{artifact.filePath}</p>
+                    {artifact.readError ? (
+                      <p className="artifact-card__error">{artifact.readError}</p>
+                    ) : artifact.content ? (
+                      <pre className="artifact-card__content">{artifact.content}</pre>
+                    ) : (
+                      <p className="artifact-card__empty">The linked file is empty.</p>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
           <section className="tracker-panel">
             <div className="tracker-panel__header">
               <h2 className="tracker-panel__title">Activity history</h2>
