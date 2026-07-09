@@ -10,14 +10,12 @@ import {
   STATUS_LABELS,
   type Application,
   type ApplicationDetail,
-  type ApplicationInput,
   type ApplicationStatus,
   type FollowUpItem
 } from "../types";
 import { ApplicationTable } from "./ApplicationTable";
 import { AttentionQueue } from "./AttentionQueue";
 import { PipelineOverview } from "./PipelineOverview";
-import { QuickCapture } from "./QuickCapture";
 import { StatusFilter, type StatusFilterValue } from "./StatusFilter";
 import { useTheme } from "./ThemeProvider";
 import { Toast } from "./Toast";
@@ -271,23 +269,6 @@ export function Dashboard() {
     }
   };
 
-  const createApplication = async (input: ApplicationInput) => {
-    const response = await fetch("/api/applications", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input)
-    });
-
-    if (!response.ok) {
-      throw new Error(await readError(response));
-    }
-
-    const created = (await response.json()) as Application;
-    setApplications((current) => [created, ...current]);
-    setToast({ message: `${created.company} is in your pipeline.` });
-    return created;
-  };
-
   const selectPipelineView = (view: "active" | "attention" | "interviewing" | "offer") => {
     setStatusFilter(view === "offer" ? "offer" : "all");
     setSavedView(view === "offer" ? "all" : view);
@@ -317,20 +298,7 @@ export function Dashboard() {
         </div>
       </header>
 
-      <section className="dashboard-intro" aria-labelledby="dashboard-title">
-        <p className="app-header__eyebrow">Your search, in focus</p>
-        <h1 id="dashboard-title">Make your next move obvious.</h1>
-        <p>See the opportunities that are moving, the conversations to protect, and the work that deserves attention today.</p>
-      </section>
-
       {error ? <div className="notice notice--error" role="alert">{error}</div> : null}
-
-      <PipelineOverview metrics={insights.metrics} onSelect={selectPipelineView} />
-
-      <section className="dashboard-focus-grid" aria-label="Today and quick capture">
-        <AttentionQueue items={insights.attention} loading={loading} />
-        <QuickCapture disabled={loading} onCreate={createApplication} />
-      </section>
 
       <section className="pipeline-workspace" aria-labelledby="pipeline-title" ref={workspaceRef}>
         <div className="pipeline-workspace__header">
@@ -382,14 +350,27 @@ export function Dashboard() {
           </div>
           <StatusFilter value={statusFilter} onChange={setStatusFilter} counts={statusCounts} />
         </div>
+        <AttentionQueue
+          items={insights.attention}
+          loading={loading}
+          onViewAll={() => setSavedView("attention")}
+        />
         <ApplicationTable
           applications={filteredApplications}
           detailsHref={(application) => `/applications/${application.id}`}
           loading={loading}
           onStatusChange={updateStatus}
           pendingStatusId={pendingStatusId}
-          emptyMessage={search || savedView !== "all" || statusFilter !== "all" ? "No opportunities match this view. Try clearing a filter or search term." : undefined}
+          emptyMessage={
+            search || savedView !== "all" || statusFilter !== "all"
+              ? "No opportunities match this view. Try clearing a filter or search term."
+              : "Your opportunities will appear here. Select New application to add the first one."
+          }
         />
+      </section>
+
+      <section className="dashboard-progress" aria-label="Pipeline progress">
+        <PipelineOverview metrics={insights.metrics} onSelect={selectPipelineView} />
       </section>
 
       <Toast

@@ -6,6 +6,7 @@ type AttentionQueueProps = {
   items: DashboardAttentionItem[];
   maxItems?: number;
   loading?: boolean;
+  onViewAll: () => void;
 };
 
 function dueCopy(item: DashboardAttentionItem) {
@@ -20,44 +21,45 @@ function dueCopy(item: DashboardAttentionItem) {
   return `Due today · ${item.dueDate}`;
 }
 
-export function AttentionQueue({ items, maxItems = 5, loading = false }: AttentionQueueProps) {
+export function AttentionQueue({ items, maxItems = 3, loading = false, onViewAll }: AttentionQueueProps) {
   const visibleItems = items.slice(0, maxItems);
 
+  if (!loading && visibleItems.length === 0) {
+    return null;
+  }
+
   return (
-    <section className="attention-panel" aria-labelledby="attention-title">
-      <div className="panel-heading">
-        <div>
-          <p className="panel-heading__eyebrow">Today</p>
-          <h2 id="attention-title">Keep the search moving</h2>
-        </div>
-        <span className="panel-heading__count">{items.length} to focus on</span>
+    <section className="attention-strip" aria-label="Opportunities needing attention">
+      <div className="attention-strip__summary">
+        <strong>Needs attention</strong>
+        <span>{loading ? "Checking your next moves" : `${items.length} to review`}</span>
       </div>
       {loading ? (
-        <div className="attention-panel__skeleton" aria-busy="true" aria-label="Loading attention queue">
-          <span /><span /><span />
-        </div>
-      ) : visibleItems.length === 0 ? (
-        <div className="attention-panel__empty">
-          <span className="empty-state__icon" aria-hidden="true">✓</span>
-          <p>You are clear for now. Add a next action when new opportunities appear.</p>
+        <div className="attention-strip__skeleton" aria-busy="true" aria-label="Loading attention queue">
+          <span />
+          <span />
+          <span />
         </div>
       ) : (
-        <div className="attention-list">
+        <div className="attention-strip__items">
           {visibleItems.map((item) => (
-            <Link className="attention-list__item" href={`/applications/${item.applicationId}`} key={item.id}>
+            <Link className="attention-strip__item" href={`/applications/${item.applicationId}`} key={item.id}>
               <span className={`attention-list__marker attention-list__marker--${item.priority}`} aria-hidden="true" />
-              <span className="attention-list__content">
+              <span className="attention-strip__content">
                 <strong>{item.company}</strong>
-                <span>{item.label}</span>
+                <span className={item.isOverdue ? "attention-strip__due attention-strip__due--overdue" : "attention-strip__due"}>
+                  {dueCopy(item)}
+                </span>
               </span>
-              <span className={item.isOverdue ? "attention-list__due attention-list__due--overdue" : "attention-list__due"}>
-                {dueCopy(item)}
-              </span>
-              <span className="attention-list__arrow" aria-hidden="true">→</span>
             </Link>
           ))}
         </div>
       )}
+      {!loading ? (
+        <button className="text-button" type="button" onClick={onViewAll}>
+          View all
+        </button>
+      ) : null}
     </section>
   );
 }
