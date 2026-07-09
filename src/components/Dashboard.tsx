@@ -20,7 +20,7 @@ import { StatusFilter, type StatusFilterValue } from "./StatusFilter";
 import { useTheme } from "./ThemeProvider";
 import { Toast } from "./Toast";
 
-type SavedView = "all" | "active" | "attention" | "interviewing" | "archived";
+type PipelineFocus = "all" | "active" | "attention";
 type SortValue = "updated" | "company" | "next-action" | "priority";
 
 type ToastState = {
@@ -28,14 +28,6 @@ type ToastState = {
   actionLabel?: string;
   onAction?: () => void;
 };
-
-const SAVED_VIEWS: Array<{ value: SavedView; label: string }> = [
-  { value: "all", label: "All opportunities" },
-  { value: "active", label: "Active" },
-  { value: "attention", label: "Needs attention" },
-  { value: "interviewing", label: "Interviewing" },
-  { value: "archived", label: "Archived" }
-];
 
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 } as const;
 
@@ -120,7 +112,7 @@ export function Dashboard() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [followUps, setFollowUps] = useState<FollowUpItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("all");
-  const [savedView, setSavedView] = useState<SavedView>("all");
+  const [pipelineFocus, setPipelineFocus] = useState<PipelineFocus>("all");
   const [sort, setSort] = useState<SortValue>("updated");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -208,18 +200,16 @@ export function Dashboard() {
   const filteredApplications = useMemo(() => {
     const visible = applications.filter((application) => {
       const statusMatches = statusFilter === "all" || application.status === statusFilter;
-      const viewMatches =
-        savedView === "all" ||
-        (savedView === "active" && ["applied", "interviewing", "offer"].includes(application.status)) ||
-        (savedView === "attention" && attentionApplicationIds.has(application.id)) ||
-        (savedView === "interviewing" && application.status === "interviewing") ||
-        (savedView === "archived" && application.status === "archived");
+      const focusMatches =
+        pipelineFocus === "all" ||
+        (pipelineFocus === "active" && ["applied", "interviewing", "offer"].includes(application.status)) ||
+        (pipelineFocus === "attention" && attentionApplicationIds.has(application.id));
 
-      return statusMatches && viewMatches && matchesSearch(application, search);
+      return statusMatches && focusMatches && matchesSearch(application, search);
     });
 
     return sortApplications(visible, sort);
-  }, [applications, attentionApplicationIds, savedView, search, sort, statusFilter]);
+  }, [applications, attentionApplicationIds, pipelineFocus, search, sort, statusFilter]);
   const statusCounts = useMemo(() => buildStatusCounts(applications), [applications]);
 
   const updateStatus = async (
@@ -270,9 +260,14 @@ export function Dashboard() {
   };
 
   const selectPipelineView = (view: "active" | "attention" | "interviewing" | "offer") => {
-    setStatusFilter(view === "offer" ? "offer" : "all");
-    setSavedView(view === "offer" ? "all" : view);
+    setPipelineFocus(view === "active" || view === "attention" ? view : "all");
+    setStatusFilter(view === "interviewing" ? "interviewing" : view === "offer" ? "offer" : "all");
     window.requestAnimationFrame(() => workspaceRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+
+  const filterByStatus = (status: StatusFilterValue) => {
+    setPipelineFocus("all");
+    setStatusFilter(status);
   };
 
   return (
@@ -312,19 +307,6 @@ export function Dashboard() {
           </span>
         </div>
         <div className="pipeline-controls">
-          <div className="saved-views" role="group" aria-label="Saved pipeline views">
-            {SAVED_VIEWS.map((view) => (
-              <button
-                className="saved-views__button"
-                data-active={savedView === view.value ? "true" : "false"}
-                type="button"
-                key={view.value}
-                onClick={() => setSavedView(view.value)}
-              >
-                {view.label}
-              </button>
-            ))}
-          </div>
           <div className="pipeline-controls__filters">
             <label className="search-field">
               <span className="sr-only">Search opportunities</span>
@@ -348,12 +330,15 @@ export function Dashboard() {
               </select>
             </label>
           </div>
-          <StatusFilter value={statusFilter} onChange={setStatusFilter} counts={statusCounts} />
+          <StatusFilter value={statusFilter} onChange={filterByStatus} counts={statusCounts} />
         </div>
         <AttentionQueue
           items={insights.attention}
           loading={loading}
-          onViewAll={() => setSavedView("attention")}
+          onViewAll={() => {
+            setPipelineFocus("attention");
+            setStatusFilter("all");
+          }}
         />
         <ApplicationTable
           applications={filteredApplications}
@@ -362,7 +347,7 @@ export function Dashboard() {
           onStatusChange={updateStatus}
           pendingStatusId={pendingStatusId}
           emptyMessage={
-            search || savedView !== "all" || statusFilter !== "all"
+            search || pipelineFocus !== "all" || statusFilter !== "all"
               ? "No opportunities match this view. Try clearing a filter or search term."
               : "Your opportunities will appear here. Select New application to add the first one."
           }

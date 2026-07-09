@@ -253,8 +253,8 @@ kbd {
 .dashboard-progress { display: grid; gap: 10px; }
 .pipeline-workspace__header { border-bottom: 1px solid var(--line); padding-bottom: 20px; }
 .pipeline-controls { border-bottom: 1px solid var(--line); display: grid; gap: 14px; padding: 16px 20px; }
-.saved-views, .status-filter { display: flex; flex-wrap: wrap; gap: 7px; }
-.saved-views__button, .status-filter__button {
+.status-filter { display: flex; flex-wrap: wrap; gap: 7px; }
+.status-filter__button {
   background: transparent;
   border: 1px solid transparent;
   border-radius: 999px;
@@ -265,8 +265,8 @@ kbd {
   padding: 7px 11px;
   transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
 }
-.saved-views__button:hover, .status-filter__button:hover { background: var(--surface-subtle); color: var(--ink); }
-.saved-views__button[data-active="true"], .status-filter__button[data-active="true"] { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 28%, var(--line)); color: var(--accent-strong); }
+.status-filter__button:hover { background: var(--surface-subtle); color: var(--ink); }
+.status-filter__button[data-active="true"] { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 28%, var(--line)); color: var(--accent-strong); }
 .pipeline-controls__filters { display: grid; gap: 9px; grid-template-columns: minmax(220px, 1fr) auto; }
 .search-field { min-width: 0; position: relative; }
 .search-field__icon { color: var(--ink-faint); font-size: 1.2rem; left: 12px; pointer-events: none; position: absolute; top: 8px; }
@@ -434,9 +434,6 @@ kbd {
   .attention-strip { align-items: stretch; gap: 10px; grid-template-columns: 1fr auto; padding: 12px 15px; }
   .attention-strip__items, .attention-strip__skeleton { grid-column: 1 / -1; overflow-x: auto; }
   .pipeline-controls { padding: 13px 15px; }
-  .saved-views { flex-wrap: nowrap; margin: 0 -15px; overflow-x: auto; padding: 0 15px; scrollbar-width: none; }
-  .saved-views::-webkit-scrollbar { display: none; }
-  .saved-views__button { flex: 0 0 auto; }
   .pipeline-controls__filters { grid-template-columns: 1fr; }
   .status-filter { flex-wrap: nowrap; margin: 0 -15px; overflow-x: auto; padding: 12px 15px 1px; scrollbar-width: none; }
   .status-filter::-webkit-scrollbar { display: none; }
