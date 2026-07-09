@@ -15,6 +15,21 @@ Ask for these values before configuring the project:
 
 Do not ask the human to paste API keys or credentials into this repository. If the host agent has a secure provider setup flow, use that flow.
 
+## Agent-Owned Install Contract
+
+When the human asks the agent to own installation end to end, complete the setup in this order:
+
+1. Check for `git`, `node`, and `npm`.
+2. Install missing prerequisites with the system package manager, or ask before using administrator privileges.
+3. Clone `https://github.com/arovillard/job-application-tracker` into the requested project folder, or update the existing local copy.
+4. Install dependencies with `npm install`.
+5. Collect the application-materials folder, latest resume file or path, public profile URL, and AI-provider status.
+6. Run `npm run setup`, or write `.env.local` from `.env.example` using the collected values.
+7. Run `npm run skills:install`, `npm run verify`, and `npm run build`.
+8. Start the app with `npm run dev`.
+9. Confirm private files remain uncommitted.
+10. Tell the human setup is complete, give the local app URL, and ask for the first job posting link.
+
 ## Setup Steps
 
 1. Confirm prerequisites:

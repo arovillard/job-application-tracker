@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- Add a copy/paste agent-managed setup prompt to the README.
+- Document the end-to-end install contract for Codex and Claude setup agents.
+
 ## 0.1.2
 
 - Add Claude Code project skills under `.claude/skills`.

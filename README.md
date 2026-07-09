@@ -36,6 +36,38 @@ For a non-interactive default setup:
 npm run setup -- --yes
 ```
 
+## Agent-Managed Setup
+
+For the easiest setup, paste this prompt into Codex or Claude Code. Replace any bracketed values you already know, and let the agent ask for the rest.
+
+```text
+Please set up Job Application Tracker for me end to end.
+
+Repository: https://github.com/arovillard/job-application-tracker
+Preferred project folder: [tell the agent where to clone it, or ask me]
+Preferred application materials folder: [tell the agent where generated resumes, analyses, and outreach drafts should go, or ask me]
+AI agent: [Codex, Claude Code, or both]
+
+Do the following in order:
+
+1. Check whether this computer has git, Node.js, and npm installed.
+2. If a required dependency is missing, install it with the appropriate system package manager or ask me before using administrator privileges.
+3. Clone the repository into the project folder, or update the existing local copy if it is already there.
+4. Install project dependencies with npm install.
+5. Ask me for the information the app needs:
+   - The folder where generated application materials should be stored.
+   - My latest resume file. If I upload it in this chat, save it locally and use that path; otherwise ask me for the file path.
+   - My public LinkedIn profile URL or other public profile URL.
+   - Whether my AI provider is already configured in this agent.
+6. Do not ask me to paste API keys or secrets into this repository. Use this agent's secure provider setup flow if credentials are needed.
+7. Run npm run setup and provide the answers I gave you, or write .env.local from .env.example using those values.
+8. Run npm run skills:install so the packaged Codex and Claude skills are installed.
+9. Run npm run verify and npm run build. Fix any setup issue that prevents them from passing.
+10. Start the app with npm run dev and tell me the local URL.
+11. Confirm that .env.local, the SQLite database, my resume, and generated application materials are private and not committed to Git.
+12. Finish by telling me setup is complete and that you are ready for the first job posting link. When I provide a job link, create or update the tracker record first, then prepare the application materials, fit analysis, and outreach/referral drafts.
+```
+
 ## Configuration
 
 `npm run setup` writes `.env.local`. You can also copy `.env.example` to `.env.local` and edit it manually.
