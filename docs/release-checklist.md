@@ -46,8 +46,8 @@ rm -rf .next tsconfig.tsbuildinfo
 2. Create and push a version tag:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v<version>
+git push origin v<version>
 ```
 
 Pushing the tag runs `.github/workflows/release.yml`, verifies the app, builds it, creates a source archive from tracked files only, and publishes a GitHub Release.

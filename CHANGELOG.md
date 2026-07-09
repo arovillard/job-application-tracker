@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+- Replace the Python job posting upsert helper with a Node.js CLI.
+- Remove Python from the new-user setup requirements.
+- Keep skill automation on the same Node/npm dependency path as the app.
+
 ## 0.1.0
 
 - Initial GitHub-ready release.

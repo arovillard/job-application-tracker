@@ -21,7 +21,6 @@ Do not ask the human to paste API keys or credentials into this repository. If t
 ```bash
 node --version
 npm --version
-python3 --version
 ```
 
 2. Install dependencies:

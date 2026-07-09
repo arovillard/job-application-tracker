@@ -7,7 +7,6 @@ Local-first job application tracker built with Next.js and SQLite. The repositor
 Required:
 
 - Node.js and npm.
-- Python 3 for the bundled `job-tracker-add-posting` skill script.
 - A local folder for this project.
 - A local folder for generated application materials.
 - A base resume file if they want AI-tailored resumes or fit analyses.
@@ -97,8 +96,8 @@ To create a release after the repository is pushed to GitHub:
 ```bash
 npm run verify
 npm run build
-git tag v0.1.0
-git push origin v0.1.0
+git tag v<version>
+git push origin v<version>
 ```
 
 See `docs/release-checklist.md` for the full publishing checklist.

@@ -11,7 +11,7 @@ Use this skill before application-materials work whenever a public job posting s
 
 1. Read `.env.local` when present and note `JOBTRACKER_DB_PATH`.
 2. Extract posting facts from the public job URL.
-3. Add or update the tracker record with `scripts/upsert_job_posting.py`.
+3. Add or update the tracker record with `node scripts/upsert-job-posting.mjs`.
 4. Verify the script output shows the expected company, role, URL, status, and action.
 5. If the user is applying or wants interview-ready materials, invoke `job-application-resume` after the tracker record is verified.
 
@@ -33,10 +33,10 @@ If sources disagree about whether the job is open, keep the tracker record activ
 
 ## Upsert Command
 
-Run the bundled script from the JobTracker project root. If this skill is installed in Codex, resolve `<skill-dir>` to the directory containing this `SKILL.md`. If working from an uninstalled repository checkout, `<skill-dir>` is `skills/job-tracker-add-posting`.
+Run the bundled project script from the JobTracker project root.
 
 ```bash
-python3 <skill-dir>/scripts/upsert_job_posting.py \
+node scripts/upsert-job-posting.mjs \
   --company "Company Name" \
   --role "Role Title" \
   --url "https://example.com/job" \
@@ -61,7 +61,7 @@ For complex quoting, pass JSON through stdin:
 
 ```bash
 printf '%s\n' '{"company":"Company","role":"Role","url":"https://example.com/job","posting_state":"open"}' |
-  python3 <skill-dir>/scripts/upsert_job_posting.py --input-json - --reactivate
+  node scripts/upsert-job-posting.mjs --input-json - --reactivate
 ```
 
 ## Verification

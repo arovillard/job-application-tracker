@@ -1,6 +1,6 @@
 # JobTracker SQLite Reference
 
-Use this only when `scripts/upsert_job_posting.py` is blocked or when you need to explain the tracker state.
+Use this only when `scripts/upsert-job-posting.mjs` is blocked or when you need to explain the tracker state.
 
 ## Database
 
