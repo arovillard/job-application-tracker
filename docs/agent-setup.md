@@ -25,10 +25,12 @@ When the human asks the agent to own installation end to end, complete the setup
 4. Install dependencies with `npm install`.
 5. Collect the application-materials folder, latest resume file or path, public profile URL, and AI-provider status.
 6. Run `npm run setup`, or write `.env.local` from `.env.example` using the collected values.
-7. Run `npm run skills:install`, `npm run verify`, and `npm run build`.
-8. Start the app with `npm run dev`.
-9. Confirm private files remain uncommitted.
-10. Tell the human setup is complete, give the local app URL, and ask for the first job posting link.
+7. Run `npm run skills:install`.
+8. If the human already has generated files in the application-materials folder, run `npm run artifacts:backfill`.
+9. Run `npm run verify` and `npm run build`.
+10. Start the app with `npm run dev`.
+11. Confirm private files remain uncommitted.
+12. Tell the human setup is complete, give the local app URL, and ask for the first job posting link.
 
 ## Setup Steps
 
@@ -66,13 +68,19 @@ npm run skills:install:codex
 npm run skills:install:claude
 ```
 
-5. Verify the project:
+5. Backfill existing generated files, if this is an existing install:
+
+```bash
+npm run artifacts:backfill
+```
+
+6. Verify the project:
 
 ```bash
 npm run verify
 ```
 
-6. Start the app:
+7. Start the app:
 
 ```bash
 npm run dev

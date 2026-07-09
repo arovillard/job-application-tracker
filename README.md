@@ -84,6 +84,14 @@ Important settings:
 
 Generated resumes, fit analyses, outreach drafts, referral messages, and saved postings should stay as files in `JOBTRACKER_APPLICATIONS_DIR`. The tracker can link those files to an application record and display Markdown content on the application detail page. The Markdown file remains the source of truth; SQLite stores only the file path and metadata.
 
+For existing installs with files already in the application-materials folder, run a one-time backfill after pulling the update:
+
+```bash
+npm run artifacts:backfill
+```
+
+The backfill scans `JOBTRACKER_APPLICATIONS_DIR` or `./applications`, matches first-level folders to company names in the tracker, and links recognized files such as fit analyses, outreach messages, referral messages, resumes, cover letters, and saved postings. It is safe to rerun; existing artifact links are updated rather than duplicated.
+
 ## Agent Skills
 
 The skills are packaged for both supported agents:

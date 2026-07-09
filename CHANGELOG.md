@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5
+
+- Add `npm run artifacts:backfill` to link existing generated files to tracker records.
+- Document the upgrade path for existing users with pre-existing application-material folders.
+
 ## 0.1.4
 
 - Link generated application-material files to application records without duplicating Markdown content in SQLite.
