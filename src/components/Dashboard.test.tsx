@@ -20,6 +20,7 @@ describe("Dashboard", () => {
     const markup = renderToStaticMarkup(<Dashboard />);
 
     expect(markup).not.toContain("All opportunities");
+    expect(markup).not.toContain("Pipeline progress");
     expect(markup).toContain("Wishlist");
     expect(markup).toContain("Applied");
     expect(markup).toContain("Interviewing");

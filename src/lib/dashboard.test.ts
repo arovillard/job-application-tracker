@@ -51,7 +51,7 @@ function followUp(overrides: Partial<FollowUpItem> = {}): FollowUpItem {
 }
 
 describe("getDashboardInsights", () => {
-  it("surfaces due work, active pipeline counts, and applications missing a next action", () => {
+  it("surfaces due work and applications missing a next action", () => {
     const applications = [
       application({
         id: "applied",
@@ -84,13 +84,7 @@ describe("getDashboardInsights", () => {
       "2026-07-09"
     );
 
-    expect(insights.metrics).toMatchObject({
-      active: 3,
-      interviewing: 1,
-      offers: 1,
-      dueFollowUps: 1,
-      attention: 3
-    });
+    expect(insights).toEqual({ attention: expect.any(Array) });
     expect(insights.attention.map((item) => ({
       applicationId: item.applicationId,
       kind: item.kind,
@@ -115,8 +109,6 @@ describe("getDashboardInsights", () => {
       "2026-07-09"
     );
 
-    expect(insights.metrics.attention).toBe(0);
-    expect(insights.metrics.dueFollowUps).toBe(0);
-    expect(insights.attention).toEqual([]);
+    expect(insights).toEqual({ attention: [] });
   });
 });

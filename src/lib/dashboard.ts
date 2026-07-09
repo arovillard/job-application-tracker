@@ -16,13 +16,6 @@ export type DashboardAttentionItem = {
 };
 
 export type DashboardInsights = {
-  metrics: {
-    active: number;
-    interviewing: number;
-    offers: number;
-    dueFollowUps: number;
-    attention: number;
-  };
   attention: DashboardAttentionItem[];
 };
 
@@ -141,16 +134,7 @@ export function getDashboardInsights(
     }
   }
 
-  const active = applications.filter((application) => ACTIVE_STATUSES.has(application.status));
-
   return {
-    metrics: {
-      active: active.length,
-      interviewing: applications.filter((application) => application.status === "interviewing").length,
-      offers: applications.filter((application) => application.status === "offer").length,
-      dueFollowUps: attention.filter((item) => item.kind === "follow_up").length,
-      attention: attention.length
-    },
     attention: attention.sort(compareAttention)
   };
 }

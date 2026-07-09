@@ -15,12 +15,11 @@ import {
 } from "../types";
 import { ApplicationTable } from "./ApplicationTable";
 import { AttentionQueue } from "./AttentionQueue";
-import { PipelineOverview } from "./PipelineOverview";
 import { StatusFilter, type StatusFilterValue } from "./StatusFilter";
 import { useTheme } from "./ThemeProvider";
 import { Toast } from "./Toast";
 
-type PipelineFocus = "all" | "active" | "attention";
+type PipelineFocus = "all" | "attention";
 type SortValue = "updated" | "company" | "next-action" | "priority";
 
 type ToastState = {
@@ -120,7 +119,6 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const workspaceRef = useRef<HTMLElement>(null);
   const pendingStatusRef = useRef(false);
   const { theme, setTheme } = useTheme();
 
@@ -202,7 +200,6 @@ export function Dashboard() {
       const statusMatches = statusFilter === "all" || application.status === statusFilter;
       const focusMatches =
         pipelineFocus === "all" ||
-        (pipelineFocus === "active" && ["applied", "interviewing", "offer"].includes(application.status)) ||
         (pipelineFocus === "attention" && attentionApplicationIds.has(application.id));
 
       return statusMatches && focusMatches && matchesSearch(application, search);
@@ -259,12 +256,6 @@ export function Dashboard() {
     }
   };
 
-  const selectPipelineView = (view: "active" | "attention" | "interviewing" | "offer") => {
-    setPipelineFocus(view === "active" || view === "attention" ? view : "all");
-    setStatusFilter(view === "interviewing" ? "interviewing" : view === "offer" ? "offer" : "all");
-    window.requestAnimationFrame(() => workspaceRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  };
-
   const filterByStatus = (status: StatusFilterValue) => {
     setPipelineFocus("all");
     setStatusFilter(status);
@@ -295,7 +286,7 @@ export function Dashboard() {
 
       {error ? <div className="notice notice--error" role="alert">{error}</div> : null}
 
-      <section className="pipeline-workspace" aria-labelledby="pipeline-title" ref={workspaceRef}>
+      <section className="pipeline-workspace" aria-labelledby="pipeline-title">
         <div className="pipeline-workspace__header">
           <div>
             <p className="panel-heading__eyebrow">Pipeline</p>
@@ -352,10 +343,6 @@ export function Dashboard() {
               : "Your opportunities will appear here. Select New application to add the first one."
           }
         />
-      </section>
-
-      <section className="dashboard-progress" aria-label="Pipeline progress">
-        <PipelineOverview metrics={insights.metrics} onSelect={selectPipelineView} />
       </section>
 
       <Toast

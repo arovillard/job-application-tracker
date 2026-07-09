@@ -191,27 +191,6 @@ kbd {
 .notice { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-muted); padding: 12px 14px; }
 .notice--error { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); color: var(--danger); }
 
-.pipeline-overview { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.metric-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--ink);
-  display: grid;
-  gap: 4px;
-  min-height: 150px;
-  padding: 20px;
-  text-align: left;
-  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
-}
-.metric-card:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); box-shadow: var(--shadow-sm); transform: translateY(-2px); }
-.metric-card__label { color: var(--ink-muted); font-size: 0.82rem; font-weight: 700; }
-.metric-card__value { font-size: 2.45rem; letter-spacing: -0.06em; line-height: 1; margin-top: auto; }
-.metric-card__detail { color: var(--ink-faint); font-size: 0.8rem; }
-.metric-card--warning .metric-card__value { color: var(--warning); }
-.metric-card--accent .metric-card__value { color: var(--accent); }
-.metric-card--success .metric-card__value { color: var(--success); }
-
 .pipeline-workspace, .tracker-panel, .next-action-card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -250,7 +229,6 @@ kbd {
   width: 100%;
 }
 .pipeline-workspace { scroll-margin-top: 20px; overflow: hidden; }
-.dashboard-progress { display: grid; gap: 10px; }
 .pipeline-workspace__header { border-bottom: 1px solid var(--line); padding-bottom: 20px; }
 .pipeline-controls { border-bottom: 1px solid var(--line); display: grid; gap: 14px; padding: 16px 20px; }
 .status-filter { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -426,10 +404,6 @@ kbd {
   .shortcut-hint, .dashboard-header__actions .button kbd { display: none; }
   .dashboard-header__actions .button { font-size: 0; gap: 0; min-width: 42px; padding: 9px; }
   .dashboard-header__actions .button span { font-size: 1.25rem; }
-  .pipeline-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .metric-card { min-height: 126px; padding: 16px; }
-  .metric-card__value { font-size: 2rem; }
-  .metric-card__detail { font-size: 0.73rem; }
   .pipeline-workspace__header { padding: 18px; }
   .attention-strip { align-items: stretch; gap: 10px; grid-template-columns: 1fr auto; padding: 12px 15px; }
   .attention-strip__items, .attention-strip__skeleton { grid-column: 1 / -1; overflow-x: auto; }
