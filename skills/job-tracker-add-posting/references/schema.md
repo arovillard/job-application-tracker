@@ -88,6 +88,7 @@ fit_analysis, outreach_message, referral_message, cover_letter, resume, posting,
 ```
 
 Artifact rows link application records to generated files. The file remains the source of truth; the database stores path and metadata only.
+The app only displays `resume`, `fit_analysis`, and `outreach_message` artifacts.
 
 ## App Conventions
 

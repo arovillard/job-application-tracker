@@ -346,4 +346,59 @@ describe("SQLite application storage", () => {
       "Updated from the file."
     );
   });
+
+  it("shows only resume, fit analysis, and outreach artifacts on application details", () => {
+    const created = createApplication(baseInput);
+    const artifactDir = path.join(tempDir, "applications", "Acme");
+    mkdirSync(artifactDir, { recursive: true });
+
+    const files = {
+      resume: path.join(artifactDir, "resume.pdf"),
+      fit: path.join(artifactDir, "fit-analysis.md"),
+      outreach: path.join(artifactDir, "reach-out-message.md"),
+      posting: path.join(artifactDir, "posting.pdf")
+    };
+    writeFileSync(files.resume, "pdf");
+    writeFileSync(files.fit, "# Fit Analysis");
+    writeFileSync(files.outreach, "# Outreach");
+    writeFileSync(files.posting, "pdf");
+
+    upsertApplicationArtifact(created.id, {
+      type: "posting",
+      title: "Posting",
+      filePath: files.posting,
+      contentType: "application/pdf"
+    });
+    upsertApplicationArtifact(created.id, {
+      type: "outreach_message",
+      title: "Outreach",
+      filePath: files.outreach,
+      contentType: "text/markdown"
+    });
+    upsertApplicationArtifact(created.id, {
+      type: "fit_analysis",
+      title: "Fit Analysis",
+      filePath: files.fit,
+      contentType: "text/markdown"
+    });
+    upsertApplicationArtifact(created.id, {
+      type: "resume",
+      title: "Resume",
+      filePath: files.resume,
+      contentType: "application/pdf"
+    });
+
+    expect(getApplicationDetail(created.id)?.artifacts.map((artifact) => artifact.type)).toEqual([
+      "fit_analysis",
+      "outreach_message",
+      "resume"
+    ]);
+    expect(getApplicationDetail(created.id)?.artifacts[2]).toEqual(
+      expect.objectContaining({
+        type: "resume",
+        content: null,
+        readError: null
+      })
+    );
+  });
 });

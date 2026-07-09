@@ -7,7 +7,12 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { type ApplicationInput } from "../src/types";
-import { createApplication, getApplicationDetail, resetStorageForTests } from "../src/lib/storage";
+import {
+  createApplication,
+  getApplicationDetail,
+  resetStorageForTests,
+  upsertApplicationArtifact
+} from "../src/lib/storage";
 
 let tempDir: string;
 let dbPath: string;
@@ -77,14 +82,26 @@ describe("backfill-application-artifacts CLI", () => {
     writeFileSync(path.join(acmeDir, "Example Candidate Resume.pdf"), "pdf");
     writeFileSync(path.join(acmeDir, "Acme Jobs.pdf"), "pdf");
     writeFileSync(path.join(unknownDir, "unknown-fit-analysis.md"), "# Unknown\n");
+    process.env.JOBTRACKER_DB_PATH = dbPath;
+    upsertApplicationArtifact(acme.id, {
+      type: "posting",
+      title: "Existing Posting",
+      filePath: path.join(acmeDir, "Acme Jobs.pdf"),
+      contentType: "application/pdf"
+    });
+    resetStorageForTests();
 
     const result = runBackfill(["--db", dbPath, "--applications-dir", applicationsDir]);
 
     expect(result).toMatchObject({
       scannedFiles: 5,
-      registered: 4
+      registered: 3
     });
     expect(result.skipped).toEqual([
+      expect.objectContaining({
+        reason: "unsupported_material_type",
+        path: path.join(acmeDir, "Acme Jobs.pdf")
+      }),
       expect.objectContaining({
         reason: "no_matching_application",
         path: path.join(unknownDir, "unknown-fit-analysis.md")
@@ -93,13 +110,12 @@ describe("backfill-application-artifacts CLI", () => {
     expect(getApplicationDetail(acme.id)?.artifacts.map((artifact) => artifact.type).sort()).toEqual([
       "fit_analysis",
       "outreach_message",
-      "posting",
       "resume"
     ]);
 
     const secondRun = runBackfill(["--db", dbPath, "--applications-dir", applicationsDir]);
 
-    expect(secondRun.registered).toBe(4);
-    expect(countArtifacts()).toBe(4);
+    expect(secondRun.registered).toBe(3);
+    expect(countArtifacts()).toBe(3);
   });
 });

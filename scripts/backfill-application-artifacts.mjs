@@ -6,6 +6,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 const SUPPORTED_EXTENSIONS = new Set([".md", ".markdown", ".pdf", ".doc", ".docx", ".txt"]);
+const VISIBLE_MATERIAL_TYPES = ["resume", "fit_analysis", "outreach_message"];
 
 function parseArgs(argv) {
   const parsed = {};
@@ -104,23 +105,11 @@ function classifyFile(filePath) {
     return { type: "outreach_message", title: "Outreach Message" };
   }
 
-  if (name.includes("referral")) {
-    return { type: "referral_message", title: "Referral Message" };
-  }
-
-  if (name.includes("cover-letter") || name.includes("cover letter")) {
-    return { type: "cover_letter", title: "Cover Letter" };
-  }
-
   if (name.includes("resume")) {
     return { type: "resume", title: titleFromFile(filePath) || "Resume" };
   }
 
-  if (name.includes("job") || name.includes("posting")) {
-    return { type: "posting", title: titleFromFile(filePath) || "Posting" };
-  }
-
-  return { type: "other", title: titleFromFile(filePath) || "Application Material" };
+  return null;
 }
 
 function contentTypeFor(filePath) {
@@ -257,6 +246,10 @@ function main() {
     let registered = 0;
 
     db.transaction(() => {
+      db.prepare(
+        `DELETE FROM application_artifacts WHERE type NOT IN (${VISIBLE_MATERIAL_TYPES.map(() => "?").join(", ")})`
+      ).run(...VISIBLE_MATERIAL_TYPES);
+
       for (const filePath of files) {
         if (!statSync(filePath).isFile()) {
           continue;
@@ -265,7 +258,7 @@ function main() {
         const artifact = classifyFile(filePath);
 
         if (!artifact) {
-          skipped.push({ path: filePath, reason: "unsupported_file_type" });
+          skipped.push({ path: filePath, reason: "unsupported_material_type" });
           continue;
         }
 

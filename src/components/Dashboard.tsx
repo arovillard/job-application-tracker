@@ -13,7 +13,6 @@ import {
 } from "../types";
 import { ApplicationTable } from "./ApplicationTable";
 import { StatusFilter, type StatusFilterValue } from "./StatusFilter";
-import { SummaryBar } from "./SummaryBar";
 
 async function readError(response: Response) {
   const body = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -261,8 +260,6 @@ export function Dashboard() {
       </header>
 
       {error ? <div className="notice notice--error">{error}</div> : null}
-
-      <SummaryBar applications={applications} />
 
       <section className="dashboard-grid" aria-label="Dashboard queues">
         <div className="tracker-panel">

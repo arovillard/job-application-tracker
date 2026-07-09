@@ -60,15 +60,11 @@ node scripts/register-application-artifact.mjs \
   --file "/absolute/path/to/company/role-fit-analysis.md"
 ```
 
-Use these artifact types:
+Only register the three material types shown in the app:
 
 - `fit_analysis` for the qualification analysis Markdown file.
 - `outreach_message` for recruiter, hiring-manager, or cold outreach drafts.
-- `referral_message` for referral request drafts.
-- `cover_letter` for cover letters.
 - `resume` for tailored resumes.
-- `posting` for saved posting files.
-- `other` for supporting materials that do not fit another type.
 
 If company and role matching is ambiguous, rerun the command with `--application-id <id>` from the verified tracker record. The Markdown file remains the source of truth; the database stores only the link and metadata.
 

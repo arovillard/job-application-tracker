@@ -22,7 +22,7 @@ type ApplicationFormState = {
   notes: string;
 };
 
-export type ApplicationFormProps = {
+type ApplicationFormProps = {
   initialValue?: Application | ApplicationInput | null;
   onSubmit: (input: ApplicationInput) => void | Promise<void>;
   onCancel?: () => void;

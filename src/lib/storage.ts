@@ -87,6 +87,7 @@ type CachedDatabase = {
 const STATUS_SET = new Set<ApplicationStatus>(APPLICATION_STATUSES);
 const NOTE_TYPE_SET = new Set<ApplicationNoteType>(APPLICATION_NOTE_TYPES);
 const ARTIFACT_TYPE_SET = new Set<ApplicationArtifactType>(APPLICATION_ARTIFACT_TYPES);
+const VISIBLE_ARTIFACT_TYPES = ["fit_analysis", "outreach_message", "resume"] as const;
 const APPLICATION_SELECT_COLUMNS = `
   applications.id,
   applications.company,
@@ -346,7 +347,17 @@ function mapStatusChangeRow(row: ApplicationStatusChangeRow): ApplicationStatusC
   };
 }
 
-function readArtifactContent(filePath: string): Pick<ApplicationArtifact, "content" | "readError"> {
+function readArtifactContent(
+  filePath: string,
+  contentType: string
+): Pick<ApplicationArtifact, "content" | "readError"> {
+  if (!contentType.startsWith("text/")) {
+    return {
+      content: null,
+      readError: null
+    };
+  }
+
   try {
     return {
       content: readFileSync(filePath, "utf8"),
@@ -370,7 +381,7 @@ function mapArtifactRow(row: ApplicationArtifactRow): ApplicationArtifact {
     contentType: row.content_type,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    ...readArtifactContent(row.file_path)
+    ...readArtifactContent(row.file_path, row.content_type)
   };
 }
 
@@ -741,10 +752,19 @@ function listApplicationArtifacts(applicationId: string): ApplicationArtifact[] 
         SELECT *
         FROM application_artifacts
         WHERE application_id = ?
-        ORDER BY updated_at DESC, created_at DESC
+          AND type IN (${VISIBLE_ARTIFACT_TYPES.map(() => "?").join(", ")})
+        ORDER BY
+          CASE type
+            WHEN 'fit_analysis' THEN 1
+            WHEN 'outreach_message' THEN 2
+            WHEN 'resume' THEN 3
+            ELSE 4
+          END,
+          updated_at DESC,
+          created_at DESC
       `
     )
-    .all(applicationId) as ApplicationArtifactRow[];
+    .all(applicationId, ...VISIBLE_ARTIFACT_TYPES) as ApplicationArtifactRow[];
 
   return rows.map(mapArtifactRow);
 }

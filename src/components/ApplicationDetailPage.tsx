@@ -7,7 +7,6 @@ import { useEffect, useState } from "react";
 import {
   APPLICATION_STATUSES,
   APPLICATION_NOTE_TYPES,
-  ARTIFACT_TYPE_LABELS,
   NOTE_TYPE_LABELS,
   STATUS_LABELS,
   type ApplicationDetail,
@@ -16,12 +15,15 @@ import {
   type ApplicationNoteType,
   type ApplicationStatus
 } from "../types";
+import { ApplicationArtifactViewer } from "./ApplicationArtifactViewer";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { ApplicationForm } from "./ApplicationForm";
 
 type ApplicationDetailPageProps = {
   applicationId: string;
 };
+
+type DetailModal = "status" | "note" | "details" | null;
 
 async function readError(response: Response) {
   const body = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -75,6 +77,7 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
   const [savingStatus, setSavingStatus] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
+  const [activeModal, setActiveModal] = useState<DetailModal>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -140,6 +143,7 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
       setDetail(updated);
       setStatus(updated.status);
       setStatusNote("");
+      setActiveModal(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to update status");
     } finally {
@@ -179,6 +183,7 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
       setNoteBody("");
       setNoteType("update");
       setNoteFollowUpDate("");
+      setActiveModal(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to add note");
     } finally {
@@ -213,6 +218,7 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
       const updated = (await response.json()) as ApplicationDetail;
       setDetail(updated);
       setStatus(updated.status);
+      setActiveModal(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to update details");
     } finally {
@@ -269,59 +275,78 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
 
   return (
     <main className="app-shell">
+      <nav className="detail-nav" aria-label="Application navigation">
+        <Link className="detail-nav__back" href="/">
+          <span aria-hidden="true">←</span>
+          Dashboard
+        </Link>
+      </nav>
       <header className="app-header">
         <div>
-          <p className="app-header__eyebrow">{STATUS_LABELS[detail.status]}</p>
-          <h1 className="app-header__title">
-            {detail.company} - {detail.role}
-          </h1>
-        </div>
-        <div className="app-header__actions">
-          <Link className="button" href="/">
-            Dashboard
-          </Link>
-          <button className="button button--danger" type="button" onClick={deleteApplication}>
-            Delete
-          </button>
+          <p className="app-header__eyebrow">Application</p>
+          <div className="app-header__title-row">
+            <h1 className="app-header__title">
+              {detail.company} - {detail.role}
+            </h1>
+            <span className={`status-badge status-badge--${detail.status}`}>
+              {STATUS_LABELS[detail.status]}
+            </span>
+          </div>
         </div>
       </header>
 
       {error ? <div className="notice notice--error">{error}</div> : null}
 
       <section className="detail-grid" aria-label="Application workspace">
+        <details className="floating-actions">
+          <summary className="floating-actions__button" aria-label="Application actions">
+            +
+          </summary>
+          <div className="floating-actions__menu">
+            <button
+              className="floating-actions__item"
+              type="button"
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                setActiveModal("note");
+              }}
+            >
+              Add note
+            </button>
+            <button
+              className="floating-actions__item"
+              type="button"
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                setStatus(detail.status);
+                setActiveModal("status");
+              }}
+            >
+              Update status
+            </button>
+            <button
+              className="floating-actions__item"
+              type="button"
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                setActiveModal("details");
+              }}
+            >
+              Edit details
+            </button>
+            <button
+              className="floating-actions__item floating-actions__item--danger"
+              type="button"
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                deleteApplication();
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        </details>
         <div className="detail-main">
-          <section className="tracker-panel">
-            <div className="tracker-panel__header">
-              <h2 className="tracker-panel__title">Application materials</h2>
-              <span className="tracker-panel__meta">{detail.artifacts.length} files</span>
-            </div>
-            {detail.artifacts.length === 0 ? (
-              <p className="artifact-list__empty">No application materials have been linked yet.</p>
-            ) : (
-              <div className="artifact-list">
-                {detail.artifacts.map((artifact) => (
-                  <article className="artifact-card" key={artifact.id}>
-                    <header className="artifact-card__header">
-                      <div>
-                        <p className="artifact-card__type">{ARTIFACT_TYPE_LABELS[artifact.type]}</p>
-                        <h3 className="artifact-card__title">{artifact.title}</h3>
-                      </div>
-                      <span className="artifact-card__meta">{artifact.contentType}</span>
-                    </header>
-                    <p className="artifact-card__path">{artifact.filePath}</p>
-                    {artifact.readError ? (
-                      <p className="artifact-card__error">{artifact.readError}</p>
-                    ) : artifact.content ? (
-                      <pre className="artifact-card__content">{artifact.content}</pre>
-                    ) : (
-                      <p className="artifact-card__empty">The linked file is empty.</p>
-                    )}
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-
           <section className="tracker-panel">
             <div className="tracker-panel__header">
               <h2 className="tracker-panel__title">Activity history</h2>
@@ -332,95 +357,14 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
 
           <section className="tracker-panel">
             <div className="tracker-panel__header">
-              <h2 className="tracker-panel__title">Add note</h2>
-              {savingNote ? <span className="tracker-panel__meta">Saving</span> : null}
+              <h2 className="tracker-panel__title">Application materials</h2>
+              <span className="tracker-panel__meta">{detail.artifacts.length} files</span>
             </div>
-            <form className="note-form" onSubmit={addNote}>
-              <label className="application-form__field">
-                <span className="application-form__label">Type</span>
-                <select
-                  className="application-form__select"
-                  value={noteType}
-                  onChange={(event) => setNoteType(event.target.value as ApplicationNoteType)}
-                >
-                  {APPLICATION_NOTE_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {NOTE_TYPE_LABELS[type]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {noteType === "follow_up" ? (
-                <label className="application-form__field">
-                  <span className="application-form__label">Follow-up date</span>
-                  <input
-                    className="application-form__input"
-                    required
-                    type="date"
-                    value={noteFollowUpDate}
-                    onChange={(event) => setNoteFollowUpDate(event.target.value)}
-                  />
-                </label>
-              ) : null}
-              <label className="application-form__field">
-                <span className="application-form__label">Note</span>
-                <textarea
-                  className="application-form__textarea"
-                  required
-                  value={noteBody}
-                  onChange={(event) => setNoteBody(event.target.value)}
-                  rows={4}
-                />
-              </label>
-              <div className="application-form__actions">
-                <button className="application-form__button application-form__button--primary" type="submit">
-                  Add note
-                </button>
-              </div>
-            </form>
+            <ApplicationArtifactViewer applicationId={detail.id} artifacts={detail.artifacts} />
           </section>
         </div>
 
         <aside className="detail-side">
-          <section className="tracker-panel">
-            <div className="tracker-panel__header">
-              <h2 className="tracker-panel__title">Status</h2>
-              {savingStatus ? <span className="tracker-panel__meta">Saving</span> : null}
-            </div>
-            <form className="status-form" onSubmit={saveStatus}>
-              <label className="application-form__field">
-                <span className="application-form__label">Current status</span>
-                <select
-                  className="application-form__select"
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value as ApplicationStatus)}
-                >
-                  {APPLICATION_STATUSES.map((option) => (
-                    <option key={option} value={option}>
-                      {STATUS_LABELS[option]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="application-form__field">
-                <span className="application-form__label">Status note</span>
-                <textarea
-                  className="application-form__textarea"
-                  value={statusNote}
-                  onChange={(event) => setStatusNote(event.target.value)}
-                  rows={3}
-                />
-              </label>
-              <button
-                className="application-form__button application-form__button--primary"
-                type="submit"
-                disabled={status === detail.status}
-              >
-                Update status
-              </button>
-            </form>
-          </section>
-
           <section className="tracker-panel">
             <div className="tracker-panel__header">
               <h2 className="tracker-panel__title">Snapshot</h2>
@@ -454,22 +398,139 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
               ) : null}
             </dl>
           </section>
-
-          <section className="tracker-panel">
-            <div className="tracker-panel__header">
-              <h2 className="tracker-panel__title">Edit details</h2>
-              {savingDetails ? <span className="tracker-panel__meta">Saving</span> : null}
-            </div>
-            <ApplicationForm
-              key={detail.updatedAt}
-              initialValue={detailToApplication(detail)}
-              onSubmit={saveDetails}
-              showStatus={false}
-              submitLabel="Save details"
-            />
-          </section>
         </aside>
       </section>
+
+      {activeModal ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            aria-modal="true"
+            className="modal"
+            role="dialog"
+            aria-labelledby="application-action-modal-title"
+          >
+            <header className="modal__header">
+              <h2 className="modal__title" id="application-action-modal-title">
+                {activeModal === "note"
+                  ? "Add note"
+                  : activeModal === "status"
+                    ? "Update status"
+                    : "Edit details"}
+              </h2>
+              <button className="modal__close" type="button" onClick={() => setActiveModal(null)}>
+                Close
+              </button>
+            </header>
+
+            {activeModal === "note" ? (
+              <form className="note-form" onSubmit={addNote}>
+                <label className="application-form__field">
+                  <span className="application-form__label">Type</span>
+                  <select
+                    className="application-form__select"
+                    value={noteType}
+                    onChange={(event) => setNoteType(event.target.value as ApplicationNoteType)}
+                  >
+                    {APPLICATION_NOTE_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {NOTE_TYPE_LABELS[type]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {noteType === "follow_up" ? (
+                  <label className="application-form__field">
+                    <span className="application-form__label">Follow-up date</span>
+                    <input
+                      className="application-form__input"
+                      required
+                      type="date"
+                      value={noteFollowUpDate}
+                      onChange={(event) => setNoteFollowUpDate(event.target.value)}
+                    />
+                  </label>
+                ) : null}
+                <label className="application-form__field">
+                  <span className="application-form__label">Note</span>
+                  <textarea
+                    className="application-form__textarea"
+                    required
+                    value={noteBody}
+                    onChange={(event) => setNoteBody(event.target.value)}
+                    rows={4}
+                  />
+                </label>
+                <div className="application-form__actions">
+                  <button
+                    className="application-form__button application-form__button--secondary"
+                    type="button"
+                    onClick={() => setActiveModal(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button className="application-form__button application-form__button--primary" type="submit">
+                    {savingNote ? "Adding..." : "Add note"}
+                  </button>
+                </div>
+              </form>
+            ) : null}
+
+            {activeModal === "status" ? (
+              <form className="status-form" onSubmit={saveStatus}>
+                <label className="application-form__field">
+                  <span className="application-form__label">Current status</span>
+                  <select
+                    className="application-form__select"
+                    value={status}
+                    onChange={(event) => setStatus(event.target.value as ApplicationStatus)}
+                  >
+                    {APPLICATION_STATUSES.map((option) => (
+                      <option key={option} value={option}>
+                        {STATUS_LABELS[option]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="application-form__field">
+                  <span className="application-form__label">Status note</span>
+                  <textarea
+                    className="application-form__textarea"
+                    value={statusNote}
+                    onChange={(event) => setStatusNote(event.target.value)}
+                    rows={3}
+                  />
+                </label>
+                <div className="application-form__actions">
+                  <button
+                    className="application-form__button application-form__button--secondary"
+                    type="button"
+                    onClick={() => setActiveModal(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="application-form__button application-form__button--primary"
+                    type="submit"
+                    disabled={status === detail.status}
+                  >
+                    {savingStatus ? "Updating..." : "Update status"}
+                  </button>
+                </div>
+              </form>
+            ) : null}
+
+            {activeModal === "details" ? (
+              <ApplicationForm
+                key={detail.updatedAt}
+                initialValue={detailToApplication(detail)}
+                onSubmit={saveDetails}
+                showStatus={false}
+                submitLabel={savingDetails ? "Saving..." : "Save details"}
+              />
+            ) : null}
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
