@@ -16,60 +16,32 @@ type ApplicationTableProps = {
   onStatusChange?: (application: Application, status: ApplicationStatus) => void | Promise<void>;
   detailsHref?: (application: Application) => string;
   emptyMessage?: string;
+  loading?: boolean;
+  pendingStatusId?: string | null;
 };
 
 const DATE_FORMAT = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
   month: "short",
-  timeZone: "UTC",
-  year: "numeric"
+  timeZone: "UTC"
 });
 
-function formatDateOnly(value: string | null) {
+function formatDate(value: string | null) {
   if (!value) {
-    return "—";
+    return "No date set";
   }
 
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (match) {
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    return DATE_FORMAT.format(new Date(Date.UTC(year, month - 1, day)));
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return DATE_FORMAT.format(parsed);
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) ? value : DATE_FORMAT.format(parsed);
 }
 
-function formatUrlDisplay(url: string) {
-  const trimmed = url.trim();
-
-  try {
-    const parsed = new URL(trimmed);
-    return parsed.host.replace(/^www\./i, "");
-  } catch {
-    try {
-      const parsed = new URL(`https://${trimmed}`);
-      return parsed.host.replace(/^www\./i, "");
-    } catch {
-      return trimmed;
-    }
-  }
+function priorityLabel(priority: Application["priority"]) {
+  return priority === "high" ? "High focus" : priority === "low" ? "Low focus" : "Standard";
 }
 
 function normalizeUrl(url: string) {
   const trimmed = url.trim();
-
-  if (/^[a-z][a-z\d+\-.]*:\/\//i.test(trimmed)) {
-    return trimmed;
-  }
-
-  return `https://${trimmed}`;
+  return /^[a-z][a-z\d+\-.]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
 export function ApplicationTable({
@@ -78,61 +50,33 @@ export function ApplicationTable({
   onEdit,
   onDelete,
   onStatusChange,
-  emptyMessage
+  emptyMessage,
+  loading = false,
+  pendingStatusId = null
 }: ApplicationTableProps) {
-  const hasActions = Boolean(detailsHref || onEdit || onDelete);
+  if (loading) {
+    return (
+      <div className="application-table application-table--loading" aria-busy="true" aria-label="Loading opportunities">
+        <div className="application-table__loading-row"><span /><span /><span /><span /></div>
+        <div className="application-table__loading-row"><span /><span /><span /><span /></div>
+        <div className="application-table__loading-row"><span /><span /><span /><span /></div>
+      </div>
+    );
+  }
 
   if (applications.length === 0) {
     return (
-      <div className="application-table">
-        <table className="application-table__table">
-          <thead className="application-table__head">
-            <tr className="application-table__row">
-              <th className="application-table__header" scope="col">
-                Company
-              </th>
-              <th className="application-table__header" scope="col">
-                Role
-              </th>
-              <th className="application-table__header" scope="col">
-                Status
-              </th>
-              <th className="application-table__header" scope="col">
-                Location
-              </th>
-              <th className="application-table__header" scope="col">
-                Applied
-              </th>
-              <th className="application-table__header" scope="col">
-                Follow-up
-              </th>
-              <th className="application-table__header" scope="col">
-                Source
-              </th>
-              <th className="application-table__header" scope="col">
-                Updated
-              </th>
-              <th className="application-table__header" scope="col">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="application-table__body">
-            <tr className="application-table__empty-row">
-              <td className="application-table__empty-cell" colSpan={9}>
-                <div className="application-table__empty-state">
-                  <strong className="application-table__empty-title">
-                    No applications yet
-                  </strong>
-                  <p className="application-table__empty-message">
-                    {emptyMessage ??
-                      "Add your first application to track company, role, status, follow-up dates, and source details here."}
-                  </p>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div className="application-table application-table--empty">
+        <div className="application-table__empty-state">
+          <span className="empty-state__icon" aria-hidden="true">✦</span>
+          <strong className="application-table__empty-title">Your pipeline is clear</strong>
+          <p className="application-table__empty-message">
+            {emptyMessage ?? "Create an application to start making your next move visible."}
+          </p>
+          <Link className="button button--primary" href="/applications/new">
+            Create application
+          </Link>
+        </div>
       </div>
     );
   }
@@ -142,32 +86,13 @@ export function ApplicationTable({
       <table className="application-table__table">
         <thead className="application-table__head">
           <tr className="application-table__row">
-            <th className="application-table__header" scope="col">
-              Company
-            </th>
-            <th className="application-table__header" scope="col">
-              Role
-            </th>
-            <th className="application-table__header" scope="col">
-              Status
-            </th>
-            <th className="application-table__header" scope="col">
-              Location
-            </th>
-            <th className="application-table__header" scope="col">
-              Applied
-            </th>
-            <th className="application-table__header" scope="col">
-              Follow-up
-            </th>
-            <th className="application-table__header" scope="col">
-              Source
-            </th>
-            <th className="application-table__header" scope="col">
-              Updated
-            </th>
-            <th className="application-table__header" scope="col">
-              Actions
+            <th className="application-table__header" scope="col">Opportunity</th>
+            <th className="application-table__header" scope="col">Stage</th>
+            <th className="application-table__header" scope="col">Next move</th>
+            <th className="application-table__header" scope="col">Focus</th>
+            <th className="application-table__header" scope="col">Updated</th>
+            <th className="application-table__header application-table__header--actions" scope="col">
+              <span className="sr-only">Actions</span>
             </th>
           </tr>
         </thead>
@@ -177,11 +102,13 @@ export function ApplicationTable({
 
             return (
               <tr className="application-table__row" key={application.id}>
-                <td className="application-table__cell">
-                  <div className="application-table__cell-stack">
-                    <span className="application-table__primary">
-                      {application.company}
-                    </span>
+                <td className="application-table__cell" data-label="Opportunity">
+                  <div className="application-table__company">
+                    <span className="application-table__primary">{application.company}</span>
+                    <span className="application-table__secondary">{application.role}</span>
+                    {application.location ? (
+                      <span className="application-table__tertiary">{application.location}</span>
+                    ) : null}
                     {url ? (
                       <a
                         className="application-table__link"
@@ -189,95 +116,74 @@ export function ApplicationTable({
                         rel="noreferrer"
                         target="_blank"
                       >
-                        {formatUrlDisplay(url)}
+                        View posting ↗
                       </a>
                     ) : null}
                   </div>
                 </td>
-                <td className="application-table__cell">{application.role}</td>
-                <td className="application-table__cell">
+                <td className="application-table__cell" data-label="Stage">
                   {onStatusChange ? (
-                    <select
-                      className="application-table__status-select"
-                      aria-label={`Status for ${application.company}`}
-                      value={application.status}
-                      onChange={(event) =>
-                        void onStatusChange(
-                          application,
-                          event.target.value as ApplicationStatus
-                        )
-                      }
-                    >
-                      {APPLICATION_STATUSES.map((status) => (
-                        <option key={status} value={status}>
-                          {STATUS_LABELS[status]}
-                        </option>
-                      ))}
-                    </select>
+                    <label className="stage-select" data-status={application.status}>
+                      <span className="sr-only">Stage for {application.company}</span>
+                      <select
+                        aria-label={`Stage for ${application.company}`}
+                        disabled={pendingStatusId !== null}
+                        value={application.status}
+                        onChange={(event) =>
+                          void onStatusChange(application, event.target.value as ApplicationStatus)
+                        }
+                      >
+                        {APPLICATION_STATUSES.map((status) => (
+                          <option key={status} value={status}>{STATUS_LABELS[status]}</option>
+                        ))}
+                      </select>
+                    </label>
                   ) : (
-                    STATUS_LABELS[application.status]
+                    <span className={`status-badge status-badge--${application.status}`}>
+                      {STATUS_LABELS[application.status]}
+                    </span>
                   )}
                 </td>
-                <td className="application-table__cell">
-                  {application.location ?? "—"}
+                <td className="application-table__cell" data-label="Next move">
+                  <div className="next-move">
+                    <span className={application.nextAction ? "next-move__label" : "next-move__label next-move__label--empty"}>
+                      {application.nextAction ?? "Set a next action"}
+                    </span>
+                    <time
+                      className={application.nextActionDate ? "next-move__date" : "next-move__date next-move__date--empty"}
+                      dateTime={application.nextActionDate ?? undefined}
+                    >
+                      {formatDate(application.nextActionDate)}
+                    </time>
+                  </div>
                 </td>
-                <td className="application-table__cell">
-                  <time
-                    className="application-table__time"
-                    dateTime={application.appliedDate ?? undefined}
-                  >
-                    {formatDateOnly(application.appliedDate)}
+                <td className="application-table__cell" data-label="Focus">
+                  <span className={`priority-chip priority-chip--${application.priority}`}>
+                    {priorityLabel(application.priority)}
+                  </span>
+                </td>
+                <td className="application-table__cell" data-label="Updated">
+                  <time className="application-table__time" dateTime={application.updatedAt}>
+                    {formatDate(application.updatedAt.slice(0, 10))}
                   </time>
                 </td>
-                <td className="application-table__cell">
-                  <time
-                    className="application-table__time"
-                    dateTime={application.followUpDate ?? undefined}
-                  >
-                    {formatDateOnly(application.followUpDate)}
-                  </time>
-                </td>
-                <td className="application-table__cell">
-                  {application.source ?? "—"}
-                </td>
-                <td className="application-table__cell">
-                  <time
-                    className="application-table__time"
-                    dateTime={application.updatedAt}
-                    title={application.updatedAt}
-                  >
-                    {formatDateOnly(application.updatedAt)}
-                  </time>
-                </td>
-                <td className="application-table__cell">
+                <td className="application-table__cell application-table__cell--actions" data-label="Actions">
                   <div className="application-table__actions">
                     {detailsHref ? (
-                      <Link
-                        className="application-table__button application-table__button--edit"
-                        href={detailsHref(application)}
-                      >
-                        Open
+                      <Link className="application-table__open" href={detailsHref(application)}>
+                        Open<span aria-hidden="true"> →</span>
                       </Link>
                     ) : null}
                     {onEdit ? (
-                      <button
-                        className="application-table__button application-table__button--edit"
-                        type="button"
-                        onClick={() => onEdit(application)}
-                      >
+                      <button className="application-table__button application-table__button--edit" type="button" onClick={() => onEdit(application)}>
                         Edit
                       </button>
                     ) : null}
                     {onDelete ? (
-                      <button
-                        className="application-table__button application-table__button--delete"
-                        type="button"
-                        onClick={() => onDelete(application.id)}
-                      >
+                      <button className="application-table__button application-table__button--delete" type="button" onClick={() => onDelete(application.id)}>
                         Delete
                       </button>
                     ) : null}
-                    {!hasActions ? <span className="application-table__muted">—</span> : null}
                   </div>
                 </td>
               </tr>

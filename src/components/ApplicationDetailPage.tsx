@@ -18,12 +18,13 @@ import {
 import { ApplicationArtifactViewer } from "./ApplicationArtifactViewer";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { ApplicationForm } from "./ApplicationForm";
+import { Modal } from "./Modal";
 
 type ApplicationDetailPageProps = {
   applicationId: string;
 };
 
-type DetailModal = "status" | "note" | "details" | null;
+type DetailModal = "status" | "note" | "details" | "delete" | null;
 
 async function readError(response: Response) {
   const body = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -60,6 +61,9 @@ function detailToApplication(detail: ApplicationDetail): Application {
     notes: detail.summary,
     appliedDate: detail.appliedDate,
     followUpDate: detail.followUpDate,
+    nextAction: detail.nextAction,
+    nextActionDate: detail.nextActionDate,
+    priority: detail.priority,
     createdAt: detail.createdAt,
     updatedAt: detail.updatedAt
   };
@@ -77,6 +81,7 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
   const [savingStatus, setSavingStatus] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [activeModal, setActiveModal] = useState<DetailModal>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -227,10 +232,11 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
   };
 
   const deleteApplication = async () => {
-    if (!detail || !window.confirm("Delete this application and its history?")) {
+    if (!detail) {
       return;
     }
 
+    setDeleting(true);
     setError(null);
 
     try {
@@ -245,6 +251,7 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
       router.push("/");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to delete application");
+      setDeleting(false);
     }
   };
 
@@ -295,57 +302,27 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
         </div>
       </header>
 
+      <div className="detail-action-bar" aria-label="Application actions">
+        <button className="button button--primary" type="button" onClick={() => setActiveModal("note")}>
+          Add note
+        </button>
+        <button className="button" type="button" onClick={() => {
+          setStatus(detail.status);
+          setActiveModal("status");
+        }}>
+          Move stage
+        </button>
+        <button className="button" type="button" onClick={() => setActiveModal("details")}>
+          Edit details
+        </button>
+        <button className="button button--danger" type="button" onClick={() => setActiveModal("delete")}>
+          Delete
+        </button>
+      </div>
+
       {error ? <div className="notice notice--error">{error}</div> : null}
 
       <section className="detail-grid" aria-label="Application workspace">
-        <details className="floating-actions">
-          <summary className="floating-actions__button" aria-label="Application actions">
-            +
-          </summary>
-          <div className="floating-actions__menu">
-            <button
-              className="floating-actions__item"
-              type="button"
-              onClick={(event) => {
-                event.currentTarget.closest("details")?.removeAttribute("open");
-                setActiveModal("note");
-              }}
-            >
-              Add note
-            </button>
-            <button
-              className="floating-actions__item"
-              type="button"
-              onClick={(event) => {
-                event.currentTarget.closest("details")?.removeAttribute("open");
-                setStatus(detail.status);
-                setActiveModal("status");
-              }}
-            >
-              Update status
-            </button>
-            <button
-              className="floating-actions__item"
-              type="button"
-              onClick={(event) => {
-                event.currentTarget.closest("details")?.removeAttribute("open");
-                setActiveModal("details");
-              }}
-            >
-              Edit details
-            </button>
-            <button
-              className="floating-actions__item floating-actions__item--danger"
-              type="button"
-              onClick={(event) => {
-                event.currentTarget.closest("details")?.removeAttribute("open");
-                deleteApplication();
-              }}
-            >
-              Delete
-            </button>
-          </div>
-        </details>
         <div className="detail-main">
           <section className="tracker-panel">
             <div className="tracker-panel__header">
@@ -365,6 +342,17 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
         </div>
 
         <aside className="detail-side">
+          <section className="next-action-card">
+            <p className="panel-heading__eyebrow">Next move</p>
+            <h2>{detail.nextAction ?? "Set the next action"}</h2>
+            <div>
+              <span className={`priority-chip priority-chip--${detail.priority}`}>{detail.priority} focus</span>
+              <span>{detail.nextActionDate ? `Due ${formatDateOnly(detail.nextActionDate)}` : "No due date"}</span>
+            </div>
+            <button className="text-button" type="button" onClick={() => setActiveModal("details")}>
+              Plan this move →
+            </button>
+          </section>
           <section className="tracker-panel">
             <div className="tracker-panel__header">
               <h2 className="tracker-panel__title">Snapshot</h2>
@@ -402,26 +390,10 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
       </section>
 
       {activeModal ? (
-        <div className="modal-backdrop" role="presentation">
-          <section
-            aria-modal="true"
-            className="modal"
-            role="dialog"
-            aria-labelledby="application-action-modal-title"
-          >
-            <header className="modal__header">
-              <h2 className="modal__title" id="application-action-modal-title">
-                {activeModal === "note"
-                  ? "Add note"
-                  : activeModal === "status"
-                    ? "Update status"
-                    : "Edit details"}
-              </h2>
-              <button className="modal__close" type="button" onClick={() => setActiveModal(null)}>
-                Close
-              </button>
-            </header>
-
+        <Modal
+          onClose={() => setActiveModal(null)}
+          title={activeModal === "note" ? "Add note" : activeModal === "status" ? "Move stage" : activeModal === "details" ? "Edit details" : "Delete application"}
+        >
             {activeModal === "note" ? (
               <form className="note-form" onSubmit={addNote}>
                 <label className="application-form__field">
@@ -463,12 +435,13 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
                 <div className="application-form__actions">
                   <button
                     className="application-form__button application-form__button--secondary"
+                    disabled={savingNote}
                     type="button"
                     onClick={() => setActiveModal(null)}
                   >
                     Cancel
                   </button>
-                  <button className="application-form__button application-form__button--primary" type="submit">
+                  <button className="application-form__button application-form__button--primary" disabled={savingNote} type="submit">
                     {savingNote ? "Adding..." : "Add note"}
                   </button>
                 </div>
@@ -503,6 +476,7 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
                 <div className="application-form__actions">
                   <button
                     className="application-form__button application-form__button--secondary"
+                    disabled={savingStatus}
                     type="button"
                     onClick={() => setActiveModal(null)}
                   >
@@ -511,7 +485,7 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
                   <button
                     className="application-form__button application-form__button--primary"
                     type="submit"
-                    disabled={status === detail.status}
+                    disabled={savingStatus || status === detail.status}
                   >
                     {savingStatus ? "Updating..." : "Update status"}
                   </button>
@@ -523,13 +497,26 @@ export function ApplicationDetailPage({ applicationId }: ApplicationDetailPagePr
               <ApplicationForm
                 key={detail.updatedAt}
                 initialValue={detailToApplication(detail)}
+                isSubmitting={savingDetails}
                 onSubmit={saveDetails}
                 showStatus={false}
-                submitLabel={savingDetails ? "Saving..." : "Save details"}
+                submitLabel="Save details"
               />
             ) : null}
-          </section>
-        </div>
+            {activeModal === "delete" ? (
+              <div className="delete-confirmation">
+                <p>This permanently removes the application, its notes, stage history, and linked records from this local tracker.</p>
+                <div className="application-form__actions">
+                  <button className="application-form__button application-form__button--secondary" disabled={deleting} type="button" onClick={() => setActiveModal(null)}>
+                    Keep application
+                  </button>
+                  <button className="application-form__button application-form__button--danger" disabled={deleting} type="button" onClick={() => void deleteApplication()}>
+                    {deleting ? "Deleting…" : "Delete permanently"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+        </Modal>
       ) : null}
     </main>
   );

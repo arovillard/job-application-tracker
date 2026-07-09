@@ -9,6 +9,10 @@ export const APPLICATION_STATUSES = [
 
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
+export const APPLICATION_PRIORITIES = ["low", "medium", "high"] as const;
+
+export type ApplicationPriority = (typeof APPLICATION_PRIORITIES)[number];
+
 export const STATUS_LABELS: Record<ApplicationStatus, string> = {
   wishlist: "Wishlist",
   applied: "Applied",
@@ -52,11 +56,18 @@ export type Application = {
   notes: string | null;
   appliedDate: string | null;
   followUpDate: string | null;
+  nextAction: string | null;
+  nextActionDate: string | null;
+  priority: ApplicationPriority;
   createdAt: string;
   updatedAt: string;
 };
 
-export type ApplicationInput = Omit<Application, "id" | "createdAt" | "updatedAt">;
+export type ApplicationInput = Omit<Application, "id" | "createdAt" | "updatedAt" | "priority" | "nextAction" | "nextActionDate"> & {
+  priority?: ApplicationPriority;
+  nextAction?: string | null;
+  nextActionDate?: string | null;
+};
 
 export type ApplicationNote = {
   id: string;
@@ -137,5 +148,8 @@ export const EMPTY_APPLICATION_INPUT: ApplicationInput = {
   contact: null,
   notes: null,
   appliedDate: null,
-  followUpDate: null
+  followUpDate: null,
+  nextAction: null,
+  nextActionDate: null,
+  priority: "medium"
 };

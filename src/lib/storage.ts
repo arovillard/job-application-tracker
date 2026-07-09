@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 
 import {
   APPLICATION_ARTIFACT_TYPES,
+  APPLICATION_PRIORITIES,
   APPLICATION_STATUSES,
   APPLICATION_NOTE_TYPES,
   type Application,
@@ -19,6 +20,7 @@ import {
   type ApplicationNote,
   type ApplicationNoteInput,
   type ApplicationNoteType,
+  type ApplicationPriority,
   type ApplicationStatusChange,
   type ApplicationStatus,
   type FollowUpItem
@@ -38,6 +40,9 @@ type ApplicationRow = {
   notes: string | null;
   applied_date: string | null;
   follow_up_date: string | null;
+  next_action: string | null;
+  next_action_date: string | null;
+  priority: ApplicationPriority;
   created_at: string;
   updated_at: string;
 };
@@ -85,6 +90,7 @@ type CachedDatabase = {
 };
 
 const STATUS_SET = new Set<ApplicationStatus>(APPLICATION_STATUSES);
+const PRIORITY_SET = new Set<ApplicationPriority>(APPLICATION_PRIORITIES);
 const NOTE_TYPE_SET = new Set<ApplicationNoteType>(APPLICATION_NOTE_TYPES);
 const ARTIFACT_TYPE_SET = new Set<ApplicationArtifactType>(APPLICATION_ARTIFACT_TYPES);
 const VISIBLE_ARTIFACT_TYPES = ["fit_analysis", "outreach_message", "resume"] as const;
@@ -99,6 +105,9 @@ const APPLICATION_SELECT_COLUMNS = `
   applications.contact,
   applications.notes,
   applications.applied_date,
+  applications.next_action,
+  applications.next_action_date,
+  applications.priority,
   CASE
     WHEN applications.status IN ('archived', 'rejected') THEN NULL
     ELSE (
@@ -143,6 +152,9 @@ function ensureSchema(db: SqliteDatabase) {
       notes TEXT,
       applied_date TEXT,
       follow_up_date TEXT,
+      next_action TEXT,
+      next_action_date TEXT,
+      priority TEXT NOT NULL DEFAULT 'medium',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -195,6 +207,9 @@ function ensureSchema(db: SqliteDatabase) {
     CREATE INDEX IF NOT EXISTS application_artifacts_application_updated_idx
       ON application_artifacts(application_id, updated_at DESC);
   `);
+  ensureColumn(db, "applications", "next_action", "TEXT");
+  ensureColumn(db, "applications", "next_action_date", "TEXT");
+  ensureColumn(db, "applications", "priority", "TEXT NOT NULL DEFAULT 'medium'");
   ensureColumn(db, "application_notes", "type", "TEXT NOT NULL DEFAULT 'update'");
   ensureColumn(db, "application_notes", "follow_up_date", "TEXT");
   ensureColumn(db, "application_artifacts", "content_type", "TEXT NOT NULL DEFAULT 'text/markdown'");
@@ -203,7 +218,7 @@ function ensureSchema(db: SqliteDatabase) {
 
 function ensureColumn(
   db: SqliteDatabase,
-  table: "application_notes" | "application_artifacts",
+  table: "applications" | "application_notes" | "application_artifacts",
   column: string,
   definition: string
 ) {
@@ -306,6 +321,9 @@ function mapRow(row: ApplicationRow): Application {
     notes: row.notes,
     appliedDate: row.applied_date,
     followUpDate: row.follow_up_date,
+    nextAction: row.next_action,
+    nextActionDate: row.next_action_date,
+    priority: row.priority,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -434,6 +452,18 @@ function readStatus(value: unknown) {
   return value as ApplicationStatus;
 }
 
+function readPriority(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return "medium" as const;
+  }
+
+  if (typeof value !== "string" || !PRIORITY_SET.has(value as ApplicationPriority)) {
+    throw new Error("Priority is invalid");
+  }
+
+  return value as ApplicationPriority;
+}
+
 function readNoteType(value: unknown) {
   if (typeof value !== "string" || !NOTE_TYPE_SET.has(value as ApplicationNoteType)) {
     throw new Error("Note type is invalid");
@@ -509,7 +539,10 @@ function normalizeInput(input: ApplicationInput): ApplicationInput {
     contact: optionalText(record.contact, "Contact"),
     notes: optionalText(record.notes, "Notes"),
     appliedDate: optionalDate(record.appliedDate, "Applied date"),
-    followUpDate: optionalDate(record.followUpDate, "Follow-up date")
+    followUpDate: optionalDate(record.followUpDate, "Follow-up date"),
+    nextAction: optionalText(record.nextAction, "Next action"),
+    nextActionDate: optionalDate(record.nextActionDate, "Next action date"),
+    priority: readPriority(record.priority)
   };
 }
 
@@ -586,10 +619,13 @@ export function createApplication(input: ApplicationInput): Application {
       notes,
       applied_date,
       follow_up_date,
+      next_action,
+      next_action_date,
+      priority,
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertInitialStatus = db.prepare(`
     INSERT INTO application_status_changes (
@@ -627,6 +663,9 @@ export function createApplication(input: ApplicationInput): Application {
       application.notes,
       application.appliedDate,
       null,
+      application.nextAction,
+      application.nextActionDate,
+      application.priority,
       now,
       now
     );
@@ -664,6 +703,9 @@ export function updateApplication(id: string, input: ApplicationInput): Applicat
           notes = ?,
           applied_date = ?,
           follow_up_date = ?,
+          next_action = ?,
+          next_action_date = ?,
+          priority = ?,
           updated_at = ?
         WHERE id = ?
       `
@@ -692,6 +734,9 @@ export function updateApplication(id: string, input: ApplicationInput): Applicat
       application.notes,
       application.appliedDate,
       null,
+      application.nextAction,
+      application.nextActionDate,
+      application.priority,
       now,
       id
     );
@@ -808,6 +853,9 @@ export function getApplicationDetail(id: string): ApplicationDetail | null {
     summary: application.notes,
     appliedDate: application.appliedDate,
     followUpDate: application.followUpDate,
+    nextAction: application.nextAction,
+    nextActionDate: application.nextActionDate,
+    priority: application.priority,
     createdAt: application.createdAt,
     updatedAt: application.updatedAt,
     notes,

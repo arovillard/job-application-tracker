@@ -1,18 +1,45 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { getDashboardInsights } from "../lib/dashboard";
 import {
   APPLICATION_STATUSES,
   STATUS_LABELS,
   type Application,
   type ApplicationDetail,
-  type FollowUpItem,
-  type ApplicationStatus
+  type ApplicationInput,
+  type ApplicationStatus,
+  type FollowUpItem
 } from "../types";
 import { ApplicationTable } from "./ApplicationTable";
+import { AttentionQueue } from "./AttentionQueue";
+import { PipelineOverview } from "./PipelineOverview";
+import { QuickCapture } from "./QuickCapture";
 import { StatusFilter, type StatusFilterValue } from "./StatusFilter";
+import { useTheme } from "./ThemeProvider";
+import { Toast } from "./Toast";
+
+type SavedView = "all" | "active" | "attention" | "interviewing" | "archived";
+type SortValue = "updated" | "company" | "next-action" | "priority";
+
+type ToastState = {
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
+};
+
+const SAVED_VIEWS: Array<{ value: SavedView; label: string }> = [
+  { value: "all", label: "All opportunities" },
+  { value: "active", label: "Active" },
+  { value: "attention", label: "Needs attention" },
+  { value: "interviewing", label: "Interviewing" },
+  { value: "archived", label: "Archived" }
+];
+
+const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 } as const;
 
 async function readError(response: Response) {
   const body = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -20,16 +47,10 @@ async function readError(response: Response) {
 }
 
 function buildStatusCounts(applications: Application[]) {
-  const counts: Partial<Record<StatusFilterValue, number>> = {
-    all: applications.length
-  };
+  const counts: Partial<Record<StatusFilterValue, number>> = { all: applications.length };
 
   for (const status of APPLICATION_STATUSES) {
-    counts[status] = 0;
-  }
-
-  for (const application of applications) {
-    counts[application.status] = (counts[application.status] ?? 0) + 1;
+    counts[status] = applications.filter((application) => application.status === status).length;
   }
 
   return counts;
@@ -48,38 +69,9 @@ function matchesSearch(application: Application, search: string) {
     application.source,
     application.location,
     application.contact,
-    application.notes
+    application.notes,
+    application.nextAction
   ].some((value) => value?.toLowerCase().includes(query));
-}
-
-function formatDateOnly(value: string | null) {
-  if (!value) {
-    return "None";
-  }
-
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeZone: "UTC"
-  }).format(parsed);
-}
-
-function formatDateTime(value: string) {
-  const parsed = new Date(value);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(parsed);
 }
 
 function detailToApplication(detail: ApplicationDetail): Application {
@@ -95,19 +87,52 @@ function detailToApplication(detail: ApplicationDetail): Application {
     notes: detail.summary,
     appliedDate: detail.appliedDate,
     followUpDate: detail.followUpDate,
+    nextAction: detail.nextAction,
+    nextActionDate: detail.nextActionDate,
+    priority: detail.priority,
     createdAt: detail.createdAt,
     updatedAt: detail.updatedAt
   };
 }
 
+function sortApplications(applications: Application[], sort: SortValue) {
+  return [...applications].sort((left, right) => {
+    if (sort === "company") {
+      return left.company.localeCompare(right.company);
+    }
+
+    if (sort === "next-action") {
+      return (left.nextActionDate ?? "9999-12-31").localeCompare(right.nextActionDate ?? "9999-12-31");
+    }
+
+    if (sort === "priority") {
+      return PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority];
+    }
+
+    return right.updatedAt.localeCompare(left.updatedAt);
+  });
+}
+
+function shouldIgnoreShortcut(target: EventTarget | null) {
+  return target instanceof HTMLElement && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
 export function Dashboard() {
+  const router = useRouter();
   const [applications, setApplications] = useState<Application[]>([]);
   const [followUps, setFollowUps] = useState<FollowUpItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("all");
+  const [savedView, setSavedView] = useState<SavedView>("all");
+  const [sort, setSort] = useState<SortValue>("updated");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
+  const pendingStatusRef = useRef(false);
+  const { theme, setTheme } = useTheme();
 
   useEffect(() => {
     let active = true;
@@ -117,14 +142,12 @@ export function Dashboard() {
         if (!response.ok) {
           throw new Error(await readError(response));
         }
-
         return (await response.json()) as Application[];
       }),
       fetch("/api/followups", { cache: "no-store" }).then(async (response) => {
         if (!response.ok) {
           throw new Error(await readError(response));
         }
-
         return (await response.json()) as FollowUpItem[];
       })
     ])
@@ -136,7 +159,7 @@ export function Dashboard() {
       })
       .catch((caught) => {
         if (active) {
-          setError(caught instanceof Error ? caught.message : "Unable to load applications");
+          setError(caught instanceof Error ? caught.message : "Unable to load your pipeline");
         }
       })
       .finally(() => {
@@ -150,41 +173,74 @@ export function Dashboard() {
     };
   }, []);
 
-  const filteredApplications = useMemo(
-    () =>
-      applications.filter((application) => {
-        const statusMatches = statusFilter === "all" || application.status === statusFilter;
-        return statusMatches && matchesSearch(application, search);
-      }),
-    [applications, search, statusFilter]
-  );
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (shouldIgnoreShortcut(event.target)) {
+        return;
+      }
 
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+
+      if (event.key === "/") {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+
+      if (event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        router.push("/applications/new");
+      }
+    };
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [router]);
+
+  const insights = useMemo(
+    () => getDashboardInsights(applications, followUps),
+    [applications, followUps]
+  );
+  const attentionApplicationIds = useMemo(
+    () => new Set(insights.attention.map((item) => item.applicationId)),
+    [insights.attention]
+  );
+  const filteredApplications = useMemo(() => {
+    const visible = applications.filter((application) => {
+      const statusMatches = statusFilter === "all" || application.status === statusFilter;
+      const viewMatches =
+        savedView === "all" ||
+        (savedView === "active" && ["applied", "interviewing", "offer"].includes(application.status)) ||
+        (savedView === "attention" && attentionApplicationIds.has(application.id)) ||
+        (savedView === "interviewing" && application.status === "interviewing") ||
+        (savedView === "archived" && application.status === "archived");
+
+      return statusMatches && viewMatches && matchesSearch(application, search);
+    });
+
+    return sortApplications(visible, sort);
+  }, [applications, attentionApplicationIds, savedView, search, sort, statusFilter]);
   const statusCounts = useMemo(() => buildStatusCounts(applications), [applications]);
 
-  const followUpQueue = useMemo(() => followUps.slice(0, 5), [followUps]);
-
-  const recentApplications = useMemo(
-    () =>
-      [...applications]
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-        .slice(0, 5),
-    [applications]
-  );
-
-  const updateStatus = async (application: Application, status: ApplicationStatus) => {
-    if (application.status === status) {
+  const updateStatus = async (
+    application: Application,
+    status: ApplicationStatus,
+    suppressUndo = false
+  ) => {
+    if (application.status === status || pendingStatusRef.current) {
       return;
     }
 
+    pendingStatusRef.current = true;
     setPendingStatusId(application.id);
     setError(null);
 
     try {
       const response = await fetch(`/api/applications/${application.id}/status`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status })
       });
 
@@ -192,160 +248,163 @@ export function Dashboard() {
         throw new Error(await readError(response));
       }
 
-      const updated = (await response.json()) as ApplicationDetail;
-      const updatedApplication = detailToApplication(updated);
+      const updated = detailToApplication((await response.json()) as ApplicationDetail);
+      setApplications((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setFollowUps((current) => current.map((item) => (
+        item.applicationId === updated.id
+          ? { ...item, application: { ...item.application, status: updated.status } }
+          : item
+      )));
 
-      setApplications((current) =>
-        current.map((item) => (item.id === updatedApplication.id ? updatedApplication : item))
-      );
-      setFollowUps((current) =>
-        current
-          .filter((item) =>
-            updatedApplication.status === "archived" || updatedApplication.status === "rejected"
-              ? item.applicationId !== updatedApplication.id
-              : true
-          )
-          .map((item) =>
-            item.applicationId === updatedApplication.id
-              ? {
-                  ...item,
-                  application: {
-                    ...item.application,
-                    status: updatedApplication.status
-                  }
-                }
-              : item
-          )
-      );
+      if (!suppressUndo) {
+        setToast({
+          message: `${updated.company} moved to ${STATUS_LABELS[updated.status]}.`,
+          actionLabel: "Undo",
+          onAction: () => void updateStatus(updated, application.status, true)
+        });
+      }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to update status");
+      setError(caught instanceof Error ? caught.message : "Unable to update the stage");
     } finally {
+      pendingStatusRef.current = false;
       setPendingStatusId(null);
     }
   };
 
-  const deleteApplication = async (id: string) => {
-    if (!window.confirm("Delete this application and its history?")) {
-      return;
+  const createApplication = async (input: ApplicationInput) => {
+    const response = await fetch("/api/applications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    });
+
+    if (!response.ok) {
+      throw new Error(await readError(response));
     }
 
-    setError(null);
+    const created = (await response.json()) as Application;
+    setApplications((current) => [created, ...current]);
+    setToast({ message: `${created.company} is in your pipeline.` });
+    return created;
+  };
 
-    try {
-      const response = await fetch(`/api/applications/${id}`, {
-        method: "DELETE"
-      });
-
-      if (!response.ok) {
-        throw new Error(await readError(response));
-      }
-
-      setApplications((current) => current.filter((application) => application.id !== id));
-      setFollowUps((current) => current.filter((item) => item.applicationId !== id));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to delete application");
-    }
+  const selectPipelineView = (view: "active" | "attention" | "interviewing" | "offer") => {
+    setStatusFilter(view === "offer" ? "offer" : "all");
+    setSavedView(view === "offer" ? "all" : view);
+    window.requestAnimationFrame(() => workspaceRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
 
   return (
-    <main className="app-shell">
-      <header className="app-header">
-        <div>
-          <p className="app-header__eyebrow">Dashboard</p>
-          <h1 className="app-header__title">Job Applications</h1>
+    <main className="app-shell dashboard-shell">
+      <header className="dashboard-header">
+        <div className="dashboard-header__brand">
+          <span className="brand-mark" aria-hidden="true">J</span>
+          <span>Job Tracker</span>
         </div>
-        <Link className="button button--primary" href="/applications/new">
-          New application
-        </Link>
+        <div className="dashboard-header__actions">
+          <span className="shortcut-hint"><kbd>⌘</kbd><kbd>K</kbd> Search</span>
+          <button
+            className="icon-button"
+            type="button"
+            aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+            onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
+          >
+            {theme === "light" ? "◐" : "☼"}
+          </button>
+          <Link className="button button--primary" href="/applications/new">
+            <span aria-hidden="true">+</span> New application <kbd>N</kbd>
+          </Link>
+        </div>
       </header>
 
-      {error ? <div className="notice notice--error">{error}</div> : null}
-
-      <section className="dashboard-grid" aria-label="Dashboard queues">
-        <div className="tracker-panel">
-          <div className="tracker-panel__header">
-            <h2 className="tracker-panel__title">Follow-up queue</h2>
-            <span className="tracker-panel__meta">{followUpQueue.length} active</span>
-          </div>
-          <div className="queue-list">
-            {followUpQueue.length === 0 ? (
-              <p className="queue-list__empty">No follow-up notes are scheduled.</p>
-            ) : (
-              followUpQueue.map((followUp) => (
-                <Link
-                  className="queue-list__item"
-                  href={`/applications/${followUp.applicationId}`}
-                  key={followUp.id}
-                >
-                  <span>
-                    <strong>{followUp.application.company}</strong>
-                    <span>{followUp.body}</span>
-                  </span>
-                  <span className="queue-list__date">{formatDateOnly(followUp.followUpDate)}</span>
-                </Link>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="tracker-panel">
-          <div className="tracker-panel__header">
-            <h2 className="tracker-panel__title">Recently updated</h2>
-            <span className="tracker-panel__meta">{recentApplications.length} tracked</span>
-          </div>
-          <div className="queue-list">
-            {recentApplications.length === 0 ? (
-              <p className="queue-list__empty">No applications have been created yet.</p>
-            ) : (
-              recentApplications.map((application) => (
-                <Link
-                  className="queue-list__item"
-                  href={`/applications/${application.id}`}
-                  key={application.id}
-                >
-                  <span>
-                    <strong>{application.company}</strong>
-                    <span>{STATUS_LABELS[application.status]}</span>
-                  </span>
-                  <span className="queue-list__date">{formatDateTime(application.updatedAt)}</span>
-                </Link>
-              ))
-            )}
-          </div>
-        </div>
+      <section className="dashboard-intro" aria-labelledby="dashboard-title">
+        <p className="app-header__eyebrow">Your search, in focus</p>
+        <h1 id="dashboard-title">Make your next move obvious.</h1>
+        <p>See the opportunities that are moving, the conversations to protect, and the work that deserves attention today.</p>
       </section>
 
-      <section className="tracker-panel" aria-label="Applications">
-        <div className="tracker-toolbar">
-          <label className="search-field">
-            <span className="search-field__label">Search</span>
-            <input
-              className="search-field__input"
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Company, role, source, contact"
-            />
-          </label>
-          <StatusFilter value={statusFilter} onChange={setStatusFilter} counts={statusCounts} />
-        </div>
+      {error ? <div className="notice notice--error" role="alert">{error}</div> : null}
 
-        <div className="tracker-panel__header tracker-panel__header--compact">
-          <h2 className="tracker-panel__title">Application pipeline</h2>
-          <span className="tracker-panel__meta">
-            {loading ? "Loading" : `${filteredApplications.length} shown`}
-            {pendingStatusId ? " - Saving status" : ""}
+      <PipelineOverview metrics={insights.metrics} onSelect={selectPipelineView} />
+
+      <section className="dashboard-focus-grid" aria-label="Today and quick capture">
+        <AttentionQueue items={insights.attention} loading={loading} />
+        <QuickCapture disabled={loading} onCreate={createApplication} />
+      </section>
+
+      <section className="pipeline-workspace" aria-labelledby="pipeline-title" ref={workspaceRef}>
+        <div className="pipeline-workspace__header">
+          <div>
+            <p className="panel-heading__eyebrow">Pipeline</p>
+            <h2 id="pipeline-title">Your opportunities</h2>
+          </div>
+          <span className="pipeline-workspace__count">
+            {loading ? "Loading your pipeline" : `${filteredApplications.length} in view`}
+            {pendingStatusId ? " · Updating stage" : ""}
           </span>
         </div>
-
+        <div className="pipeline-controls">
+          <div className="saved-views" role="group" aria-label="Saved pipeline views">
+            {SAVED_VIEWS.map((view) => (
+              <button
+                className="saved-views__button"
+                data-active={savedView === view.value ? "true" : "false"}
+                type="button"
+                key={view.value}
+                onClick={() => setSavedView(view.value)}
+              >
+                {view.label}
+              </button>
+            ))}
+          </div>
+          <div className="pipeline-controls__filters">
+            <label className="search-field">
+              <span className="sr-only">Search opportunities</span>
+              <span className="search-field__icon" aria-hidden="true">⌕</span>
+              <input
+                className="search-field__input"
+                ref={searchRef}
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search opportunities"
+              />
+            </label>
+            <label className="select-field">
+              <span className="sr-only">Sort applications</span>
+              <select value={sort} onChange={(event) => setSort(event.target.value as SortValue)}>
+                <option value="updated">Recently updated</option>
+                <option value="next-action">Next action date</option>
+                <option value="priority">Priority</option>
+                <option value="company">Company name</option>
+              </select>
+            </label>
+          </div>
+          <StatusFilter value={statusFilter} onChange={setStatusFilter} counts={statusCounts} />
+        </div>
         <ApplicationTable
           applications={filteredApplications}
           detailsHref={(application) => `/applications/${application.id}`}
+          loading={loading}
           onStatusChange={updateStatus}
-          onDelete={deleteApplication}
-          emptyMessage="No applications match the current filters."
+          pendingStatusId={pendingStatusId}
+          emptyMessage={search || savedView !== "all" || statusFilter !== "all" ? "No opportunities match this view. Try clearing a filter or search term." : undefined}
         />
       </section>
+
+      <Toast
+        message={toast?.message ?? null}
+        actionLabel={toast?.actionLabel}
+        onAction={() => {
+          if (!toast?.onAction || pendingStatusRef.current) {
+            return;
+          }
+          const action = toast.onAction;
+          setToast(null);
+          action();
+        }}
+        onDismiss={() => setToast(null)}
+      />
     </main>
   );
 }

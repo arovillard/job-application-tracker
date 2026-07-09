@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { type ApplicationInput } from "../types";
@@ -66,6 +67,79 @@ describe("SQLite application storage", () => {
       notes: "Build hiring dashboard"
     });
     expect(listApplications().map((application) => application.id)).toEqual([second.id, first.id]);
+  });
+
+  it("persists an application priority and its next action", () => {
+    const created = createApplication({
+      ...baseInput,
+      nextAction: "Send a concise follow-up",
+      nextActionDate: "2026-07-15",
+      priority: "high"
+    });
+
+    resetStorageForTests();
+
+    expect(getApplication(created.id)).toMatchObject({
+      nextAction: "Send a concise follow-up",
+      nextActionDate: "2026-07-15",
+      priority: "high"
+    });
+  });
+
+  it("migrates legacy application rows with planning defaults", () => {
+    const databasePath = process.env.JOBTRACKER_DB_PATH;
+    if (!databasePath) {
+      throw new Error("Test database path is unavailable");
+    }
+
+    const legacyDatabase = new Database(databasePath);
+    legacyDatabase.exec(`
+      CREATE TABLE applications (
+        id TEXT PRIMARY KEY,
+        company TEXT NOT NULL,
+        role TEXT NOT NULL,
+        status TEXT NOT NULL,
+        source TEXT,
+        location TEXT,
+        url TEXT,
+        contact TEXT,
+        notes TEXT,
+        applied_date TEXT,
+        follow_up_date TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    legacyDatabase
+      .prepare(`
+        INSERT INTO applications (
+          id, company, role, status, source, location, url, contact, notes,
+          applied_date, follow_up_date, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        "legacy-application",
+        "Legacy Co",
+        "Product Engineer",
+        "applied",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "2026-07-01T12:00:00.000Z",
+        "2026-07-01T12:00:00.000Z"
+      );
+    legacyDatabase.close();
+
+    expect(getApplication("legacy-application")).toMatchObject({
+      nextAction: null,
+      nextActionDate: null,
+      priority: "medium"
+    });
   });
 
   it("searches case-insensitively across application text fields", () => {

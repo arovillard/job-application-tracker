@@ -62,7 +62,7 @@ export function NewApplicationPage() {
           <h2 className="tracker-panel__title">Application details</h2>
           {saving ? <span className="tracker-panel__meta">Saving</span> : null}
         </div>
-        <ApplicationForm onSubmit={createApplication} submitLabel="Create application" />
+        <ApplicationForm isSubmitting={saving} onSubmit={createApplication} submitLabel="Create application" />
       </section>
     </main>
   );
