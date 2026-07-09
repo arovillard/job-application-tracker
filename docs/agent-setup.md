@@ -10,7 +10,8 @@ Ask for these values before configuring the project:
 2. Where should generated application materials be stored?
 3. What base resume file should be used for application-materials work?
 4. What public profile URL, such as LinkedIn, should be used as profile context?
-5. Is their AI provider already configured in the host agent?
+5. Are they using Codex, Claude Code, or both?
+6. Is their AI provider already configured in the host agent?
 
 Do not ask the human to paste API keys or credentials into this repository. If the host agent has a secure provider setup flow, use that flow.
 
@@ -37,10 +38,17 @@ npm run setup
 
 If you already collected the human's answers, you may write `.env.local` directly using `.env.example` as the template.
 
-4. Install the packaged skills:
+4. Install the packaged Codex and Claude skills:
 
 ```bash
 npm run skills:install
+```
+
+Use a provider-specific command when the human only wants one agent configured:
+
+```bash
+npm run skills:install:codex
+npm run skills:install:claude
 ```
 
 5. Verify the project:

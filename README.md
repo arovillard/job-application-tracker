@@ -1,6 +1,6 @@
 # Job Application Tracker
 
-Local-first job application tracker built with Next.js and SQLite. The repository also includes two Codex skills that let an AI agent add public job postings to the tracker and prepare job-specific application materials.
+Local-first job application tracker built with Next.js and SQLite. The repository also includes Codex and Claude skills that let an AI agent add public job postings to the tracker and prepare job-specific application materials.
 
 ## What A New User Needs
 
@@ -11,7 +11,7 @@ Required:
 - A local folder for generated application materials.
 - A base resume file if they want AI-tailored resumes or fit analyses.
 - A public profile URL, usually LinkedIn, if they want the AI agent to use profile context.
-- An AI agent that supports Codex-style skills, with the user's AI provider configured outside this repo.
+- Codex or Claude Code, with the user's AI provider configured outside this repo.
 
 Optional:
 
@@ -48,9 +48,12 @@ Important settings:
 - `JOBTRACKER_LINKEDIN_URL`: optional public profile URL for AI context.
 - `JOBTRACKER_AI_PROVIDER`: optional human-readable note; configure credentials through the AI tool, not this file.
 
-## Codex Skills
+## Agent Skills
 
-The skills are packaged in `skills/`:
+The skills are packaged for both supported agents:
+
+- Codex source skills live in `skills/`.
+- Claude Code project skills live in `.claude/skills/`.
 
 - `job-tracker-add-posting`: extracts public posting facts, creates or updates a tracker record, avoids duplicate company+role records, and records update notes.
 - `job-application-resume`: creates tailored application materials and a candid fit analysis from verified user source material.
@@ -61,7 +64,14 @@ Install or refresh them with:
 npm run skills:install
 ```
 
-This copies the bundled skill folders to `${CODEX_HOME:-$HOME/.codex}/skills`.
+This copies the bundled skill folders to both `${CODEX_HOME:-$HOME/.codex}/skills` and `${CLAUDE_HOME:-$HOME/.claude}/skills`.
+
+Provider-specific installs are also available:
+
+```bash
+npm run skills:install:codex
+npm run skills:install:claude
+```
 
 ## Development
 
@@ -77,7 +87,8 @@ Useful local state:
 
 - `data/` stores the local SQLite database.
 - `applications/` stores generated personal application materials.
-- `skills/` stores the distributable skill source.
+- `skills/` stores the distributable Codex skill source.
+- `.claude/skills/` stores the distributable Claude Code project skills.
 
 `data/*.sqlite`, `.env.local`, and `applications/*` are ignored so private user state is not published.
 

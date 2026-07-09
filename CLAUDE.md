@@ -2,9 +2,9 @@
 
 When the user says "help me apply to this job" and provides a job link:
 
-1. Use the packaged `job-tracker-add-posting` skill to add or update the job in the local tracker.
+1. Use `/job-tracker-add-posting` to add or update the job in the local tracker.
 2. Verify the tracker script output before creating application materials.
-3. Use the packaged `job-application-resume` skill before doing application-materials work.
+3. Use `/job-application-resume` before doing application-materials work.
 4. Do not create duplicate tracker records for the same company and role; update the existing record and add a note explaining source/status changes.
 5. If sources disagree about whether a posting is open, keep the tracker record active unless the user confirms it should be archived.
 6. Do not submit applications or use credentials on the user's behalf.

@@ -5,7 +5,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { installSkills } from "./lib/install-skills.mjs";
+import { installAllSkills } from "./lib/install-skills.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const nonInteractive = process.argv.includes("--yes");
@@ -78,7 +78,11 @@ try {
     defaults.aiProvider,
     rl
   );
-  const installAnswer = await ask("Install bundled Codex skills now? Y/n", defaults.installSkills, rl);
+  const installAnswer = await ask(
+    "Install bundled Codex and Claude skills now? Y/n",
+    defaults.installSkills,
+    rl
+  );
 
   mkdirSync(path.dirname(dbPath), { recursive: true });
   mkdirSync(applicationsDir, { recursive: true });
@@ -100,10 +104,12 @@ try {
   console.log(`Application materials directory: ${applicationsDir}`);
 
   if (!/^n/i.test(installAnswer)) {
-    const result = installSkills(projectRoot);
-    console.log(`Installed ${result.skillNames.length} skills to ${result.targetRoot}:`);
-    for (const skillName of result.skillNames) {
-      console.log(`- ${skillName}`);
+    const result = installAllSkills(projectRoot);
+    for (const [provider, installed] of Object.entries(result)) {
+      console.log(`Installed ${installed.skillNames.length} ${provider} skills to ${installed.targetRoot}:`);
+      for (const skillName of installed.skillNames) {
+        console.log(`- ${skillName}`);
+      }
     }
   }
 } finally {

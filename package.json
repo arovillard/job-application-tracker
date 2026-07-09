@@ -1,7 +1,7 @@
 {
   "name": "job-application-tracker",
-  "version": "0.1.1",
-  "description": "Local-first job application tracker with packaged Codex skills for job posting intake and application materials.",
+  "version": "0.1.2",
+  "description": "Local-first job application tracker with packaged Codex and Claude skills for job posting intake and application materials.",
   "license": "PolyForm-Noncommercial-1.0.0",
   "private": true,
   "scripts": {
@@ -13,6 +13,8 @@
     "test:watch": "vitest",
     "setup": "node scripts/setup-user.mjs",
     "skills:install": "node scripts/install-skills.mjs",
+    "skills:install:codex": "node scripts/install-skills.mjs --codex",
+    "skills:install:claude": "node scripts/install-skills.mjs --claude",
     "verify": "npm run lint && npm run typecheck && npm run test"
   },
   "dependencies": {

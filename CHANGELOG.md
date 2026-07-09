@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- Add Claude Code project skills under `.claude/skills`.
+- Install both Codex and Claude personal skills with `npm run skills:install`.
+- Add provider-specific skill install commands and tests.
+
 ## 0.1.1
 
 - Replace the Python job posting upsert helper with a Node.js CLI.
