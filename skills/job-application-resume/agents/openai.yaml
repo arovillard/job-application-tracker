@@ -1,0 +1,4 @@
+interface:
+  display_name: "Job Application Resume"
+  short_description: "Create tailored resumes and fit analyses"
+  default_prompt: "Use $job-application-resume to create a tailored resume, company application folder, honest fit analysis, and interview-edge notes for this job posting."

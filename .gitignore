@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Next.js and build output
+.next/
+dist/
+coverage/
+tsconfig.tsbuildinfo
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Local SQLite state
+data/*.sqlite
+data/*.sqlite-*
+
+# Private/generated application materials
+applications/*
+!applications/.gitkeep
+
+# Local orchestration scratch space
+.ringer-work/
+
+# OS/editor files
+.DS_Store

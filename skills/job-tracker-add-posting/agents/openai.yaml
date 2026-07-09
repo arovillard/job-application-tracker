@@ -1,0 +1,4 @@
+interface:
+  display_name: "Job Tracker Add Posting"
+  short_description: "Add public job postings to the tracker"
+  default_prompt: "Use $job-tracker-add-posting to add this public job posting to my local application tracker."
