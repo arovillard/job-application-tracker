@@ -32,24 +32,40 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
   const [run, setRun] = useState<PublicAgentRun | null>(null);
   const [pending, setPending] = useState<"start" | "approve" | "cancel" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const loadedDiagnostics = useRef(false);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsFailed, setDiagnosticsFailed] = useState(false);
+  const diagnosticsLoaded = useRef(false);
+  const diagnosticsInFlight = useRef(false);
   const enteredOpenState = useRef(false);
   const openRef = useRef(open);
+  const mountedRef = useRef(true);
+  const epochRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controllers = useRef(new Set<AbortController>());
+  const pollControllerRef = useRef<AbortController | null>(null);
   const urlRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
 
-  const clearWork = useCallback(() => {
+  const clearPoll = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
-    controllers.current.forEach((controller) => controller.abort());
-    controllers.current.clear();
+    const pollController = pollControllerRef.current;
+    pollControllerRef.current = null;
+    if (pollController) {
+      pollController.abort();
+      controllers.current.delete(pollController);
+    }
   }, []);
 
-  const localFetch = useCallback(async <T,>(url: string, init: RequestInit = {}) => {
-    const controller = new AbortController();
+  const invalidateRequests = useCallback(() => {
+    epochRef.current += 1;
+    clearPoll();
+    controllers.current.forEach((controller) => controller.abort());
+    controllers.current.clear();
+  }, [clearPoll]);
+
+  const localFetch = useCallback(async <T,>(url: string, init: RequestInit = {}, controller = new AbortController()) => {
     controllers.current.add(controller);
     try {
       return await readResponse<T>(await fetch(url, { ...init, signal: controller.signal }));
@@ -58,28 +74,75 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
     }
   }, []);
 
-  const schedulePoll = useCallback(function schedule(current: PublicAgentRun) {
-    if (!openRef.current || !POLLABLE.has(current.state)) return;
+  const schedulePoll = useCallback(function schedule(current: PublicAgentRun, epoch = epochRef.current) {
+    if (!mountedRef.current || !openRef.current || epoch !== epochRef.current || !POLLABLE.has(current.state)) return;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(async () => {
       timerRef.current = null;
-      if (!openRef.current) return;
+      if (!mountedRef.current || !openRef.current || epoch !== epochRef.current) return;
+      const controller = new AbortController();
+      pollControllerRef.current = controller;
       try {
-        const next = await localFetch<PublicAgentRun>(`/api/agent-runs/${current.id}`, { cache: "no-store" });
-        if (!openRef.current) return;
+        const next = await localFetch<PublicAgentRun>(`/api/agent-runs/${current.id}`, { cache: "no-store" }, controller);
+        if (!mountedRef.current || !openRef.current || epoch !== epochRef.current || pollControllerRef.current !== controller) return;
+        setError(null);
         setRun(next);
-        schedule(next);
+        schedule(next, epoch);
       } catch (caught) {
         if (caught instanceof DOMException && caught.name === "AbortError") return;
-        setError(caught instanceof Error ? caught.message : "Unable to check agent progress.");
+        if (!mountedRef.current || !openRef.current || epoch !== epochRef.current || pollControllerRef.current !== controller) return;
+        setError("Agent progress is temporarily unavailable. Retrying…");
+        schedule(current, epoch);
+      } finally {
+        if (pollControllerRef.current === controller) pollControllerRef.current = null;
       }
     }, 1000);
   }, [localFetch]);
 
+  const loadDiagnostics = useCallback(async () => {
+    if (!mountedRef.current || !openRef.current || diagnosticsInFlight.current) return;
+    invalidateRequests();
+    const epoch = epochRef.current;
+    diagnosticsInFlight.current = true;
+    setDiagnosticsLoading(true);
+    setDiagnosticsFailed(false);
+    setError(null);
+    try {
+      const result = await localFetch<{ providers: ProviderDiagnostic[] }>("/api/agent-providers", { cache: "no-store" });
+      if (!mountedRef.current || !openRef.current || epoch !== epochRef.current) return;
+      diagnosticsLoaded.current = true;
+      setProviders(result.providers);
+      const first = result.providers.find((item) => item.available);
+      if (first) setProvider(first.provider);
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      if (!mountedRef.current || !openRef.current || epoch !== epochRef.current) return;
+      diagnosticsLoaded.current = false;
+      setDiagnosticsFailed(true);
+      setError("Provider availability could not be checked. Retry when ready.");
+    } finally {
+      if (mountedRef.current && epoch === epochRef.current) {
+        diagnosticsInFlight.current = false;
+        setDiagnosticsLoading(false);
+      }
+    }
+  }, [invalidateRequests, localFetch]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      invalidateRequests();
+    };
+  }, [invalidateRequests]);
+
   useEffect(() => {
     openRef.current = open;
     if (!open) {
-      clearWork();
+      invalidateRequests();
+      diagnosticsInFlight.current = false;
+      setDiagnosticsLoading(false);
+      setPending(null);
       if (enteredOpenState.current) restoreFocusRef.current?.focus();
       enteredOpenState.current = false;
       return;
@@ -88,27 +151,11 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
     if (!enteredOpenState.current) {
       enteredOpenState.current = true;
       restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      queueMicrotask(() => (urlRef.current ?? dialogRef.current?.querySelector<HTMLElement>("button, a[href], input"))?.focus());
+      (urlRef.current ?? dialogRef.current?.querySelector<HTMLElement>("button, a[href], input"))?.focus();
     }
 
-    if (!loadedDiagnostics.current) {
-      loadedDiagnostics.current = true;
-      void localFetch<{ providers: ProviderDiagnostic[] }>("/api/agent-providers", { cache: "no-store" })
-        .then((result) => {
-          if (!openRef.current) return;
-          setProviders(result.providers);
-          const first = result.providers.find((item) => item.available);
-          if (first) setProvider(first.provider);
-        })
-        .catch((caught) => {
-          if (caught instanceof DOMException && caught.name === "AbortError") {
-            loadedDiagnostics.current = false;
-          } else {
-            setError("Provider availability could not be checked.");
-          }
-        });
-    }
-    if (run && POLLABLE.has(run.state)) schedulePoll(run);
+    if (!diagnosticsLoaded.current && !diagnosticsInFlight.current) void loadDiagnostics();
+    if (run && POLLABLE.has(run.state) && !timerRef.current && !pollControllerRef.current) schedulePoll(run);
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -117,7 +164,9 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
         return;
       }
       if (event.key !== "Tab" || !dialogRef.current) return;
-      const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled)")];
+      const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>("button, a[href], input, select")]
+        .filter((item) => !(item instanceof HTMLButtonElement || item instanceof HTMLInputElement || item instanceof HTMLSelectElement) || !item.disabled)
+        .filter((item) => item.tabIndex >= 0);
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -126,13 +175,13 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [clearWork, localFetch, onClose, open, run, schedulePoll]);
-
-  useEffect(() => clearWork, [clearWork]);
+  }, [invalidateRequests, loadDiagnostics, onClose, open, run, schedulePoll]);
 
   const start = async (event: FormEvent) => {
     event.preventDefault();
     if (pending || !providers?.find((item) => item.provider === provider)?.available) return;
+    invalidateRequests();
+    const epoch = epochRef.current;
     setPending("start"); setError(null);
     const trimmedModel = model.trim();
     try {
@@ -140,23 +189,31 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobUrl, provider, ...(trimmedModel ? { model: trimmedModel } : {}) })
       });
-      setRun(created); schedulePoll(created);
+      if (!mountedRef.current || !openRef.current || epoch !== epochRef.current) return;
+      setRun(created); schedulePoll(created, epoch);
     } catch (caught) {
-      if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(caught instanceof Error ? caught.message : "Unable to start the agent.");
-    } finally { setPending(null); }
+      if (!(caught instanceof DOMException && caught.name === "AbortError") && mountedRef.current && openRef.current && epoch === epochRef.current) setError(caught instanceof Error ? caught.message : "Unable to start the agent.");
+    } finally {
+      if (mountedRef.current && openRef.current && epoch === epochRef.current) setPending(null);
+    }
   };
 
   const actOnRun = async (action: "approve" | "cancel") => {
     if (!run || pending) return;
+    invalidateRequests();
+    const epoch = epochRef.current;
     setPending(action); setError(null);
     try {
       const next = await localFetch<PublicAgentRun>(`/api/agent-runs/${run.id}/${action}`, { method: "POST" });
+      if (!mountedRef.current || !openRef.current || epoch !== epochRef.current) return;
       setRun(next);
-      if (POLLABLE.has(next.state)) schedulePoll(next);
-      else clearWork();
+      if (POLLABLE.has(next.state)) schedulePoll(next, epoch);
+      else clearPoll();
     } catch (caught) {
-      if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(caught instanceof Error ? caught.message : `Unable to ${action} this run.`);
-    } finally { setPending(null); }
+      if (!(caught instanceof DOMException && caught.name === "AbortError") && mountedRef.current && openRef.current && epoch === epochRef.current) setError(caught instanceof Error ? caught.message : `Unable to ${action} this run.`);
+    } finally {
+      if (mountedRef.current && openRef.current && epoch === epochRef.current) setPending(null);
+    }
   };
 
   if (!open) return null;
@@ -178,11 +235,12 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
               {providers ? providers.map((item) => <label className="agent-provider" key={item.provider}>
                 <input type="radio" name="provider" value={item.provider} checked={provider === item.provider} disabled={!item.available} onChange={() => setProvider(item.provider)} />
                 <span><strong>{item.provider === "codex" ? "Codex" : "Claude"}</strong><small>{item.available ? item.version ?? "Available" : "Unavailable"} · Default {item.defaultModel}</small></span>
-              </label>) : <p>Checking provider availability…</p>}
+              </label>) : <p>{diagnosticsLoading ? "Checking provider availability…" : "Provider availability has not been checked."}</p>}
             </fieldset>
             {chosen ? <p className="agent-drawer__default">Default model: {chosen.defaultModel}</p> : null}
             <label>Model override <span>(optional)</span><input name="model" value={model} onChange={(event) => setModel(event.target.value)} placeholder="Leave blank for default" /></label>
             {unavailable ? <p className="notice notice--error">No agent provider is available on this machine.</p> : null}
+            {(diagnosticsFailed || unavailable) ? <button className="button" type="button" disabled={diagnosticsLoading} onClick={() => void loadDiagnostics()}>{diagnosticsLoading ? "Checking providers…" : "Retry provider check"}</button> : null}
             <button className="button button--primary" type="submit" disabled={Boolean(pending) || !chosen?.available}>{pending === "start" ? "Starting…" : "Start preview"}</button>
           </form> : <div className="agent-thread">
             <section className="agent-thread__progress" aria-live="polite" aria-label="Agent progress">

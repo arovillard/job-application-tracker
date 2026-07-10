@@ -2,6 +2,8 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApplyWithAgentDrawer } from "./ApplyWithAgentDrawer";
@@ -26,6 +28,16 @@ function run(state: string, overrides: Record<string, unknown> = {}) {
 
 function jsonReply({ body, ok = true, status = 200 }: FetchReply) {
   return Promise.resolve({ ok, status, json: async () => body } as Response);
+}
+
+function deferred<T>() {
+  let resolvePromise!: (value: T) => void;
+  let rejectPromise!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  return { promise, resolve: resolvePromise, reject: rejectPromise };
 }
 
 describe("ApplyWithAgentDrawer", () => {
@@ -100,11 +112,16 @@ describe("ApplyWithAgentDrawer", () => {
 
   it("posts only the strict local payload and omits a blank model override", async () => {
     replies.push({ body: diagnostics }, { body: run("queued_preview"), status: 202 });
-    await render(); await act(async () => {}); await submitRun();
+    await render(); await act(async () => {}); await act(async () => vi.advanceTimersByTimeAsync(0)); await submitRun();
     const [url, options] = fetchMock.mock.calls[1];
     expect(url).toBe("/api/agent-runs");
     expect(JSON.parse(options.body)).toEqual({ jobUrl: "https://example.com/job", provider: "codex" });
     expect(fetchMock.mock.calls.every(([calledUrl]) => String(calledUrl).startsWith("/api/agent-"))).toBe(true);
+  });
+
+  it("has no client import path to providers, orchestrator, workers, or model SDKs", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/components/ApplyWithAgentDrawer.tsx"), "utf8");
+    expect(source).not.toMatch(/agent-workflow\/(providers|orchestrator)|agent-worker|@anthropic-ai|openai(?!-)/);
   });
 
   it("includes a nonblank model override and prevents double submission", async () => {
@@ -136,6 +153,23 @@ describe("ApplyWithAgentDrawer", () => {
     expect(button("Approve and create materials")).toBeTruthy();
     await act(async () => vi.advanceTimersByTimeAsync(5000));
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("retries a transient poll failure after one second without overlapping", async () => {
+    replies.push(
+      { body: diagnostics }, { body: run("previewing"), status: 202 },
+      { body: { error: "temporary" }, ok: false, status: 503 }, { body: run("cancelled") }
+    );
+    await render(); await act(async () => {}); await submitRun();
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(container.textContent).toContain("Agent progress is temporarily unavailable. Retrying");
+    expect(container.textContent).not.toContain("temporary");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await act(async () => vi.advanceTimersByTimeAsync(999));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(container.textContent).toMatch(/cancelled/i);
   });
 
   it("resumes polling only after explicit approval and stops at success with server links", async () => {
@@ -171,6 +205,41 @@ describe("ApplyWithAgentDrawer", () => {
     await act(async () => button("Cancel").click());
     expect(fetchMock.mock.calls[2][0]).toBe("/api/agent-runs/run-1/cancel");
     expect(container.textContent).toMatch(/cancelled/i);
+  });
+
+  it("ignores a stale in-flight poll that resolves after cancellation", async () => {
+    const stalePoll = deferred<Response>();
+    let staleSignal: AbortSignal | undefined;
+    fetchMock
+      .mockImplementationOnce(() => jsonReply({ body: diagnostics }))
+      .mockImplementationOnce(() => jsonReply({ body: run("previewing"), status: 202 }))
+      .mockImplementationOnce((_url, options) => { staleSignal = options.signal; return stalePoll.promise; })
+      .mockImplementationOnce(() => jsonReply({ body: run("cancelled") }));
+    await render(); await act(async () => {}); await submitRun();
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    await act(async () => button("Cancel").click());
+    expect(staleSignal?.aborted).toBe(true);
+    await act(async () => stalePoll.resolve(await jsonReply({ body: run("previewing") })));
+    expect(container.textContent).toMatch(/cancelled/i);
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("ignores an older action completion after the drawer is closed", async () => {
+    const pendingCancel = deferred<Response>();
+    let actionSignal: AbortSignal | undefined;
+    fetchMock
+      .mockImplementationOnce(() => jsonReply({ body: diagnostics }))
+      .mockImplementationOnce(() => jsonReply({ body: run("previewing"), status: 202 }))
+      .mockImplementationOnce((_url, options) => { actionSignal = options.signal; return pendingCancel.promise; });
+    await render(); await act(async () => {}); await submitRun();
+    await act(async () => button("Cancel").click());
+    await render(false);
+    expect(actionSignal?.aborted).toBe(true);
+    await act(async () => pendingCancel.reject(new DOMException("Aborted", "AbortError")));
+    await render(true);
+    expect(container.textContent).toContain("previewing");
+    expect(container.textContent).not.toContain("Unable to cancel");
   });
 
   it("keeps polling after a cancellation request until cancellation is confirmed", async () => {
@@ -210,6 +279,17 @@ describe("ApplyWithAgentDrawer", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("clears a scheduled poll timer when closed before it fires", async () => {
+    replies.push({ body: diagnostics }, { body: run("previewing"), status: 202 });
+    await render(); await act(async () => {});
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(vi.getTimerCount()).toBe(0);
+    await submitRun();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    await render(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("aborts an in-flight request on unmount", async () => {
     let signal: AbortSignal | undefined;
     fetchMock.mockImplementationOnce((_url, options) => {
@@ -223,6 +303,54 @@ describe("ApplyWithAgentDrawer", () => {
     expect(signal?.aborted).toBe(true);
   });
 
+  it("ignores an abort-rejecting pending poll after unmount without a warning or retry", async () => {
+    const pendingPoll = deferred<Response>();
+    let pollSignal: AbortSignal | undefined;
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    fetchMock
+      .mockImplementationOnce(() => jsonReply({ body: diagnostics }))
+      .mockImplementationOnce(() => jsonReply({ body: run("previewing"), status: 202 }))
+      .mockImplementationOnce((_url, options) => {
+        pollSignal = options.signal;
+        options.signal.addEventListener("abort", () => pendingPoll.reject(new DOMException("Aborted", "AbortError")), { once: true });
+        return pendingPoll.promise;
+      });
+    await render(); await act(async () => {}); await act(async () => vi.advanceTimersByTimeAsync(0)); await submitRun();
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    await act(async () => root.unmount());
+    mounted = false;
+    expect(pollSignal?.aborted).toBe(true);
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("ignores an abort-rejecting pending approval after unmount without a late update", async () => {
+    const pendingApproval = deferred<Response>();
+    let approvalSignal: AbortSignal | undefined;
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    fetchMock
+      .mockImplementationOnce(() => jsonReply({ body: diagnostics }))
+      .mockImplementationOnce(() => jsonReply({ body: run("awaiting_approval", { preview: { company: "Acme", role: "Engineer", location: null, summary: "Fit", postingState: "open" } }), status: 202 }))
+      .mockImplementationOnce((_url, options) => {
+        approvalSignal = options.signal;
+        options.signal.addEventListener("abort", () => pendingApproval.reject(new DOMException("Aborted", "AbortError")), { once: true });
+        return pendingApproval.promise;
+      });
+    await render(); await act(async () => {}); await act(async () => vi.advanceTimersByTimeAsync(0)); await submitRun();
+    await act(async () => button("Approve and create materials").click());
+    await act(async () => root.unmount());
+    mounted = false;
+    expect(approvalSignal?.aborted).toBe(true);
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   it("closes via Escape and backdrop, restores focus, and aborts in-flight work", async () => {
     replies.push({ body: diagnostics });
     const trigger = document.createElement("button"); document.body.append(trigger); trigger.focus();
@@ -234,5 +362,48 @@ describe("ApplyWithAgentDrawer", () => {
     await render(false, onClose);
     expect(document.activeElement).toBe(trigger);
     trigger.remove();
+  });
+
+  it("wraps focus with Tab and Shift+Tab", async () => {
+    replies.push({ body: diagnostics });
+    await render(); await act(async () => {});
+    const close = container.querySelector<HTMLButtonElement>(".agent-drawer__close")!;
+    const last = button("Start preview");
+    close.focus();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(last);
+    last.focus();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(close);
+  });
+
+  it("recovers diagnostics from an HTTP failure with a non-overlapping retry", async () => {
+    replies.push(
+      { body: { error: "diagnostic failure" }, ok: false, status: 503 },
+      { body: diagnostics }
+    );
+    await render(); await act(async () => {});
+    expect(container.textContent).toContain("Provider availability could not be checked");
+    await act(async () => button("Retry provider check").click());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Default model: gpt-5");
+  });
+
+  it("retries failed diagnostics after close and reopen", async () => {
+    fetchMock.mockImplementationOnce(() => Promise.reject(new TypeError("offline"))).mockImplementationOnce(() => jsonReply({ body: diagnostics }));
+    await render(); await act(async () => {});
+    await render(false);
+    await render(true); await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Codex");
+  });
+
+  it("shows an unavailable notice and disables submission when every provider is unavailable", async () => {
+    replies.push({ body: { providers: diagnostics.providers.map((item) => ({ ...item, available: false, version: null })) } });
+    await render(); await act(async () => {});
+    expect(container.textContent).toContain("No agent provider is available on this machine");
+    expect([...container.querySelectorAll<HTMLInputElement>('input[name="provider"]')].every((item) => item.disabled)).toBe(true);
+    expect(button("Start preview").disabled).toBe(true);
+    expect(button("Retry provider check")).toBeTruthy();
   });
 });
