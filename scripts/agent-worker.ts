@@ -39,17 +39,21 @@ const providerOptions = {
   baseResumePath
 };
 
-await runAgentWorker({
-  workerId,
-  projectRoot,
-  dbPath,
-  applicationsDir,
-  providers: {
-    codex: createCodexProvider(providerOptions),
-    claude: createClaudeProvider(providerOptions)
-  },
-  profileContext,
-  resumeContext,
-  baseResumePath,
-  signal: controller.signal
-});
+async function main() {
+  await runAgentWorker({
+    workerId,
+    projectRoot,
+    dbPath,
+    applicationsDir,
+    providers: {
+      codex: createCodexProvider(providerOptions),
+      claude: createClaudeProvider(providerOptions)
+    },
+    profileContext,
+    resumeContext,
+    baseResumePath,
+    signal: controller.signal
+  });
+}
+
+void main();
