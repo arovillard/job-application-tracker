@@ -1,0 +1,125 @@
+# Local Agent Workflow
+
+JobTracker can inspect one public job posting, pause for approval, and then create and independently verify application materials. The Next.js app only enqueues and reads work; provider processes run in the separate local worker.
+
+## Local configuration
+
+Copy `jobtracker.agent.example.json` to the ignored `jobtracker.agent.local.json` when the defaults do not match the machine:
+
+```json
+{
+  "codex": {
+    "executablePath": "/opt/homebrew/bin/codex",
+    "defaultModel": "gpt-5.6-terra"
+  },
+  "claude": {
+    "executablePath": "claude",
+    "defaultModel": "sonnet"
+  }
+}
+```
+
+Only an executable path and default model are accepted for each provider. The file is strict: command arguments, environment maps, credentials, and additional fields are rejected. Keep authentication in the provider CLI's own secure setup. Do not put API keys or provider secrets in this repository, `.env.local`, or the JSON config.
+
+The configured `defaultModel` is used when a run has no override. The Apply with agent drawer and smoke command can supply one model identifier for that run; it is passed as one argument, never interpreted by a shell.
+
+Set the existing paths in `.env.local`:
+
+```dotenv
+JOBTRACKER_DB_PATH="./data/jobtracker.sqlite"
+JOBTRACKER_APPLICATIONS_DIR="./applications"
+JOBTRACKER_BASE_RESUME_PATH="./applications/private/base-resume.md"
+JOBTRACKER_LINKEDIN_URL="https://www.linkedin.com/in/example"
+```
+
+Keep the base resume under the ignored applications directory or outside the repository. Provider diagnostics resolve the configured executable and invoke only `<executable> --version`. The drawer reports provider availability without exposing paths or diagnostic output. A provider must also already be authenticated before real work can succeed.
+
+## Run locally
+
+Run the worker in one terminal:
+
+```bash
+npm run agent:worker
+```
+
+Run the web app in a second terminal:
+
+```bash
+npm run dev
+```
+
+Open the local URL printed by Next.js, choose **Apply with agent**, enter one public HTTP or HTTPS job URL, and select a provider. The flow is:
+
+1. `queued_preview` — the API stored the request.
+2. `previewing` — the worker is performing a read-only, schema-constrained inspection.
+3. `awaiting_approval` — review the company, role, location, summary, and posting state. No application record or materials exist yet.
+4. Approve to enter `queued_execution`, or cancel to enter `cancelled` without execution.
+5. `executing` — JobTracker upserts and verifies the tracker record, then asks the provider to create files.
+6. `verifying` — JobTracker verifies file type, existence, canonical containment, registration output, and SQLite readback.
+7. `succeeded` — the drawer shows the application and artifact links.
+
+The remaining terminal states are `failed`, `cancelled`, and `interrupted`. Cancellation is available while work is queued, awaiting approval, or active. If the worker stops during `previewing`, `executing`, or `verifying`, recovery marks abandoned work `interrupted`; it is never retried automatically. Start a new run after investigating the safe failure.
+
+Artifact links use local routes such as `/api/applications/<application-id>/artifacts/<artifact-id>/file`. Files are served only after application ownership, registration, regular-file status, and configured-root containment are checked again.
+
+## Verification and smoke tests
+
+The fake-provider integration test uses a fresh temporary database, applications root, and synthetic resume. It invokes the real upsert and artifact registration scripts without contacting a provider:
+
+```bash
+npx vitest run src/lib/agent-workflow/integration.test.ts
+```
+
+Run a real Codex preview smoke without approving execution:
+
+```bash
+npm exec tsx scripts/smoke-agent-workflow.ts -- --provider codex --model gpt-5.6-terra --job-url https://example.com/public-job
+```
+
+The command stops at `awaiting_approval` and deletes all temporary state. Execution happens only when `--approve` is present:
+
+```bash
+npm exec tsx scripts/smoke-agent-workflow.ts -- --provider codex --model gpt-5.6-terra --job-url https://example.com/public-job --approve
+```
+
+Use a genuine public posting URL for provider testing. An approved smoke independently checks the application detail, every registered artifact and safe link, regular-file status, canonical containment, required fit analysis, and public event privacy. It prints structured preview/result summaries, not prompts, reasoning, raw CLI output, stderr, environment values, or private file paths.
+
+Add `--keep-temp` only when local debugging requires the temporary files. The command then prints the temporary root and leaves it on disk; delete it manually when finished.
+
+Claude uses the identical interface:
+
+```bash
+npm exec tsx scripts/smoke-agent-workflow.ts -- --provider claude --model sonnet --job-url https://example.com/public-job --approve
+```
+
+Claude smoke testing is optional at the controller stage and should run only when the Claude CLI is installed and authenticated. An unavailable or unauthenticated Claude installation is not a Codex workflow failure.
+
+## Security and privacy boundaries
+
+- Only public HTTP/HTTPS URLs are accepted. Embedded credentials, localhost, loopback, private, link-local, reserved, or privately resolving hosts are rejected.
+- Posting, profile, resume, and preview content is untrusted data. It cannot authorize submission, authentication, database writes, or command changes.
+- Provider commands use fixed argument arrays and no shell interpolation.
+- Preview is read-only. Execution writes only under `JOBTRACKER_APPLICATIONS_DIR`; JobTracker performs tracker mutations and artifact registration itself.
+- Raw prompts, provider reasoning, tool arguments, raw stdout/stderr, environment values, credentials, and filesystem paths are not persisted in public events or returned links.
+- A manifest is not proof. JobTracker requires real, canonical-contained regular files and exact SQLite registration readback before success.
+- The workflow never submits an application or signs in on the user's behalf.
+
+Before committing, confirm these remain ignored or outside the repository:
+
+- `.env.local` and all provider authentication material
+- `jobtracker.agent.local.json`
+- `data/*.sqlite` and SQLite sidecar files
+- `applications/*`, resumes, profile exports, and generated materials
+- `.superpowers/` and other local orchestration state
+
+Use `git status --short --ignored` to inspect the boundary.
+
+## Troubleshooting
+
+- **Provider executable is unavailable:** check the configured executable path, run the provider's `--version` command locally, and retry diagnostics. Do not add shell arguments to `executablePath`.
+- **Agent provider configuration is invalid:** compare the ignored file with `jobtracker.agent.example.json`; both provider objects and only the two allowed fields are required.
+- **Job URL could not be validated safely:** use a direct public HTTP/HTTPS posting URL whose DNS answers are public.
+- **Preview or execution failed:** inspect the safe state and event messages in the drawer. Re-run the provider's normal authentication check outside JobTracker; raw provider errors are deliberately not displayed.
+- **Run was interrupted:** restart `npm run agent:worker`, then start a new run. Interrupted work is not automatically retried.
+- **Artifact verification failed:** with a disposable smoke run, repeat using `--keep-temp` and inspect the printed temporary root. Verify generated files are regular files below the applications root and use supported extensions/content types.
+- **No work advances:** confirm both `npm run agent:worker` and `npm run dev` are running against the same `.env.local` database path.
