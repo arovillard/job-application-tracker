@@ -14,6 +14,7 @@ import {
   type FollowUpItem
 } from "../types";
 import { ApplicationTable } from "./ApplicationTable";
+import { ApplyWithAgentDrawer } from "./ApplyWithAgentDrawer";
 import { AttentionQueue } from "./AttentionQueue";
 import { StatusFilter, type StatusFilterValue } from "./StatusFilter";
 import { useTheme } from "./ThemeProvider";
@@ -118,6 +119,7 @@ export function Dashboard() {
   const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [agentDrawerOpen, setAgentDrawerOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const pendingStatusRef = useRef(false);
   const { theme, setTheme } = useTheme();
@@ -270,6 +272,7 @@ export function Dashboard() {
         </div>
         <div className="dashboard-header__actions">
           <span className="shortcut-hint"><kbd>⌘</kbd><kbd>K</kbd> Search</span>
+          <button className="button agent-drawer-trigger" type="button" onClick={() => setAgentDrawerOpen(true)}>Apply with agent</button>
           <button
             className="icon-button"
             type="button"
@@ -278,7 +281,7 @@ export function Dashboard() {
           >
             {theme === "light" ? "◐" : "☼"}
           </button>
-          <Link className="button button--primary" href="/applications/new">
+          <Link className="button button--primary dashboard-new-application" href="/applications/new">
             <span aria-hidden="true">+</span> New application <kbd>N</kbd>
           </Link>
         </div>
@@ -358,6 +361,7 @@ export function Dashboard() {
         }}
         onDismiss={() => setToast(null)}
       />
+      <ApplyWithAgentDrawer open={agentDrawerOpen} onClose={() => setAgentDrawerOpen(false)} />
     </main>
   );
 }

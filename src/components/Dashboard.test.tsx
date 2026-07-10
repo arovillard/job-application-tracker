@@ -24,5 +24,6 @@ describe("Dashboard", () => {
     expect(markup).toContain("Wishlist");
     expect(markup).toContain("Applied");
     expect(markup).toContain("Interviewing");
+    expect(markup).toContain("Apply with agent");
   });
 });
