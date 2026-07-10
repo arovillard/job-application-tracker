@@ -180,17 +180,25 @@ function sanitizeUsage(value: unknown): AgentUsage | null {
 }
 
 function sanitizeText(value: string, maxLength: number): string {
-  return value
-    .replace(/\bBearer\s+[^\s,;]+/gi, "[REDACTED]")
-    .replace(
-      /\b(?:api[_-]?key|access[_-]?token|auth(?:orization)?|password|secret|token)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
-      "[REDACTED]"
-    )
-    .replace(/\bsk-[A-Za-z0-9_-]{8,}/g, "[REDACTED]")
+  return redactSensitiveText(value)
     .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+export function redactSensitiveText(value: string): string {
+  return value
+    .replace(
+      /\bBearer\s+(?:"[^"\r\n]{0,4096}"|'[^'\r\n]{0,4096}'|[^\s,;]{1,4096})/gi,
+      "[REDACTED]"
+    )
+    .replace(
+      /\b(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|GITHUB_TOKEN|api[_-]?key|access[_-]?token|auth(?:orization)?|password|secret|token)\b\s*(?:[:=]\s*|\s+)(?:"[^"\r\n]{0,4096}"|'[^'\r\n]{0,4096}'|[^\s,;]{1,4096})/gi,
+      "[REDACTED]"
+    )
+    .replace(/\bgh[opsu]_[A-Za-z0-9_]{8,255}\b/gi, "[REDACTED]")
+    .replace(/\bsk-[A-Za-z0-9_-]{8,255}\b/g, "[REDACTED]");
 }
 
 function isEventKind(value: unknown): value is AgentRunEventKind {
@@ -234,7 +242,7 @@ function isForbiddenIpv6(address: string): boolean {
   const [first, second, third, fourth, fifth, sixth] = segments;
 
   return (
-    first === 0 ||
+    (first & 0xe000) !== 0x2000 ||
     (first === 0x0064 &&
       second === 0xff9b &&
       ((third === 0 && fourth === 0 && fifth === 0 && sixth === 0) || third === 1)) ||

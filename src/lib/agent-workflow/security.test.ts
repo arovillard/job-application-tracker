@@ -49,6 +49,11 @@ describe("public job URL validation", () => {
     "64:ff9b::1",
     "64:ff9b:1::1",
     "100::1",
+    "101::1",
+    "200::1",
+    "400::1",
+    "800::1",
+    "1000::1",
     "fc00::1",
     "fd12::1",
     "fe80::1",
@@ -56,11 +61,29 @@ describe("public job URL validation", () => {
     "ff02::1",
     "2001:db8::1",
     "3fff::1",
-    "5f00::1"
+    "4000::1",
+    "5f00::1",
+    "6000::1",
+    "8000::1",
+    "a000::1",
+    "c000::1",
+    "e000::1",
+    "f000::1",
+    "f800::1",
+    "fe00::1"
   ])("rejects forbidden IP literal %s", async (address) => {
     const host = address.includes(":") ? `[${address}]` : address;
     await expect(validatePublicJobUrl(`https://${host}/job`)).rejects.toThrow(
       "Job URL must use a public host."
+    );
+  });
+
+  it.each([
+    "2001:4860:4860::8888",
+    "2606:4700:4700::1111"
+  ])("accepts an allocated global-unicast literal %s", async (address) => {
+    await expect(validatePublicJobUrl(`https://[${address}]/job`)).resolves.toBe(
+      `https://[${address}]/job`
     );
   });
 
@@ -90,6 +113,20 @@ describe("public job URL validation", () => {
       "Job URL must use a public host."
     );
   });
+
+  it.each(["101::1", "200::1", "4000::1", "6000::1", "2001:db8::1"])(
+    "fails closed when an AAAA answer is unallocated or reserved: %s",
+    async (address) => {
+      const resolver = {
+        resolve4: vi.fn(async () => ["93.184.216.34"]),
+        resolve6: vi.fn(async () => ["2606:4700:4700::1111", address])
+      };
+
+      await expect(validatePublicJobUrl("https://jobs.example.com/role", resolver)).rejects.toThrow(
+        "Job URL must use a public host."
+      );
+    }
+  );
 
   it("uses a stable safe error for DNS failures", async () => {
     const resolver = {
@@ -204,6 +241,31 @@ describe("provider event sanitization", () => {
     expect(sanitized.message.length).toBeLessThanOrEqual(1_000);
     expect(JSON.stringify(sanitized)).not.toMatch(
       /chain of thought|id_rsa|OPENAI_API_KEY|raw provider failure|drop me/
+    );
+  });
+
+  it("scrubs broad credential forms from messages and allowlisted metadata", () => {
+    const sanitized = sanitizeProviderEvent({
+      kind: "warning",
+      message:
+        `OPENAI_API_KEY="open ai secret" aNtHrOpIc_ApI_kEy='anthropic secret' ` +
+        `GITHUB_TOKEN=ghp_1234567890abcdef password swordfish ` +
+        `Bearer bearer-secret-value`,
+      metadata: {
+        phase: "OPENAI_API_KEY=metadata-openai-secret",
+        status: "password metadata-password",
+        model: "bEaReR metadata-bearer-secret"
+      }
+    });
+
+    expect(sanitized.message).toContain("[REDACTED]");
+    expect(sanitized.metadata).toEqual({
+      phase: "[REDACTED]",
+      status: "[REDACTED]",
+      model: "[REDACTED]"
+    });
+    expect(JSON.stringify(sanitized)).not.toMatch(
+      /open ai secret|anthropic secret|ghp_1234567890abcdef|swordfish|bearer-secret-value|metadata-openai-secret|metadata-password|metadata-bearer-secret/i
     );
   });
 

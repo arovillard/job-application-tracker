@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -36,6 +36,13 @@ function writeConfig(value: unknown) {
   );
 }
 
+function createExecutable(name: string): string {
+  const executable = path.join(tempDir, name);
+  writeFileSync(executable, "#!/bin/sh\nexit 0\n", "utf8");
+  chmodSync(executable, 0o755);
+  return executable;
+}
+
 const validConfig = {
   codex: { executablePath: "codex", defaultModel: "gpt-5.6-terra" },
   claude: { executablePath: "claude", defaultModel: "sonnet" }
@@ -48,14 +55,36 @@ describe("agent provider configuration", () => {
 
   it("loads the fixed project-root local file", () => {
     writeConfig({
-      codex: { executablePath: "/opt/tools/codex", defaultModel: "openai/gpt_5:6" },
-      claude: { executablePath: "/opt/claude-tools/claude", defaultModel: "sonnet-4.5" }
+      codex: { executablePath: process.execPath, defaultModel: "openai/gpt_5:6" },
+      claude: { executablePath: process.execPath, defaultModel: "sonnet-4.5" }
     });
 
     expect(loadAgentConfig(tempDir)).toEqual({
-      codex: { executablePath: "/opt/tools/codex", defaultModel: "openai/gpt_5:6" },
-      claude: { executablePath: "/opt/claude-tools/claude", defaultModel: "sonnet-4.5" }
+      codex: { executablePath: process.execPath, defaultModel: "openai/gpt_5:6" },
+      claude: { executablePath: process.execPath, defaultModel: "sonnet-4.5" }
     });
+  });
+
+  it("accepts one exact executable path containing whitespace and shell punctuation", () => {
+    const executablePath = createExecutable("agent tool;$(literal)&[safe]");
+    const value = {
+      codex: { executablePath, defaultModel: "gpt-5.6-terra" },
+      claude: { executablePath: process.execPath, defaultModel: "sonnet" }
+    };
+
+    writeConfig(value);
+
+    expect(loadAgentConfig(tempDir)).toEqual(value);
+  });
+
+  it("rejects arguments appended to an exact executable path", () => {
+    const executablePath = createExecutable("codex tool");
+    writeConfig({
+      ...validConfig,
+      codex: { ...validConfig.codex, executablePath: `${executablePath} status` }
+    });
+
+    expect(() => loadAgentConfig(tempDir)).toThrow("Invalid agent provider configuration.");
   });
 
   it.each([
@@ -68,6 +97,7 @@ describe("agent provider configuration", () => {
     ["path with arguments", { ...validConfig, codex: { ...validConfig.codex, executablePath: "/usr/bin/codex status" } }],
     ["shell fragment", { ...validConfig, codex: { ...validConfig.codex, executablePath: "codex; echo bad" } }],
     ["control character", { ...validConfig, codex: { ...validConfig.codex, executablePath: "codex\n--danger" } }],
+    ["NUL character", { ...validConfig, codex: { ...validConfig.codex, executablePath: "codex\u0000--danger" } }],
     ["blank model", { ...validConfig, codex: { ...validConfig.codex, defaultModel: " " } }],
     ["leading dash model", { ...validConfig, codex: { ...validConfig.codex, defaultModel: "--help" } }],
     ["model arguments", { ...validConfig, codex: { ...validConfig.codex, defaultModel: "gpt-5 --help" } }],
@@ -139,6 +169,40 @@ describe("provider executable diagnostics", () => {
     });
   });
 
+  it("spawns an executable path with whitespace and punctuation as one literal command", async () => {
+    const executablePath = createExecutable("Codex Tool;$(literal)&[safe]");
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough;
+      stderr: PassThrough;
+      kill: ReturnType<typeof vi.fn>;
+    };
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = vi.fn();
+    vi.mocked(spawn).mockReturnValue(child as never);
+
+    const diagnosticPromise = diagnoseProviderExecutable(
+      {
+        ...validConfig,
+        codex: { ...validConfig.codex, executablePath }
+      },
+      "codex"
+    );
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+    child.stdout.end("codex 1.2.3");
+    child.emit("close", 0, null);
+
+    await expect(diagnosticPromise).resolves.toEqual({
+      available: true,
+      version: "codex 1.2.3"
+    });
+    expect(spawn).toHaveBeenCalledWith(
+      executablePath,
+      ["--version"],
+      expect.objectContaining({ shell: false })
+    );
+  });
+
   it("bounds and scrubs diagnostic output", async () => {
     const child = new EventEmitter() as EventEmitter & {
       stdout: PassThrough;
@@ -158,14 +222,20 @@ describe("provider executable diagnostics", () => {
       "codex"
     );
     await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
-    child.stdout.end(`codex token=super-secret-value ${"v".repeat(2_000)}`);
+    child.stdout.end(
+      `codex MiXeD=value OPENAI_API_KEY="open ai secret" ` +
+        `ANTHROPIC_API_KEY='anthropic secret' GITHUB_TOKEN=ghp_1234567890abcdef ` +
+        `password swordfish Bearer bearer-secret-value ${"v".repeat(2_000)}`
+    );
     child.emit("close", 0, null);
 
     const diagnostic = await diagnosticPromise;
     expect(diagnostic.available).toBe(true);
     if (diagnostic.available) {
       expect(diagnostic.version).toContain("[REDACTED]");
-      expect(diagnostic.version).not.toContain("super-secret-value");
+      expect(diagnostic.version).not.toMatch(
+        /open ai secret|anthropic secret|ghp_1234567890abcdef|swordfish|bearer-secret-value/i
+      );
       expect(diagnostic.version.length).toBeLessThanOrEqual(256);
     }
   });

@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
-import { constants, readFileSync } from "node:fs";
+import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { z } from "zod";
 
+import { redactSensitiveText } from "./security";
 import type { AgentProviderName } from "./types";
 
 const LOCAL_CONFIG_FILE = "jobtracker.agent.local.json";
@@ -17,15 +18,13 @@ const modelIdentifierSchema = z
   .regex(/^[A-Za-z0-9._:/][A-Za-z0-9._:/-]*$/);
 
 const executablePathSchema = z.string().refine((value) => {
-  if (!value || value !== value.trim() || /\s|[\u0000-\u001f\u007f-\u009f]/.test(value)) {
+  if (!value || /[\u0000-\u001f\u007f-\u009f]/.test(value)) {
     return false;
   }
-  if (/[`$;&|<>"']/.test(value) || /(?:^|\s)--?\S/.test(value)) {
-    return false;
+  if (value.includes("/") || value.includes("\\")) {
+    return isExecutableFileSync(path.resolve(value));
   }
-  return value.includes("/") || value.includes("\\")
-    ? true
-    : /^[A-Za-z0-9._+-]+$/.test(value);
+  return /^[A-Za-z0-9._+-]+$/.test(value);
 });
 
 const providerConfigSchema = z
@@ -152,12 +151,23 @@ async function resolveExecutable(configured: string): Promise<string | null> {
     return (await isExecutableFile(candidate)) ? candidate : null;
   }
 
+  if (!/^[A-Za-z0-9._+-]+$/.test(configured)) return null;
+
   for (const directory of (process.env.PATH ?? "").split(path.delimiter)) {
     if (!directory) continue;
     const candidate = path.join(directory, configured);
     if (await isExecutableFile(candidate)) return candidate;
   }
   return null;
+}
+
+function isExecutableFileSync(candidate: string): boolean {
+  try {
+    accessSync(candidate, constants.X_OK);
+    return statSync(candidate).isFile();
+  } catch {
+    return false;
+  }
 }
 
 async function isExecutableFile(candidate: string): Promise<boolean> {
@@ -170,13 +180,7 @@ async function isExecutableFile(candidate: string): Promise<boolean> {
 }
 
 function sanitizeVersion(value: string): string {
-  return value
-    .replace(/\bBearer\s+[^\s,;]+/gi, "[REDACTED]")
-    .replace(
-      /\b(?:api[_-]?key|access[_-]?token|auth(?:orization)?|password|secret|token)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
-      "[REDACTED]"
-    )
-    .replace(/\bsk-[A-Za-z0-9_-]{8,}/g, "[REDACTED]")
+  return redactSensitiveText(value)
     .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
