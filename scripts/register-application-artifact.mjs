@@ -83,6 +83,17 @@ function ensureArtifactSchema(db) {
   `);
 }
 
+function ensureArtifactSchemaWithLock(db) {
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    ensureArtifactSchema(db);
+    db.exec("COMMIT");
+  } catch (error) {
+    if (db.inTransaction) db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 function findApplication(db, args) {
   if (args["application-id"]) {
     return db.prepare("SELECT id, company, role FROM applications WHERE id = ?").get(args["application-id"]);
@@ -121,10 +132,11 @@ function main() {
 
   mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
+  db.pragma("busy_timeout = 2000");
   db.pragma("foreign_keys = ON");
 
   try {
-    ensureArtifactSchema(db);
+    ensureArtifactSchemaWithLock(db);
     const application = findApplication(db, args);
 
     if (!application) {
@@ -155,7 +167,7 @@ function main() {
         `
       ).run(artifactId, application.id, type, title, filePath, contentType, now, now);
       db.prepare("UPDATE applications SET updated_at = ? WHERE id = ?").run(now, application.id);
-    })();
+    }).immediate();
 
     const artifact = db
       .prepare(

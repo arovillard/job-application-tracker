@@ -1,8 +1,9 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { type ApplicationInput } from "../src/types";
@@ -40,6 +41,20 @@ function runRegisterArtifact(args: string[]) {
       contentType: string;
     };
   };
+}
+
+function runRegisterArtifactAsync(args: string[]) {
+  return new Promise<ReturnType<typeof runRegisterArtifact>>((resolve, reject) => {
+    execFile(
+      process.execPath,
+      ["scripts/register-application-artifact.mjs", ...args],
+      { cwd: path.resolve(__dirname, ".."), encoding: "utf8" },
+      (error, stdout) => {
+        if (error) reject(error);
+        else resolve(JSON.parse(stdout) as ReturnType<typeof runRegisterArtifact>);
+      }
+    );
+  });
 }
 
 beforeEach(() => {
@@ -96,5 +111,36 @@ describe("register-application-artifact CLI", () => {
         content: expect.stringContaining("Strong React evidence.")
       })
     );
+  });
+
+  it("waits for a short-lived SQLite write lock", async () => {
+    const application = createApplication(baseInput);
+    resetStorageForTests();
+    const artifactPath = path.join(tempDir, "locked-fit-analysis.md");
+    writeFileSync(artifactPath, "# Locked Fit Analysis\n");
+    const lock = new Database(dbPath);
+    lock.exec("BEGIN IMMEDIATE");
+    const pending = runRegisterArtifactAsync([
+      "--db", dbPath,
+      "--application-id", application.id,
+      "--type", "fit_analysis",
+      "--title", "Locked Fit Analysis",
+      "--file", artifactPath
+    ]);
+    const settled = pending.then(
+      (result) => ({ result, error: null }),
+      (error: unknown) => ({ result: null, error })
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    lock.exec("COMMIT");
+    lock.close();
+
+    const outcome = await settled;
+    expect(outcome.error).toBeNull();
+    expect(outcome.result).toMatchObject({
+      action: "registered",
+      artifact: { applicationId: application.id, filePath: artifactPath }
+    });
   });
 });

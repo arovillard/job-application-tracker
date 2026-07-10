@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -32,6 +32,20 @@ function runUpsert(args: string[]) {
     noteIds: string[];
     followUpNoteId: string | null;
   };
+}
+
+function runUpsertAsync(args: string[]) {
+  return new Promise<ReturnType<typeof runUpsert>>((resolve, reject) => {
+    execFile(
+      process.execPath,
+      ["scripts/upsert-job-posting.mjs", "--db", dbPath, ...args],
+      { cwd: path.resolve(__dirname, ".."), encoding: "utf8" },
+      (error, stdout) => {
+        if (error) reject(error);
+        else resolve(JSON.parse(stdout) as ReturnType<typeof runUpsert>);
+      }
+    );
+  });
 }
 
 function readCount(table: string) {
@@ -164,5 +178,37 @@ describe("upsert-job-posting CLI", () => {
       }
     });
     expect(readCount("applications")).toBe(0);
+  });
+
+  it("waits for a short-lived SQLite write lock", async () => {
+    runUpsert([
+      "--company", "Lock Seed",
+      "--role", "Engineer",
+      "--url", "https://example.com/jobs/seed",
+      "--posting-state", "open"
+    ]);
+    const lock = new Database(dbPath);
+    lock.exec("BEGIN IMMEDIATE");
+    const pending = runUpsertAsync([
+      "--company", "Lock Wait",
+      "--role", "Engineer",
+      "--url", "https://example.com/jobs/wait",
+      "--posting-state", "open"
+    ]);
+    const settled = pending.then(
+      (result) => ({ result, error: null }),
+      (error: unknown) => ({ result: null, error })
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    lock.exec("COMMIT");
+    lock.close();
+
+    const outcome = await settled;
+    expect(outcome.error).toBeNull();
+    expect(outcome.result).toMatchObject({
+      action: "created",
+      application: { company: "Lock Wait" }
+    });
   });
 });

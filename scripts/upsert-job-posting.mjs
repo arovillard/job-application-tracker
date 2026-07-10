@@ -120,8 +120,17 @@ function ensureSchema(db) {
 function connect(dbPath) {
   mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
+  db.pragma("busy_timeout = 2000");
   db.pragma("foreign_keys = ON");
-  ensureSchema(db);
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    ensureSchema(db);
+    db.exec("COMMIT");
+  } catch (error) {
+    if (db.inTransaction) db.exec("ROLLBACK");
+    db.close();
+    throw error;
+  }
   return db;
 }
 
@@ -282,9 +291,9 @@ function upsert(payload, dbPath, dryRun) {
 
   const db = connect(dbPath);
   const now = nowIso();
-  db.exec("BEGIN");
 
   try {
+    db.exec("BEGIN IMMEDIATE");
     const existing = findDuplicate(db, company, role);
     const noteIds = [];
     let followUpNoteId = null;
@@ -437,7 +446,7 @@ function upsert(payload, dbPath, dryRun) {
       followUpNoteId
     };
   } catch (error) {
-    db.exec("ROLLBACK");
+    if (db.inTransaction) db.exec("ROLLBACK");
     db.close();
     throw error;
   }
