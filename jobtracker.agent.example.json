@@ -1,0 +1,10 @@
+{
+  "codex": {
+    "executablePath": "codex",
+    "defaultModel": "gpt-5.6-terra"
+  },
+  "claude": {
+    "executablePath": "claude",
+    "defaultModel": "sonnet"
+  }
+}
