@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -17,9 +17,11 @@ import { sanitizeProviderEvent, type SanitizedProviderEvent } from "./security";
 import type { AgentPreview, AgentUsage, ArtifactManifestEntry } from "./types";
 
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_KILL_GRACE_MS = 1_000;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 
 export type ProviderOperation = "preview" | "materials";
+export type ProviderEnvironment = Record<string, string | undefined>;
 
 export type ProviderInvocation = {
   command: string;
@@ -49,6 +51,7 @@ export type SpawnDependency = (
     shell: false;
     stdio: ["pipe", "pipe", "pipe"];
     windowsHide: true;
+    env: ProviderEnvironment;
   }
 ) => ProviderChildProcess;
 
@@ -93,6 +96,9 @@ export type ProviderFactoryOptions = {
   applicationsDir: string;
   spawn?: SpawnDependency;
   timeoutMs?: number;
+  killGraceMs?: number;
+  environment?: ProviderEnvironment;
+  baseResumePath?: string;
 };
 
 export type CodexInvocationInput = {
@@ -111,6 +117,8 @@ export type ClaudeInvocationInput = {
   operation: ProviderOperation;
   model: string;
   projectRoot: string;
+  applicationsDir: string;
+  mcpConfigPath: string;
   prompt: string;
 };
 
@@ -172,22 +180,39 @@ export function buildCodexInvocation(input: CodexInvocationInput): ProviderInvoc
 
 export function buildClaudeInvocation(input: ClaudeInvocationInput): ProviderInvocation {
   const preview = input.operation === "preview";
+  const args = [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--no-session-persistence",
+    "--json-schema",
+    JSON.stringify(preview ? PREVIEW_JSON_SCHEMA : MATERIALS_JSON_SCHEMA),
+    "--permission-mode",
+    preview ? "plan" : "acceptEdits",
+    "--tools",
+    preview
+      ? "WebFetch,WebSearch"
+      : "Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,Skill"
+  ];
+  if (!preview) {
+    args.push(
+      "--allowedTools",
+      "Skill(job-application-resume)",
+      "--add-dir",
+      input.applicationsDir
+    );
+  }
+  args.push(
+    "--strict-mcp-config",
+    "--mcp-config",
+    input.mcpConfigPath,
+    "--model",
+    input.model
+  );
   return {
     command: input.executablePath,
-    args: [
-      "-p",
-      "--output-format",
-      "stream-json",
-      "--verbose",
-      "--json-schema",
-      JSON.stringify(preview ? PREVIEW_JSON_SCHEMA : MATERIALS_JSON_SCHEMA),
-      "--permission-mode",
-      preview ? "plan" : "acceptEdits",
-      "--tools",
-      preview ? "WebFetch,WebSearch" : "Read,Write,Edit,Glob,Grep,WebFetch,WebSearch",
-      "--model",
-      input.model
-    ],
+    args,
     cwd: input.projectRoot,
     shell: false,
     stdin: input.prompt
@@ -197,14 +222,19 @@ export function buildClaudeInvocation(input: ClaudeInvocationInput): ProviderInv
 export function createCodexProvider(options: ProviderFactoryOptions): AgentProvider {
   const spawn = options.spawn ?? defaultSpawn;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const killGraceMs = options.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
   return {
     diagnose: () => diagnoseProviderExecutable(options.config, "codex"),
     preview: async (request, hooks = {}) => {
-      const output = await runCodex("preview", request, hooks, options, spawn, timeoutMs);
+      const output = await runCodex(
+        "preview", request, hooks, options, spawn, timeoutMs, killGraceMs
+      );
       return { preview: parsePreview(output.value), usage: output.usage };
     },
     createMaterials: async (request, hooks = {}) => {
-      const output = await runCodex("materials", request, hooks, options, spawn, timeoutMs);
+      const output = await runCodex(
+        "materials", request, hooks, options, spawn, timeoutMs, killGraceMs
+      );
       return { manifest: parseManifest(output.value), usage: output.usage };
     }
   };
@@ -213,14 +243,19 @@ export function createCodexProvider(options: ProviderFactoryOptions): AgentProvi
 export function createClaudeProvider(options: ProviderFactoryOptions): AgentProvider {
   const spawn = options.spawn ?? defaultSpawn;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const killGraceMs = options.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
   return {
     diagnose: () => diagnoseProviderExecutable(options.config, "claude"),
     preview: async (request, hooks = {}) => {
-      const output = await runClaude("preview", request, hooks, options, spawn, timeoutMs);
+      const output = await runClaude(
+        "preview", request, hooks, options, spawn, timeoutMs, killGraceMs
+      );
       return { preview: parsePreview(output.value), usage: output.usage };
     },
     createMaterials: async (request, hooks = {}) => {
-      const output = await runClaude("materials", request, hooks, options, spawn, timeoutMs);
+      const output = await runClaude(
+        "materials", request, hooks, options, spawn, timeoutMs, killGraceMs
+      );
       return { manifest: parseManifest(output.value), usage: output.usage };
     }
   };
@@ -232,7 +267,8 @@ async function runCodex(
   hooks: AgentProviderHooks,
   options: ProviderFactoryOptions,
   spawn: SpawnDependency,
-  timeoutMs: number
+  timeoutMs: number,
+  killGraceMs: number
 ): Promise<{ value: unknown; usage: AgentUsage | null }> {
   const model = resolveProviderModel(options.config, "codex", request.model);
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "jobtracker-codex-"));
@@ -259,15 +295,17 @@ async function runCodex(
       resultPath,
       prompt
     });
-    const processResult = await runSubprocess(invocation, spawn, request.signal, timeoutMs);
+    const processResult = await runSubprocess(
+      invocation,
+      spawn,
+      request.signal,
+      timeoutMs,
+      killGraceMs,
+      buildProviderEnvironment("codex", options)
+    );
     if (processResult.code !== 0) throw new AgentProviderError("provider_nonzero_exit");
     const usage = inspectCodexEvents(processResult.stdout, hooks);
-    let rawResult: string;
-    try {
-      rawResult = await readFile(resultPath, "utf8");
-    } catch {
-      throw new AgentProviderError("provider_malformed_output");
-    }
+    const rawResult = await readBoundedResult(resultPath);
     return { value: parseJson(cleanJsonText(rawResult)), usage };
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
@@ -280,7 +318,8 @@ async function runClaude(
   hooks: AgentProviderHooks,
   options: ProviderFactoryOptions,
   spawn: SpawnDependency,
-  timeoutMs: number
+  timeoutMs: number,
+  killGraceMs: number
 ): Promise<{ value: unknown; usage: AgentUsage | null }> {
   const model = resolveProviderModel(options.config, "claude", request.model);
   const prompt = operation === "preview"
@@ -290,16 +329,32 @@ async function runClaude(
         preview: (request as AgentMaterialsRequest).preview,
         applicationsDir: options.applicationsDir
       });
-  const invocation = buildClaudeInvocation({
-    executablePath: options.config.claude.executablePath,
-    operation,
-    model,
-    projectRoot: options.projectRoot,
-    prompt
-  });
-  const processResult = await runSubprocess(invocation, spawn, request.signal, timeoutMs);
-  if (processResult.code !== 0) throw new AgentProviderError("provider_nonzero_exit");
-  return inspectClaudeEvents(processResult.stdout, hooks);
+  const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "jobtracker-claude-"));
+  const mcpConfigPath = path.join(temporaryDirectory, "empty-mcp.json");
+  try {
+    await writeFile(mcpConfigPath, JSON.stringify({ mcpServers: {} }), { mode: 0o600 });
+    const invocation = buildClaudeInvocation({
+      executablePath: options.config.claude.executablePath,
+      operation,
+      model,
+      projectRoot: options.projectRoot,
+      applicationsDir: options.applicationsDir,
+      mcpConfigPath,
+      prompt
+    });
+    const processResult = await runSubprocess(
+      invocation,
+      spawn,
+      request.signal,
+      timeoutMs,
+      killGraceMs,
+      buildProviderEnvironment("claude", options)
+    );
+    if (processResult.code !== 0) throw new AgentProviderError("provider_nonzero_exit");
+    return inspectClaudeEvents(processResult.stdout, hooks);
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
 }
 
 type SubprocessResult = { code: number | null; stdout: string };
@@ -308,7 +363,9 @@ function runSubprocess(
   invocation: ProviderInvocation,
   spawn: SpawnDependency,
   signal: AbortSignal | undefined,
-  timeoutMs: number
+  timeoutMs: number,
+  killGraceMs: number,
+  environment: ProviderEnvironment
 ): Promise<SubprocessResult> {
   if (signal?.aborted) return Promise.reject(new AgentProviderError("provider_cancelled"));
 
@@ -319,7 +376,8 @@ function runSubprocess(
         cwd: invocation.cwd,
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true
+        windowsHide: true,
+        env: environment
       });
     } catch {
       reject(new AgentProviderError("provider_unavailable"));
@@ -329,28 +387,39 @@ function runSubprocess(
     let stdout = "";
     let stderrBytes = 0;
     let settled = false;
-    let killed = false;
+    let terminationError: AgentProviderError | null = null;
+    let sentSigterm = false;
+    let sentSigkill = false;
+    let killGraceTimeout: NodeJS.Timeout | undefined;
 
     const finish = (error?: AgentProviderError, code: number | null = null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+      clearTimeout(killGraceTimeout);
       signal?.removeEventListener("abort", onAbort);
       if (error) reject(error);
       else resolve({ code, stdout });
     };
-    const killOnce = () => {
-      if (killed) return;
-      killed = true;
-      child.kill("SIGTERM");
+    const beginTermination = (error: AgentProviderError) => {
+      if (terminationError || settled) return;
+      terminationError = error;
+      clearTimeout(timeout);
+      if (!sentSigterm) {
+        sentSigterm = true;
+        child.kill("SIGTERM");
+      }
+      if (settled) return;
+      killGraceTimeout = setTimeout(() => {
+        if (settled || sentSigkill) return;
+        sentSigkill = true;
+        child.kill("SIGKILL");
+      }, Math.max(1, killGraceMs));
+      killGraceTimeout.unref();
     };
-    const onAbort = () => {
-      killOnce();
-      finish(new AgentProviderError("provider_cancelled"));
-    };
+    const onAbort = () => beginTermination(new AgentProviderError("provider_cancelled"));
     const timeout = setTimeout(() => {
-      killOnce();
-      finish(new AgentProviderError("provider_timeout"));
+      beginTermination(new AgentProviderError("provider_timeout"));
     }, Math.max(1, timeoutMs));
     timeout.unref();
 
@@ -360,12 +429,19 @@ function runSubprocess(
     child.stderr.on("data", (chunk: Buffer | string) => {
       stderrBytes = Math.min(MAX_OUTPUT_BYTES, stderrBytes + Buffer.byteLength(chunk));
     });
-    child.once("error", () => finish(new AgentProviderError("provider_unavailable")));
-    child.once("close", (code) => finish(undefined, code));
-    child.stdin.once("error", () => finish(new AgentProviderError("provider_unavailable")));
+    child.once("error", () => {
+      if (!terminationError) finish(new AgentProviderError("provider_unavailable"));
+    });
+    child.once("close", (code) => {
+      if (terminationError) finish(terminationError);
+      else finish(undefined, code);
+    });
+    child.stdin.once("error", () => {
+      if (!terminationError) finish(new AgentProviderError("provider_unavailable"));
+    });
     signal?.addEventListener("abort", onAbort, { once: true });
     if (signal?.aborted) onAbort();
-    if (settled) return;
+    if (terminationError || settled) return;
     try {
       child.stdin.end(invocation.stdin);
     } catch {
@@ -409,7 +485,16 @@ function inspectClaudeEvents(
     if (!isRecord(event)) throw new AgentProviderError("provider_malformed_output");
     if (event.type === "result") finalEvent = event;
   }
-  if (!finalEvent || !("structured_output" in finalEvent)) {
+  if (!finalEvent) {
+    throw new AgentProviderError("provider_malformed_output");
+  }
+  if (finalEvent.subtype === "error_max_structured_output_retries") {
+    throw new AgentProviderError("provider_schema_rejected");
+  }
+  if (finalEvent.subtype !== "success" || finalEvent.is_error !== false) {
+    throw new AgentProviderError("provider_nonzero_exit");
+  }
+  if (!("structured_output" in finalEvent)) {
     throw new AgentProviderError("provider_malformed_output");
   }
   const safeEvent = sanitizeProviderEvent({
@@ -433,7 +518,29 @@ function parsePreview(value: unknown): AgentPreview {
 function parseManifest(value: unknown): ArtifactManifestEntry[] {
   const result = artifactManifestSchema.safeParse(value);
   if (!result.success) throw new AgentProviderError("provider_schema_rejected");
-  return result.data;
+  return result.data.artifacts;
+}
+
+async function readBoundedResult(filePath: string): Promise<string> {
+  let file: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    file = await open(filePath, "r");
+    const stats = await file.stat();
+    if (!stats.isFile() || stats.size > MAX_OUTPUT_BYTES) {
+      throw new AgentProviderError("provider_malformed_output");
+    }
+    const buffer = Buffer.alloc(MAX_OUTPUT_BYTES + 1);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > MAX_OUTPUT_BYTES) {
+      throw new AgentProviderError("provider_malformed_output");
+    }
+    return buffer.subarray(0, bytesRead).toString("utf8");
+  } catch (error) {
+    if (error instanceof AgentProviderError) throw error;
+    throw new AgentProviderError("provider_malformed_output");
+  } finally {
+    await file?.close();
+  }
 }
 
 function parseJson(value: string): unknown {
@@ -462,5 +569,61 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const COMMON_ENVIRONMENT_KEYS = [
+  "PATH",
+  "HOME",
+  "NODE_ENV",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "XDG_CONFIG_HOME",
+  "XDG_CACHE_HOME",
+  "LANG",
+  "LC_ALL",
+  "SSL_CERT_FILE",
+  "NODE_EXTRA_CA_CERTS",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "http_proxy",
+  "https_proxy"
+] as const;
+
+const PROVIDER_ENVIRONMENT_KEYS = {
+  codex: [
+    "CODEX_HOME",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_ORGANIZATION",
+    "OPENAI_PROJECT"
+  ],
+  claude: [
+    "CLAUDE_CONFIG_DIR",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL"
+  ]
+} as const;
+
+function buildProviderEnvironment(
+  provider: keyof typeof PROVIDER_ENVIRONMENT_KEYS,
+  options: ProviderFactoryOptions
+): ProviderEnvironment {
+  const source = options.environment ?? process.env;
+  const environment: ProviderEnvironment = {};
+  for (const key of [...COMMON_ENVIRONMENT_KEYS, ...PROVIDER_ENVIRONMENT_KEYS[provider]]) {
+    const value = source[key];
+    if (typeof value === "string") environment[key] = value;
+  }
+  environment.JOBTRACKER_APPLICATIONS_DIR = options.applicationsDir;
+  if (options.baseResumePath) {
+    environment.JOBTRACKER_BASE_RESUME_PATH = options.baseResumePath;
+  }
+  return environment;
+}
+
 const defaultSpawn: SpawnDependency = (command, args, options) =>
-  nodeSpawn(command, [...args], options) as ProviderChildProcess;
+  nodeSpawn(command, [...args], {
+    ...options,
+    env: options.env as NodeJS.ProcessEnv
+  }) as ProviderChildProcess;

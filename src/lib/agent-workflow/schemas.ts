@@ -27,7 +27,11 @@ export const artifactManifestEntrySchema = z
   })
   .strict();
 
-export const artifactManifestSchema = z.array(artifactManifestEntrySchema);
+export const artifactManifestSchema = z
+  .object({
+    artifacts: z.array(artifactManifestEntrySchema)
+  })
+  .strict();
 
 export const PREVIEW_JSON_SCHEMA = {
   type: "object",
@@ -43,27 +47,34 @@ export const PREVIEW_JSON_SCHEMA = {
 } as const;
 
 export const MATERIALS_JSON_SCHEMA = {
-  type: "array",
-  items: {
-    type: "object",
-    properties: {
-      type: {
-        type: "string",
-        enum: [
-          "fit_analysis",
-          "outreach_message",
-          "referral_message",
-          "cover_letter",
-          "resume",
-          "posting",
-          "other"
-        ]
-      },
-      title: { type: "string" },
-      filePath: { type: "string" },
-      contentType: { type: "string" }
+  type: "object",
+  properties: {
+    artifacts: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: {
+            type: "string",
+            enum: [
+              "fit_analysis",
+              "outreach_message",
+              "referral_message",
+              "cover_letter",
+              "resume",
+              "posting",
+              "other"
+            ]
+          },
+          title: { type: "string" },
+          filePath: { type: "string" },
+          contentType: { type: "string" }
+        },
+        required: ["type", "title", "filePath", "contentType"],
+        additionalProperties: false
+      }
     },
-    required: ["type", "title", "filePath", "contentType"],
-    additionalProperties: false
-  }
+  },
+  required: ["artifacts"],
+  additionalProperties: false
 } as const;
