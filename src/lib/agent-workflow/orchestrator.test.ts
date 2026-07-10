@@ -8,6 +8,7 @@ import { PassThrough, Writable } from "node:stream";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { addApplicationNote, createApplication, resetStorageForTests } from "../storage";
 import type { AgentProvider } from "./providers";
 import { JsonCommandError, runJsonCommand, type JsonCommandSpawn } from "./process";
 import {
@@ -44,6 +45,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetAgentRunStorageForTests();
+  resetStorageForTests();
   delete process.env.JOBTRACKER_DB_PATH;
   rmSync(root, { recursive: true, force: true });
 });
@@ -81,6 +83,89 @@ function dependencies(fakeProvider = provider()) {
     leaseDurationMs: 5_000,
     heartbeatIntervalMs: 25,
     commandTimeoutMs: 10_000
+  };
+}
+
+function deterministicUpsertSpawn(): JsonCommandSpawn {
+  return (command, args, options) => {
+    if (!args[0]?.endsWith("upsert-job-posting.mjs")) {
+      return nodeSpawn(command, [...args], options as never) as never;
+    }
+    const child = new EventEmitter() as EventEmitter & {
+      stdin: Writable;
+      stdout: PassThrough;
+      stderr: PassThrough;
+      kill: (signal?: NodeJS.Signals) => boolean;
+    };
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    let input = "";
+    child.stdin = new Writable({
+      write(chunk, _encoding, callback) {
+        input += chunk.toString();
+        callback();
+      },
+      final(callback) {
+        try {
+          const payload = JSON.parse(input) as {
+            company: string;
+            role: string;
+            url: string;
+            location: string | null;
+            summary: string;
+            posting_state: string;
+            note: string;
+          };
+          const source = new URL(payload.url).hostname.toLowerCase().replace(/^www\./, "");
+          const application = createApplication({
+            company: payload.company,
+            role: payload.role,
+            status: "wishlist",
+            source,
+            location: payload.location,
+            url: payload.url,
+            contact: null,
+            notes: payload.summary,
+            appliedDate: null,
+            followUpDate: null
+          });
+          const noteBody = [
+            "Added tracker record from public posting",
+            `source: ${source}`,
+            `url: ${payload.url}`,
+            `posting state: ${payload.posting_state}`,
+            "changes: created new application record",
+            `note: ${payload.note}`
+          ].join(". ") + ".";
+          const note = addApplicationNote(application.id, { type: "update", body: noteBody });
+          child.stdout.end(JSON.stringify({
+            action: "created",
+            application: {
+              id: application.id,
+              company: application.company,
+              role: application.role,
+              status: application.status,
+              source: application.source,
+              location: application.location,
+              url: application.url
+            },
+            changes: ["created new application record"],
+            noteIds: [note.id]
+          }));
+          callback();
+          const freshnessDelayMs = Math.max(0, Date.parse(note.createdAt) - Date.now() + 1);
+          setTimeout(() => child.emit("close", 0, null), freshnessDelayMs);
+        } catch {
+          callback();
+          queueMicrotask(() => child.emit("close", 1, null));
+        }
+      }
+    });
+    child.kill = (signal) => {
+      queueMicrotask(() => child.emit("close", null, signal ?? null));
+      return true;
+    };
+    return child as never;
   };
 }
 
@@ -156,11 +241,11 @@ describe("agent workflow orchestration", () => {
     await processNextAgentRun(dependencies(fake));
     approveAgentRun(run.id);
 
-    await processNextAgentRun(dependencies(fake));
+    await processNextAgentRun({ ...dependencies(fake), spawn: deterministicUpsertSpawn() });
 
     expect(getAgentRun(run.id)).toMatchObject({ state: "failed", failureCode: "artifact_reconciliation_failed" });
     const db = new Database(dbPath, { readonly: true });
-    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'application_artifacts'").get()).toBeUndefined();
+    expect(db.prepare("SELECT COUNT(*) AS count FROM application_artifacts").get()).toEqual({ count: 0 });
     db.close();
   });
 
@@ -195,11 +280,29 @@ describe("agent workflow orchestration", () => {
       await processNextAgentRun(dependencies(fake));
       approveAgentRun(run.id);
 
-      await processNextAgentRun(dependencies(fake));
+      await processNextAgentRun({ ...dependencies(fake), spawn: deterministicUpsertSpawn() });
 
       expect(getAgentRun(run.id)).toMatchObject({ state: "failed", failureCode: "artifact_reconciliation_failed" });
     }
   );
+
+  it("classifies an upsert host failure before materials as execution failure", async () => {
+    const fake = provider();
+    let materialsCalled = false;
+    fake.createMaterials = async () => {
+      materialsCalled = true;
+      return { manifest: [], usage: null };
+    };
+    const run = await queueApprovedRun("https://jobs.example.com/upsert-host-failure", fake);
+
+    await processNextAgentRun({
+      ...dependencies(fake),
+      spawn: () => { throw new Error("simulated host spawn failure"); }
+    });
+
+    expect(materialsCalled).toBe(false);
+    expect(getAgentRun(run.id)).toMatchObject({ state: "failed", failureCode: "execution_failed" });
+  });
 
   it("rejects tampered upsert output before invoking the materials provider", async () => {
     const fake = provider();
