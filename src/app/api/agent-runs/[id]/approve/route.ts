@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
-  approveAgentRun,
+  approveAgentRunAndGetPublic,
   getPublicAgentRun
 } from "../../../../../lib/agent-workflow/storage";
 
@@ -11,28 +11,26 @@ type AgentRunRouteContext = {
   params: Promise<{ id: string }>;
 };
 
+function json(body: unknown, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: { "Cache-Control": "no-store" }
+  });
+}
+
 export async function POST(_request: Request, context: AgentRunRouteContext) {
   const { id } = await context.params;
   const existing = getPublicAgentRun(id);
   if (!existing) {
-    return NextResponse.json({ error: "Agent run not found." }, { status: 404 });
+    return json({ error: "Agent run not found." }, 404);
   }
   if (existing.state !== "awaiting_approval") {
-    return NextResponse.json(
-      { error: "Agent run is not awaiting approval." },
-      { status: 409 }
-    );
+    return json({ error: "Agent run is not awaiting approval." }, 409);
   }
 
-  if (!approveAgentRun(id)) {
-    return NextResponse.json(
-      { error: "Agent run is not awaiting approval." },
-      { status: 409 }
-    );
-  }
-  const run = getPublicAgentRun(id);
+  const run = approveAgentRunAndGetPublic(id);
   if (!run) {
-    return NextResponse.json({ error: "Agent run not found." }, { status: 404 });
+    return json({ error: "Agent run is not awaiting approval." }, 409);
   }
-  return NextResponse.json(run);
+  return json(run);
 }

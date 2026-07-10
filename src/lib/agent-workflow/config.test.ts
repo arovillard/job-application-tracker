@@ -12,6 +12,7 @@ import { spawn } from "node:child_process";
 
 import {
   diagnoseProviderExecutable,
+  getDefaultAgentModels,
   loadAgentConfig,
   resolveProviderModel
 } from "./config";
@@ -51,6 +52,16 @@ const validConfig = {
 describe("agent provider configuration", () => {
   it("falls back to safe project defaults when the local file is absent", () => {
     expect(loadAgentConfig(tempDir)).toEqual(validConfig);
+  });
+
+  it("exposes cloned fallback models that cannot drift through caller mutation", () => {
+    const models = getDefaultAgentModels();
+    expect(models).toEqual({ codex: "gpt-5.6-terra", claude: "sonnet" });
+
+    models.codex = "mutated";
+
+    expect(getDefaultAgentModels()).toEqual({ codex: "gpt-5.6-terra", claude: "sonnet" });
+    expect(loadAgentConfig(tempDir).codex.defaultModel).toBe("gpt-5.6-terra");
   });
 
   it("loads the fixed project-root local file", () => {

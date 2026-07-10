@@ -53,6 +53,13 @@ const DEFAULT_AGENT_CONFIG: AgentConfig = {
   claude: { executablePath: "claude", defaultModel: "sonnet" }
 };
 
+export function getDefaultAgentModels(): Record<AgentProviderName, string> {
+  return {
+    codex: DEFAULT_AGENT_CONFIG.codex.defaultModel,
+    claude: DEFAULT_AGENT_CONFIG.claude.defaultModel
+  };
+}
+
 export function loadAgentConfig(projectRoot = process.cwd()): AgentConfig {
   const configPath = path.join(projectRoot, LOCAL_CONFIG_FILE);
   let parsed: unknown;

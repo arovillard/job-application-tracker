@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import {
   getPublicAgentRun,
-  requestAgentRunCancellation
+  requestAgentRunCancellationAndGetPublic
 } from "../../../../../lib/agent-workflow/storage";
 
 export const runtime = "nodejs";
@@ -11,22 +11,26 @@ type AgentRunRouteContext = {
   params: Promise<{ id: string }>;
 };
 
+function json(body: unknown, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: { "Cache-Control": "no-store" }
+  });
+}
+
 export async function POST(_request: Request, context: AgentRunRouteContext) {
   const { id } = await context.params;
   const existing = getPublicAgentRun(id);
   if (!existing) {
-    return NextResponse.json({ error: "Agent run not found." }, { status: 404 });
+    return json({ error: "Agent run not found." }, 404);
   }
   if (existing.cancellationRequested) {
-    return NextResponse.json({ error: "Agent run cannot be cancelled." }, { status: 409 });
+    return json({ error: "Agent run cannot be cancelled." }, 409);
   }
 
-  if (!requestAgentRunCancellation(id)) {
-    return NextResponse.json({ error: "Agent run cannot be cancelled." }, { status: 409 });
-  }
-  const run = getPublicAgentRun(id);
+  const run = requestAgentRunCancellationAndGetPublic(id);
   if (!run) {
-    return NextResponse.json({ error: "Agent run not found." }, { status: 404 });
+    return json({ error: "Agent run cannot be cancelled." }, 409);
   }
-  return NextResponse.json(run);
+  return json(run);
 }

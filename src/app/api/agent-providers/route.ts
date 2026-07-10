@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import {
   diagnoseProviderExecutable,
+  getDefaultAgentModels,
   loadAgentConfig,
   type AgentConfig,
   type ProviderDiagnostic
@@ -11,10 +12,6 @@ import type { AgentProviderName } from "../../../lib/agent-workflow/types";
 export const runtime = "nodejs";
 
 const PROVIDERS: AgentProviderName[] = ["codex", "claude"];
-const SAFE_DEFAULT_MODELS: Record<AgentProviderName, string> = {
-  codex: "gpt-5.6-terra",
-  claude: "sonnet"
-};
 const UNAVAILABLE: ProviderDiagnostic = {
   available: false,
   version: null,
@@ -31,6 +28,34 @@ const productionDependencies: ProviderDiagnosticsDependencies = {
   diagnoseProvider: diagnoseProviderExecutable
 };
 
+function json(body: unknown) {
+  return NextResponse.json(body, {
+    headers: { "Cache-Control": "no-store" }
+  });
+}
+
+function publicDiagnostic(
+  provider: AgentProviderName,
+  diagnostic: ProviderDiagnostic,
+  defaultModel: string
+) {
+  if (diagnostic.available) {
+    return {
+      provider,
+      available: true,
+      version: diagnostic.version,
+      defaultModel
+    };
+  }
+  return {
+    provider,
+    available: false,
+    version: null,
+    error: "Provider executable is unavailable." as const,
+    defaultModel
+  };
+}
+
 export function createDiagnosticsHandler(dependencies: ProviderDiagnosticsDependencies) {
   return async function get(_request: Request) {
     void _request;
@@ -38,12 +63,11 @@ export function createDiagnosticsHandler(dependencies: ProviderDiagnosticsDepend
     try {
       config = dependencies.loadConfig();
     } catch {
-      return NextResponse.json({
-        providers: PROVIDERS.map((provider) => ({
-          provider,
-          ...UNAVAILABLE,
-          defaultModel: SAFE_DEFAULT_MODELS[provider]
-        }))
+      const defaultModels = getDefaultAgentModels();
+      return json({
+        providers: PROVIDERS.map((provider) =>
+          publicDiagnostic(provider, UNAVAILABLE, defaultModels[provider])
+        )
       });
     }
 
@@ -55,14 +79,10 @@ export function createDiagnosticsHandler(dependencies: ProviderDiagnosticsDepend
         } catch {
           diagnostic = UNAVAILABLE;
         }
-        return {
-          provider,
-          ...diagnostic,
-          defaultModel: config[provider].defaultModel
-        };
+        return publicDiagnostic(provider, diagnostic, config[provider].defaultModel);
       })
     );
-    return NextResponse.json({ providers });
+    return json({ providers });
   };
 }
 

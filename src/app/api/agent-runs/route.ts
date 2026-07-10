@@ -10,15 +10,11 @@ import {
 } from "../../../lib/agent-workflow/config";
 import { validatePublicJobUrl } from "../../../lib/agent-workflow/security";
 import {
-  appendAgentRunEvent,
-  createAgentRun,
-  getPublicAgentRun,
-  type AppendAgentRunEventInput,
+  enqueueAgentRun,
   type CreateAgentRunInput
 } from "../../../lib/agent-workflow/storage";
 import type {
   AgentProviderName,
-  AgentRun,
   PublicAgentRun
 } from "../../../lib/agent-workflow/types";
 
@@ -42,9 +38,7 @@ export type AgentRunPostDependencies = {
   resolveModel(config: AgentConfig, provider: AgentProviderName, override?: string): string;
   validateJobUrl(input: string): Promise<string>;
   diagnoseProvider(config: AgentConfig, provider: AgentProviderName): Promise<ProviderDiagnostic>;
-  createRun(input: CreateAgentRunInput): AgentRun;
-  appendEvent(runId: string, input: AppendAgentRunEventInput): unknown;
-  getPublicRun(id: string): PublicAgentRun | null;
+  enqueueRun(input: CreateAgentRunInput): PublicAgentRun;
 };
 
 const productionDependencies: AgentRunPostDependencies = {
@@ -52,13 +46,14 @@ const productionDependencies: AgentRunPostDependencies = {
   resolveModel: resolveProviderModel,
   validateJobUrl: validatePublicJobUrl,
   diagnoseProvider: diagnoseProviderExecutable,
-  createRun: createAgentRun,
-  appendEvent: appendAgentRunEvent,
-  getPublicRun: getPublicAgentRun
+  enqueueRun: enqueueAgentRun
 };
 
 function errorResponse(error: string, status: number) {
-  return NextResponse.json({ error }, { status });
+  return NextResponse.json(
+    { error },
+    { status, headers: { "Cache-Control": "no-store" } }
+  );
 }
 
 export function createPostHandler(dependencies: AgentRunPostDependencies) {
@@ -112,16 +107,11 @@ export function createPostHandler(dependencies: AgentRunPostDependencies) {
     }
 
     try {
-      const run = dependencies.createRun({ provider, model, canonicalJobUrl });
-      dependencies.appendEvent(run.id, {
-        kind: "status",
-        message: "Run queued for preview."
+      const publicRun = dependencies.enqueueRun({ provider, model, canonicalJobUrl });
+      return NextResponse.json(publicRun, {
+        status: 202,
+        headers: { "Cache-Control": "no-store" }
       });
-      const publicRun = dependencies.getPublicRun(run.id);
-      if (!publicRun) {
-        return errorResponse("Unable to queue agent run.", 400);
-      }
-      return NextResponse.json(publicRun, { status: 202 });
     } catch {
       return errorResponse("Unable to queue agent run.", 400);
     }

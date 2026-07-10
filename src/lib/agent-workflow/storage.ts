@@ -396,6 +396,22 @@ export function createAgentRun(input: CreateAgentRunInput): AgentRun {
   return getAgentRun(id) as AgentRun;
 }
 
+export function enqueueAgentRun(input: CreateAgentRunInput): PublicAgentRun {
+  const db = getDatabase();
+  return db.transaction(() => {
+    const run = createAgentRun(input);
+    appendAgentRunEvent(run.id, {
+      kind: "status",
+      message: "Run queued for preview."
+    });
+    const publicRun = getPublicAgentRun(run.id);
+    if (!publicRun) {
+      throw new Error("Queued agent run could not be read");
+    }
+    return publicRun;
+  }).immediate();
+}
+
 export function getAgentRun(id: string): AgentRun | null {
   const row = getDatabase().prepare("SELECT * FROM agent_runs WHERE id = ?").get(id) as
     | AgentRunRow
@@ -558,6 +574,20 @@ export function approveAgentRun(id: string): AgentRun | null {
   return transitionAgentRun(id, "awaiting_approval", "queued_execution");
 }
 
+export function approveAgentRunAndGetPublic(id: string): PublicAgentRun | null {
+  const db = getDatabase();
+  return db.transaction(() => {
+    if (!approveAgentRun(id)) {
+      return null;
+    }
+    const publicRun = getPublicAgentRun(id);
+    if (!publicRun) {
+      throw new Error("Approved agent run could not be read");
+    }
+    return publicRun;
+  }).immediate();
+}
+
 export function requestAgentRunCancellation(id: string): AgentRun | null {
   const db = getDatabase();
   return db.transaction(() => {
@@ -585,6 +615,24 @@ export function requestAgentRunCancellation(id: string): AgentRun | null {
       `)
       .run(timestamp, id);
     return active.changes === 1 ? getAgentRun(id) : null;
+  }).immediate();
+}
+
+export function requestAgentRunCancellationAndGetPublic(id: string): PublicAgentRun | null {
+  const db = getDatabase();
+  return db.transaction(() => {
+    const existing = getAgentRun(id);
+    if (!existing || existing.cancellationRequested) {
+      return null;
+    }
+    if (!requestAgentRunCancellation(id)) {
+      return null;
+    }
+    const publicRun = getPublicAgentRun(id);
+    if (!publicRun) {
+      throw new Error("Cancelled agent run could not be read");
+    }
+    return publicRun;
   }).immediate();
 }
 

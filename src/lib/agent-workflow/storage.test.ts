@@ -13,15 +13,18 @@ import {
 import {
   appendAgentRunEvent,
   approveAgentRun,
+  approveAgentRunAndGetPublic,
   claimNextExecution,
   claimNextPreview,
   createAgentRun,
+  enqueueAgentRun,
   getAgentRun,
   getPublicAgentRun,
   interruptOwnedAgentRun,
   recoverAbandonedAgentRuns,
   renewAgentRunLease,
   requestAgentRunCancellation,
+  requestAgentRunCancellationAndGetPublic,
   resetAgentRunStorageForTests,
   transitionAgentRun,
   transitionOwnedAgentRun
@@ -170,6 +173,18 @@ describe("agent run domain", () => {
     expect(getAgentRun(run.id)?.state).toBe("queued_execution");
   });
 
+  it("returns the approval public snapshot from the same CAS transaction", () => {
+    const run = createQueuedRun("approve-public");
+    finishPreview(run.id);
+
+    const approved = approveAgentRunAndGetPublic(run.id);
+    requestAgentRunCancellationAndGetPublic(run.id);
+
+    expect(approved?.state).toBe("queued_execution");
+    expect(approveAgentRunAndGetPublic(run.id)).toBeNull();
+    expect(getPublicAgentRun(run.id)?.state).toBe("cancelled");
+  });
+
   it.each(["queued_preview", "awaiting_approval", "queued_execution"] as const)(
     "cancels %s immediately",
     (state) => {
@@ -187,6 +202,15 @@ describe("agent run domain", () => {
       });
     }
   );
+
+  it("makes cancellation and approval mutually exclusive through storage CAS helpers", () => {
+    const run = createQueuedRun("cancel-first-public");
+    finishPreview(run.id);
+
+    expect(requestAgentRunCancellationAndGetPublic(run.id)?.state).toBe("cancelled");
+    expect(approveAgentRunAndGetPublic(run.id)).toBeNull();
+    expect(requestAgentRunCancellationAndGetPublic(run.id)).toBeNull();
+  });
 
   it.each(["previewing", "executing", "verifying"] as const)(
     "marks active %s work for cooperative cancellation",
@@ -217,6 +241,39 @@ describe("agent run domain", () => {
     expect(appendAgentRunEvent(run.id, { kind: "status", message: "Queued" }).sequence).toBe(1);
     expect(appendAgentRunEvent(run.id, { kind: "progress", message: "Reading posting" }).sequence).toBe(2);
     expect(appendAgentRunEvent(other.id, { kind: "status", message: "Queued" }).sequence).toBe(1);
+  });
+
+  it("atomically enqueues the run and fixed initial public event", () => {
+    const run = enqueueAgentRun({
+      provider: "codex",
+      model: "gpt-5.6-terra",
+      canonicalJobUrl: "https://example.com/atomic-enqueue"
+    });
+
+    expect(run).toMatchObject({ state: "queued_preview" });
+    expect(run.events).toEqual([
+      expect.objectContaining({ sequence: 1, kind: "status", message: "Run queued for preview." })
+    ]);
+  });
+
+  it("rolls back the queued row when the fixed initial event insert fails", () => {
+    getPublicAgentRun("initialize-schema");
+    const db = new Database(process.env.JOBTRACKER_DB_PATH!);
+    db.exec(`
+      CREATE TRIGGER reject_initial_agent_event
+      BEFORE INSERT ON agent_run_events
+      BEGIN
+        SELECT RAISE(ABORT, 'event rejected');
+      END;
+    `);
+
+    expect(() => enqueueAgentRun({
+      provider: "codex",
+      model: "gpt-5.6-terra",
+      canonicalJobUrl: "https://example.com/rollback-enqueue"
+    })).toThrow();
+    expect((db.prepare("SELECT COUNT(*) AS count FROM agent_runs").get() as { count: number }).count).toBe(0);
+    db.close();
   });
 
   it("persists validated preview data and serializes a public view without lease internals", () => {

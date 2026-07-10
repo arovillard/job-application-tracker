@@ -1,8 +1,13 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { EventEmitter } from "node:events";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const childProcessGuard = vi.hoisted(() => ({ spawn: vi.fn() }));
+vi.mock("node:child_process", () => ({ spawn: childProcessGuard.spawn }));
 
 import type { AgentConfig, ProviderDiagnostic } from "../../../lib/agent-workflow/config";
 import {
@@ -13,12 +18,15 @@ import {
   transitionAgentRun,
   transitionOwnedAgentRun
 } from "../../../lib/agent-workflow/storage";
-import type { AgentProviderName, AgentRun } from "../../../lib/agent-workflow/types";
-import { createPostHandler } from "./route";
+import type { AgentProviderName } from "../../../lib/agent-workflow/types";
+import { createPostHandler, POST as productionPostRun } from "./route";
 import { GET as getRun } from "./[id]/route";
 import { POST as approveRun } from "./[id]/approve/route";
 import { POST as cancelRun } from "./[id]/cancel/route";
-import { createDiagnosticsHandler } from "../agent-providers/route";
+import {
+  createDiagnosticsHandler,
+  GET as productionGetDiagnostics
+} from "../agent-providers/route";
 
 const config: AgentConfig = {
   codex: { executablePath: "codex", defaultModel: "gpt-5.6-terra" },
@@ -52,18 +60,9 @@ function postRequest(body: unknown) {
 }
 
 function postDependencies(diagnostic: ProviderDiagnostic = { available: true, version: "codex 1" }) {
-  const createRun = vi.fn((): AgentRun => ({
+  const enqueueRun = vi.fn(() => ({
     ...publicRun,
-    artifactManifest: null,
-    workerId: null,
-    leaseExpiresAt: null
-  }));
-  const appendEvent = vi.fn();
-  const getPublicRun = vi.fn(() => ({
-    ...publicRun,
-    events: appendEvent.mock.calls.length
-      ? [{ id: "event-1", runId: "run-1", sequence: 1, kind: "status" as const, message: "Run queued for preview.", metadata: null, createdAt: publicRun.createdAt }]
-      : []
+    events: [{ id: "event-1", runId: "run-1", sequence: 1, kind: "status" as const, message: "Run queued for preview.", metadata: null, createdAt: publicRun.createdAt }]
   }));
   return {
     loadConfig: vi.fn(() => config),
@@ -72,9 +71,7 @@ function postDependencies(diagnostic: ProviderDiagnostic = { available: true, ve
     ),
     validateJobUrl: vi.fn(async () => "https://jobs.example.com/role"),
     diagnoseProvider: vi.fn(async () => diagnostic),
-    createRun,
-    appendEvent,
-    getPublicRun
+    enqueueRun
   };
 }
 
@@ -90,16 +87,13 @@ describe("POST /api/agent-runs", () => {
     );
 
     expect(response.status).toBe(202);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(deps.diagnoseProvider).toHaveBeenCalledOnce();
     expect(deps.diagnoseProvider).toHaveBeenCalledWith(config, "codex");
-    expect(deps.createRun).toHaveBeenCalledWith({
+    expect(deps.enqueueRun).toHaveBeenCalledWith({
       provider: "codex",
       model: "gpt-5.6-terra",
       canonicalJobUrl: "https://jobs.example.com/role"
-    });
-    expect(deps.appendEvent).toHaveBeenCalledWith("run-1", {
-      kind: "status",
-      message: "Run queued for preview."
     });
     expect(await body(response)).not.toHaveProperty("workerId");
   });
@@ -115,7 +109,7 @@ describe("POST /api/agent-runs", () => {
     const response = await createPostHandler(deps)(postRequest(input));
     expect(response.status).toBe(400);
     expect(await body(response)).toEqual({ error });
-    expect(deps.createRun).not.toHaveBeenCalled();
+    expect(deps.enqueueRun).not.toHaveBeenCalled();
   });
 
   it("maps private or forbidden URLs to an allowlisted safe error", async () => {
@@ -137,7 +131,7 @@ describe("POST /api/agent-runs", () => {
     expect(response.status).toBe(400);
     expect(await body(response)).toEqual({ error: "Invalid agent model identifier." });
     expect(deps.diagnoseProvider).not.toHaveBeenCalled();
-    expect(deps.createRun).not.toHaveBeenCalled();
+    expect(deps.enqueueRun).not.toHaveBeenCalled();
   });
 
   it("returns 409 and stores nothing when the selected executable is unavailable", async () => {
@@ -147,14 +141,14 @@ describe("POST /api/agent-runs", () => {
     );
     expect(response.status).toBe(409);
     expect(await body(response)).toEqual({ error: "Provider executable is unavailable." });
-    expect(deps.createRun).not.toHaveBeenCalled();
+    expect(deps.enqueueRun).not.toHaveBeenCalled();
   });
 
   it("never exposes arbitrary config, URL, diagnostic, or storage exceptions", async () => {
-    for (const key of ["loadConfig", "validateJobUrl", "diagnoseProvider", "createRun"] as const) {
+    for (const key of ["loadConfig", "validateJobUrl", "diagnoseProvider", "enqueueRun"] as const) {
       const deps = postDependencies();
       (deps[key] as ReturnType<typeof vi.fn>).mockRejectedValue?.(new Error("secret=/tmp/token"));
-      if (key === "loadConfig" || key === "createRun") {
+      if (key === "loadConfig" || key === "enqueueRun") {
         (deps[key] as ReturnType<typeof vi.fn>).mockImplementation(() => { throw new Error("secret=/tmp/token"); });
       }
       const response = await createPostHandler(deps)(
@@ -167,13 +161,16 @@ describe("POST /api/agent-runs", () => {
 });
 
 let tempDir: string;
+const originalCwd = process.cwd();
 
 beforeEach(() => {
+  childProcessGuard.spawn.mockReset();
   tempDir = mkdtempSync(path.join(tmpdir(), "jobtracker-route-"));
   process.env.JOBTRACKER_DB_PATH = path.join(tempDir, "test.sqlite");
 });
 
 afterEach(() => {
+  process.chdir(originalCwd);
   resetAgentRunStorageForTests();
   delete process.env.JOBTRACKER_DB_PATH;
   rmSync(tempDir, { force: true, recursive: true });
@@ -205,6 +202,7 @@ describe("run read and action routes", () => {
     expect(output).not.toHaveProperty("workerId");
     expect(output).not.toHaveProperty("leaseExpiresAt");
     expect(output).not.toHaveProperty("artifactManifest");
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
   it("approves exactly awaiting_approval once under duplicate/concurrent requests", async () => {
@@ -228,10 +226,38 @@ describe("run read and action routes", () => {
     expect(await body(response)).toEqual({ error: "Agent run is not awaiting approval." });
   });
 
+  it("returns each mixed approval/cancellation winner's transactional public snapshot", async () => {
+    const approvalFirst = queuedRun("approval-first");
+    claimNextPreview("approval-first-owner", 60_000);
+    transitionOwnedAgentRun(approvalFirst.id, "approval-first-owner", "previewing", "awaiting_approval", {
+      preview: { company: "Acme", role: "Engineer", location: null, summary: "Role", postingState: "open" }
+    });
+    const approvalResponsePromise = approveRun(new Request("http://localhost"), context(approvalFirst.id));
+    const cancellationResponsePromise = cancelRun(new Request("http://localhost"), context(approvalFirst.id));
+    const approvalResponse = await approvalResponsePromise;
+    const cancellationResponse = await cancellationResponsePromise;
+    expect(approvalResponse.status).toBe(200);
+    expect(approvalResponse.headers.get("cache-control")).toBe("no-store");
+    expect(await body(approvalResponse)).toMatchObject({ state: "queued_execution" });
+    expect(cancellationResponse.status).toBe(200);
+    expect(await body(cancellationResponse)).toMatchObject({ state: "cancelled" });
+
+    const cancellationFirst = queuedRun("cancellation-first");
+    claimNextPreview("cancellation-first-owner", 60_000);
+    transitionOwnedAgentRun(cancellationFirst.id, "cancellation-first-owner", "previewing", "awaiting_approval", {
+      preview: { company: "Acme", role: "Engineer", location: null, summary: "Role", postingState: "open" }
+    });
+    const cancellationFirstResponsePromise = cancelRun(new Request("http://localhost"), context(cancellationFirst.id));
+    const losingApprovalPromise = approveRun(new Request("http://localhost"), context(cancellationFirst.id));
+    expect((await cancellationFirstResponsePromise).status).toBe(200);
+    expect((await losingApprovalPromise).status).toBe(409);
+  });
+
   it("cancels queued runs immediately and sets a request on active runs", async () => {
     const queued = queuedRun("queued-cancel");
     const immediate = await cancelRun(new Request("http://localhost"), context(queued.id));
     expect(await body(immediate)).toMatchObject({ state: "cancelled", cancellationRequested: true });
+    expect(immediate.headers.get("cache-control")).toBe("no-store");
 
     const active = queuedRun("active-cancel");
     claimNextPreview("active-owner", 60_000);
@@ -266,10 +292,26 @@ describe("GET /api/agent-providers", () => {
       new Request("http://localhost/api/agent-providers")
     );
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await body(response)).toEqual({ providers: [
       { provider: "codex", available: true, version: "codex 1.2", defaultModel: "gpt-5.6-terra" },
       { provider: "claude", available: false, version: null, error: "Provider executable is unavailable.", defaultModel: "sonnet" }
     ] });
+  });
+
+  it("projects only allowlisted public diagnostic fields", async () => {
+    const response = await createDiagnosticsHandler({
+      loadConfig: () => config,
+      diagnoseProvider: async () => ({
+        available: true,
+        version: "safe version",
+        executablePath: "/private/bin/provider",
+        credentials: "secret"
+      } as ProviderDiagnostic)
+    })(new Request("http://localhost"));
+
+    const output = JSON.stringify(await body(response));
+    expect(output).not.toMatch(/executablePath|credentials|private|secret/);
   });
 
   it("converts config and thrown diagnostic failures to safe unavailable entries", async () => {
@@ -301,6 +343,50 @@ describe("route source isolation", () => {
     ];
     const source = routeFiles.map((file) => readFileSync(path.resolve(file), "utf8")).join("\n");
     expect(source).not.toMatch(/from\s+["'][^"']*\/(?:providers|orchestrator|process)["']|agent-worker|agent:worker/);
-    expect(source).not.toMatch(/spawn\s*\(|exec(File)?\s*\(|--model|runPreview|runMaterials/);
+  });
+
+  it("exercises every production handler and permits only exact --version child processes", async () => {
+    writeFileSync(path.join(tempDir, "jobtracker.agent.local.json"), JSON.stringify({
+      codex: { executablePath: process.execPath, defaultModel: "gpt-5.6-terra" },
+      claude: { executablePath: process.execPath, defaultModel: "sonnet" }
+    }));
+    process.chdir(tempDir);
+    childProcessGuard.spawn.mockImplementation((executable, args) => {
+      expect(executable).toBe(process.execPath);
+      expect(args).toEqual(["--version"]);
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: PassThrough;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      child.stdout = new PassThrough();
+      child.kill = vi.fn();
+      queueMicrotask(() => {
+        child.stdout.write("provider 1.0\n");
+        child.stdout.end();
+        child.emit("close", 0);
+      });
+      return child;
+    });
+
+    const queued = await productionPostRun(postRequest({
+      jobUrl: "https://93.184.216.34/jobs/production",
+      provider: "codex"
+    }));
+    expect(queued.status).toBe(202);
+    const queuedBody = await body(queued);
+    const diagnostics = await productionGetDiagnostics(new Request("http://localhost/api/agent-providers"));
+    expect(diagnostics.status).toBe(200);
+    expect(childProcessGuard.spawn).toHaveBeenCalledTimes(3);
+    for (const [, args] of childProcessGuard.spawn.mock.calls) {
+      expect(args).toEqual(["--version"]);
+      expect(args).not.toContain("--model");
+    }
+
+    childProcessGuard.spawn.mockClear();
+    const id = String(queuedBody.id);
+    await getRun(new Request("http://localhost"), context(id));
+    await cancelRun(new Request("http://localhost"), context(id));
+    await approveRun(new Request("http://localhost"), context("missing"));
+    expect(childProcessGuard.spawn).not.toHaveBeenCalled();
   });
 });
