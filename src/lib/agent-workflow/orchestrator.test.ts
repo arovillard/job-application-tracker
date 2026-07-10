@@ -352,6 +352,32 @@ describe("agent workflow orchestration", () => {
     }
   );
 
+  it("rejects an exact fresh audit note with a far-future timestamp before materials", async () => {
+    const fake = provider();
+    let materialsCalled = false;
+    fake.createMaterials = async () => {
+      materialsCalled = true;
+      return { manifest: [], usage: null };
+    };
+    const spawn: JsonCommandSpawn = (command, args, options) => {
+      const child = nodeSpawn(command, [...args], options as never);
+      if (args[0]?.endsWith("upsert-job-posting.mjs")) {
+        child.once("close", () => {
+          const db = new Database(dbPath);
+          db.prepare("UPDATE application_notes SET created_at = '2099-01-01T00:00:00.000Z'").run();
+          db.close();
+        });
+      }
+      return child as never;
+    };
+    const run = await queueApprovedRun("https://jobs.example.com/audit-future", fake);
+
+    await processNextAgentRun({ ...dependencies(fake), spawn });
+
+    expect(materialsCalled).toBe(false);
+    expect(getAgentRun(run.id)).toMatchObject({ state: "failed", failureCode: "upsert_readback_invalid" });
+  });
+
   it("prevalidates the full manifest before making any registration call", async () => {
     const fake = provider();
     fake.createMaterials = async () => {
@@ -625,6 +651,82 @@ describe("agent workflow orchestration", () => {
 
     expect(getAgentRun(run.id)?.state).toBe("failed");
     const db = new Database(dbPath, { readonly: true });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM application_artifacts").get()).toEqual({ count: 0 });
+    db.close();
+  });
+
+  it("reverses every application timestamp in an uncontended multi-attempt rollback", async () => {
+    const fake = provider();
+    const files = ["chain-first.md", "chain-second.md", "chain-third.md"].map((name) => path.join(applicationsDir, name));
+    fake.createMaterials = async () => {
+      for (const file of files) writeFileSync(file, file);
+      return { manifest: [
+        { type: "fit_analysis", title: "First", filePath: files[0], contentType: "text/markdown" },
+        { type: "cover_letter", title: "Second", filePath: files[1], contentType: "text/markdown" },
+        { type: "outreach_message", title: "Third", filePath: files[2], contentType: "text/markdown" }
+      ], usage: null };
+    };
+    let registrations = 0;
+    let originalTimestamp = "";
+    const spawn: JsonCommandSpawn = (command, args, options) => {
+      if (!args[0]?.endsWith("register-application-artifact.mjs")) return nodeSpawn(command, [...args], options as never) as never;
+      registrations += 1;
+      if (registrations === 1) {
+        const db = new Database(dbPath, { readonly: true });
+        originalTimestamp = (db.prepare("SELECT updated_at FROM applications").get() as { updated_at: string }).updated_at;
+        db.close();
+      }
+      if (registrations <= 2) return nodeSpawn(command, [...args], options as never) as never;
+      return nodeSpawn(command, ["-e", "process.stdin.resume();process.stdin.on('end',()=>process.exit(1))"], options as never) as never;
+    };
+    const run = await queueApprovedRun("https://jobs.example.com/timestamp-chain", fake);
+
+    await processNextAgentRun({ ...dependencies(fake), spawn });
+
+    expect(getAgentRun(run.id)?.state).toBe("failed");
+    const db = new Database(dbPath, { readonly: true });
+    expect((db.prepare("SELECT updated_at FROM applications").get() as { updated_at: string }).updated_at).toBe(originalTimestamp);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM application_artifacts").get()).toEqual({ count: 0 });
+    db.close();
+  });
+
+  it("preserves an unrelated application timestamp written between registration attempts", async () => {
+    const fake = provider();
+    const files = ["cas-first.md", "cas-second.md", "cas-third.md"].map((name) => path.join(applicationsDir, name));
+    fake.createMaterials = async () => {
+      for (const file of files) writeFileSync(file, file);
+      return { manifest: [
+        { type: "fit_analysis", title: "First", filePath: files[0], contentType: "text/markdown" },
+        { type: "cover_letter", title: "Second", filePath: files[1], contentType: "text/markdown" },
+        { type: "outreach_message", title: "Third", filePath: files[2], contentType: "text/markdown" }
+      ], usage: null };
+    };
+    const concurrentTimestamp = "2099-03-01T00:00:00.000Z";
+    let registrations = 0;
+    const spawn: JsonCommandSpawn = (command, args, options) => {
+      if (!args[0]?.endsWith("register-application-artifact.mjs")) return nodeSpawn(command, [...args], options as never) as never;
+      registrations += 1;
+      if (registrations === 1) {
+        const child = nodeSpawn(command, [...args], options as never);
+        child.once("close", () => {
+          setImmediate(() => {
+            const db = new Database(dbPath);
+            db.prepare("UPDATE applications SET updated_at = ?").run(concurrentTimestamp);
+            db.close();
+          });
+        });
+        return child as never;
+      }
+      if (registrations === 2) return nodeSpawn(command, [...args], options as never) as never;
+      return nodeSpawn(command, ["-e", "process.stdin.resume();process.stdin.on('end',()=>process.exit(1))"], options as never) as never;
+    };
+    const run = await queueApprovedRun("https://jobs.example.com/timestamp-cas", fake);
+
+    await processNextAgentRun({ ...dependencies(fake), spawn });
+
+    expect(getAgentRun(run.id)?.state).toBe("failed");
+    const db = new Database(dbPath, { readonly: true });
+    expect((db.prepare("SELECT updated_at FROM applications").get() as { updated_at: string }).updated_at).toBe(concurrentTimestamp);
     expect(db.prepare("SELECT COUNT(*) AS count FROM application_artifacts").get()).toEqual({ count: 0 });
     db.close();
   });

@@ -146,6 +146,7 @@ async function processExecution(run: AgentRun, deps: AgentOrchestratorDependenci
         commandOptions(deps, signal)
       )
     );
+    const upsertFinishedAt = new Date().toISOString();
     const applicationId = validateUpsert(upsert, run.preview, run.canonicalJobUrl);
     verifyUpsertReadback(
       deps.dbPath,
@@ -155,7 +156,8 @@ async function processExecution(run: AgentRun, deps: AgentOrchestratorDependenci
       upsert,
       beforeUpsert,
       auditNote,
-      upsertStartedAt
+      upsertStartedAt,
+      upsertFinishedAt
     );
 
     const materials = await activePhase(run.id, deps, (signal) =>
@@ -188,7 +190,7 @@ async function processExecution(run: AgentRun, deps: AgentOrchestratorDependenci
       reconcileManifest(materials.manifest, deps.applicationsDir)
     );
     const links = [];
-    for (const entry of manifest) {
+    for (const [entryIndex, entry] of manifest.entries()) {
       const beforeRegistration = snapshotRegistrationKey(deps.dbPath, applicationId, entry);
       const registrationStartedAt = new Date().toISOString();
       let registered: unknown;
@@ -242,6 +244,7 @@ async function processExecution(run: AgentRun, deps: AgentOrchestratorDependenci
         title: entry.title,
         href: `/api/applications/${applicationId}/artifacts/${artifact.id}/file`
       });
+      if (entryIndex < manifest.length - 1) await yieldToEventLoop();
     }
     const completed = transitionOwnedAgentRun(run.id, deps.workerId, "verifying", "succeeded", {
       artifactManifest: manifest,
@@ -316,6 +319,8 @@ async function activePhase<T>(
   };
   deps.signal?.addEventListener("abort", onWorkerAbort, { once: true });
   try {
+    check();
+    if (stopped) throw new PhaseStoppedError(stopped);
     const value = await operation(controller.signal);
     const current = getAgentRun(runId);
     if (current?.cancellationRequested) stopped = "cancelled";
@@ -442,7 +447,8 @@ function verifyUpsertReadback(
   outputValue: unknown,
   before: UpsertSnapshot,
   auditNote: string,
-  startedAt: string
+  startedAt: string,
+  finishedAt: string
 ) {
   const db = new Database(dbPath, { readonly: true });
   try {
@@ -480,7 +486,7 @@ function verifyUpsertReadback(
         | { application_id: string; body: string; created_at: string }
         | undefined;
       if (
-        !note || note.application_id !== id || note.created_at < startedAt ||
+        !note || note.application_id !== id || note.created_at < startedAt || note.created_at > finishedAt ||
         note.body !== expectedNoteBody
       ) invalid("upsert_readback_invalid");
     }
@@ -676,15 +682,15 @@ function compensateArtifactRegistrations(dbPath: string, ledger: ArtifactMutatio
               written.file_path, written.content_type, written.created_at, written.updated_at
             );
           }
+          db.prepare(`
+            UPDATE applications SET updated_at = ?
+            WHERE id = ? AND updated_at = ?
+          `).run(
+            mutation.before.applicationUpdatedAt,
+            mutation.before.applicationId,
+            mutation.applicationWrittenAt
+          );
         }
-      }
-      const first = ledger[0];
-      const last = ledger.at(-1);
-      if (first && last) {
-        db.prepare(`
-          UPDATE applications SET updated_at = ?
-          WHERE id = ? AND updated_at = ?
-        `).run(first.before.applicationUpdatedAt, first.before.applicationId, last.applicationWrittenAt);
       }
     }).immediate();
   } finally {
@@ -781,4 +787,8 @@ async function abortableDelay(ms: number, signal?: AbortSignal) {
     }
     signal?.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+async function yieldToEventLoop() {
+  await new Promise<void>((resolve) => setImmediate(resolve));
 }
