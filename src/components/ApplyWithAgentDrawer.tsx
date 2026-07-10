@@ -210,7 +210,10 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
       if (POLLABLE.has(next.state)) schedulePoll(next, epoch);
       else clearPoll();
     } catch (caught) {
-      if (!(caught instanceof DOMException && caught.name === "AbortError") && mountedRef.current && openRef.current && epoch === epochRef.current) setError(caught instanceof Error ? caught.message : `Unable to ${action} this run.`);
+      if (!(caught instanceof DOMException && caught.name === "AbortError") && mountedRef.current && openRef.current && epoch === epochRef.current) {
+        setError(caught instanceof Error ? caught.message : `Unable to ${action} this run.`);
+        if (action === "cancel" && POLLABLE.has(run.state)) schedulePoll(run, epoch);
+      }
     } finally {
       if (mountedRef.current && openRef.current && epoch === epochRef.current) setPending(null);
     }

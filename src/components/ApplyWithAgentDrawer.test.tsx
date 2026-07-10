@@ -225,6 +225,45 @@ describe("ApplyWithAgentDrawer", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("starts exactly one fresh poll chain when cancellation fails for an active run", async () => {
+    const stalePoll = deferred<Response>();
+    let staleSignal: AbortSignal | undefined;
+    fetchMock
+      .mockImplementationOnce(() => jsonReply({ body: diagnostics }))
+      .mockImplementationOnce(() => jsonReply({ body: run("executing"), status: 202 }))
+      .mockImplementationOnce((_url, options) => { staleSignal = options.signal; return stalePoll.promise; })
+      .mockImplementationOnce(() => jsonReply({ body: { error: "Cancellation is temporarily unavailable." }, ok: false, status: 503 }))
+      .mockImplementationOnce(() => jsonReply({ body: run("cancelled") }));
+    await render(); await act(async () => {}); await submitRun();
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    await act(async () => button("Cancel").click());
+    expect(staleSignal?.aborted).toBe(true);
+    await act(async () => stalePoll.resolve(await jsonReply({ body: run("awaiting_approval") })));
+    expect(container.textContent).toContain("executing");
+    expect(container.textContent).not.toContain("awaiting approval");
+    expect(container.textContent).toContain("Cancellation is temporarily unavailable.");
+    await act(async () => vi.advanceTimersByTimeAsync(999));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(container.textContent).toMatch(/cancelled/i);
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it("does not poll after cancellation fails while awaiting approval", async () => {
+    replies.push(
+      { body: diagnostics },
+      { body: run("awaiting_approval", { preview: { company: "Acme", role: "Engineer", location: null, summary: "Fit", postingState: "open" } }), status: 202 },
+      { body: { error: "Cancellation is temporarily unavailable." }, ok: false, status: 503 }
+    );
+    await render(); await act(async () => {}); await submitRun();
+    await act(async () => button("Cancel").click());
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(container.textContent).toContain("awaiting approval");
+  });
+
   it("ignores an older action completion after the drawer is closed", async () => {
     const pendingCancel = deferred<Response>();
     let actionSignal: AbortSignal | undefined;
