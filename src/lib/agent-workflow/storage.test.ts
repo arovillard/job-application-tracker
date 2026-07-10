@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -18,6 +19,7 @@ import {
   getAgentRun,
   getPublicAgentRun,
   recoverAbandonedAgentRuns,
+  renewAgentRunLease,
   requestAgentRunCancellation,
   resetAgentRunStorageForTests,
   transitionAgentRun
@@ -207,6 +209,50 @@ describe("agent run domain", () => {
 });
 
 describe("agent run leases and recovery", () => {
+  it("renews an owned preview lease and rejects a mismatched owner", () => {
+    const run = createQueuedRun("renew-preview");
+    const claimed = claimNextPreview("preview-owner", 1_000);
+
+    expect(renewAgentRunLease(run.id, "other-worker", 60_000)).toBe(false);
+    expect(renewAgentRunLease(run.id, "preview-owner", 60_000)).toBe(true);
+    expect(new Date(getAgentRun(run.id)!.leaseExpiresAt!).getTime()).toBeGreaterThan(
+      new Date(claimed!.leaseExpiresAt!).getTime()
+    );
+  });
+
+  it("atomically renews an owned execution run and its exact global lease", () => {
+    const run = createQueuedRun("renew-execution");
+    transitionAgentRun(run.id, "queued_preview", "previewing");
+    transitionAgentRun(run.id, "previewing", "awaiting_approval", { preview });
+    approveAgentRun(run.id);
+    const claimed = claimNextExecution("execution-owner", 1_000);
+
+    expect(renewAgentRunLease(run.id, "other-worker", 60_000)).toBe(false);
+    expect(renewAgentRunLease(run.id, "execution-owner", 60_000)).toBe(true);
+    expect(new Date(getAgentRun(run.id)!.leaseExpiresAt!).getTime()).toBeGreaterThan(
+      new Date(claimed!.leaseExpiresAt!).getTime()
+    );
+    expect(claimNextExecution("competing-worker", 60_000)).toBeNull();
+  });
+
+  it("fails closed when the execution row and global lease no longer match exactly", () => {
+    const run = createQueuedRun("renew-mismatch");
+    transitionAgentRun(run.id, "queued_preview", "previewing");
+    transitionAgentRun(run.id, "previewing", "awaiting_approval", { preview });
+    approveAgentRun(run.id);
+    claimNextExecution("execution-owner", 60_000);
+    const originalExpiry = getAgentRun(run.id)!.leaseExpiresAt;
+    const db = new Database(process.env.JOBTRACKER_DB_PATH!);
+    db.prepare("UPDATE agent_worker_leases SET expires_at = ? WHERE run_id = ?").run(
+      new Date(Date.now() + 120_000).toISOString(),
+      run.id
+    );
+    db.close();
+
+    expect(renewAgentRunLease(run.id, "execution-owner", 60_000)).toBe(false);
+    expect(getAgentRun(run.id)?.leaseExpiresAt).toBe(originalExpiry);
+  });
+
   function queueExecution(suffix: string) {
     const run = createQueuedRun(suffix);
     transitionAgentRun(run.id, "queued_preview", "previewing");

@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "agent:worker": "tsx scripts/agent-worker.ts",
     "setup": "node scripts/setup-user.mjs",
     "skills:install": "node scripts/install-skills.mjs",
     "skills:install:codex": "node scripts/install-skills.mjs --codex",

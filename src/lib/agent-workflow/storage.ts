@@ -682,6 +682,81 @@ export function claimNextExecution(workerId: string, leaseDurationMs = 30_000): 
   }).immediate();
 }
 
+export function renewAgentRunLease(
+  id: string,
+  workerId: string,
+  leaseDurationMs = 30_000
+): boolean {
+  const owner = requireWorkerId(workerId);
+  const db = getDatabase();
+  return db.transaction(() => {
+    const timestamp = nowIso();
+    const run = db
+      .prepare("SELECT state, worker_id, lease_expires_at FROM agent_runs WHERE id = ?")
+      .get(id) as
+      | { state: string; worker_id: string | null; lease_expires_at: string | null }
+      | undefined;
+    if (
+      !run ||
+      !ACTIVE_STATES.has(run.state as AgentRunState) ||
+      run.worker_id !== owner ||
+      !run.lease_expires_at ||
+      run.lease_expires_at <= timestamp
+    ) {
+      return false;
+    }
+
+    const expiresAt = leaseExpiryIso(leaseDurationMs);
+    if (run.state === "previewing") {
+      return db
+        .prepare(`
+          UPDATE agent_runs
+          SET lease_expires_at = ?, updated_at = ?
+          WHERE id = ? AND state = 'previewing' AND worker_id = ? AND lease_expires_at = ?
+        `)
+        .run(expiresAt, timestamp, id, owner, run.lease_expires_at).changes === 1;
+    }
+
+    const lease = db
+      .prepare(`
+        SELECT worker_id, run_id, expires_at
+        FROM agent_worker_leases
+        WHERE name = ?
+      `)
+      .get(EXECUTION_LEASE_NAME) as
+      | { worker_id: string; run_id: string; expires_at: string }
+      | undefined;
+    if (
+      !lease ||
+      lease.worker_id !== owner ||
+      lease.run_id !== id ||
+      lease.expires_at !== run.lease_expires_at ||
+      lease.expires_at <= timestamp
+    ) {
+      return false;
+    }
+
+    const runUpdate = db
+      .prepare(`
+        UPDATE agent_runs
+        SET lease_expires_at = ?, updated_at = ?
+        WHERE id = ? AND state = ? AND worker_id = ? AND lease_expires_at = ?
+      `)
+      .run(expiresAt, timestamp, id, run.state, owner, run.lease_expires_at);
+    const leaseUpdate = db
+      .prepare(`
+        UPDATE agent_worker_leases
+        SET expires_at = ?, updated_at = ?
+        WHERE name = ? AND worker_id = ? AND run_id = ? AND expires_at = ?
+      `)
+      .run(expiresAt, timestamp, EXECUTION_LEASE_NAME, owner, id, lease.expires_at);
+    if (runUpdate.changes !== 1 || leaseUpdate.changes !== 1) {
+      throw new Error("Agent lease renewal failed");
+    }
+    return true;
+  }).immediate();
+}
+
 export function recoverAbandonedAgentRuns(workerId: string): number {
   const owner = requireWorkerId(workerId);
   const db = getDatabase();
