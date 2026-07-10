@@ -18,11 +18,13 @@ import {
   createAgentRun,
   getAgentRun,
   getPublicAgentRun,
+  interruptOwnedAgentRun,
   recoverAbandonedAgentRuns,
   renewAgentRunLease,
   requestAgentRunCancellation,
   resetAgentRunStorageForTests,
-  transitionAgentRun
+  transitionAgentRun,
+  transitionOwnedAgentRun
 } from "./storage";
 
 let tempDir: string;
@@ -52,6 +54,11 @@ function createQueuedRun(suffix = "one") {
     model: "gpt-5.6-terra",
     canonicalJobUrl: `https://example.com/jobs/${suffix}`
   });
+}
+
+function finishPreview(runId: string, workerId = `preview-${runId}`) {
+  claimNextPreview(workerId, 60_000);
+  return transitionOwnedAgentRun(runId, workerId, "previewing", "awaiting_approval", { preview });
 }
 
 describe("agent run domain", () => {
@@ -89,13 +96,51 @@ describe("agent run domain", () => {
 
     for (const [index, states] of paths.entries()) {
       const run = createQueuedRun(`legal-${index}`);
+      const workerId = `legal-worker-${index}`;
       for (let stateIndex = 1; stateIndex < states.length; stateIndex += 1) {
         const previous = states[stateIndex - 1];
         const next = states[stateIndex];
-        const transitioned =
-          previous === "queued_execution" && next === "executing"
-            ? claimNextExecution(`legal-worker-${index}`, 60_000)
-            : transitionAgentRun(run.id, previous, next);
+        let transitioned;
+        if (previous === "queued_preview") {
+          transitioned = next === "previewing"
+            ? claimNextPreview(workerId, 60_000)
+            : requestAgentRunCancellation(run.id);
+        } else if (previous === "previewing") {
+          if (next === "cancelled") requestAgentRunCancellation(run.id);
+          if (next === "interrupted") {
+            interruptOwnedAgentRun(run.id, workerId);
+            transitioned = getAgentRun(run.id);
+          } else {
+            transitioned = transitionOwnedAgentRun(
+              run.id,
+              workerId,
+              "previewing",
+              next,
+              next === "awaiting_approval" ? { preview } : {}
+            );
+          }
+        } else if (previous === "awaiting_approval") {
+          transitioned = next === "queued_execution"
+            ? approveAgentRun(run.id)
+            : requestAgentRunCancellation(run.id);
+        } else if (previous === "queued_execution") {
+          transitioned = next === "executing"
+            ? claimNextExecution(workerId, 60_000)
+            : requestAgentRunCancellation(run.id);
+        } else {
+          if (next === "cancelled") requestAgentRunCancellation(run.id);
+          if (next === "interrupted") {
+            interruptOwnedAgentRun(run.id, workerId);
+            transitioned = getAgentRun(run.id);
+          } else {
+            transitioned = transitionOwnedAgentRun(
+              run.id,
+              workerId,
+              previous as "executing" | "verifying",
+              next
+            );
+          }
+        }
         expect(transitioned).toMatchObject({ id: run.id, state: next });
       }
     }
@@ -107,7 +152,8 @@ describe("agent run domain", () => {
     expect(transitionAgentRun(run.id, "queued_preview", "succeeded")).toBeNull();
     expect(getAgentRun(run.id)?.state).toBe("queued_preview");
 
-    expect(transitionAgentRun(run.id, "queued_preview", "previewing")?.state).toBe("previewing");
+    expect(transitionAgentRun(run.id, "queued_preview", "previewing")).toBeNull();
+    expect(claimNextPreview("illegal-owner", 60_000)?.state).toBe("previewing");
     const updatedAt = getAgentRun(run.id)?.updatedAt;
     expect(transitionAgentRun(run.id, "queued_preview", "cancelled")).toBeNull();
     expect(getAgentRun(run.id)).toMatchObject({ state: "previewing", updatedAt });
@@ -117,8 +163,7 @@ describe("agent run domain", () => {
     const run = createQueuedRun("approve");
     expect(approveAgentRun(run.id)).toBeNull();
 
-    transitionAgentRun(run.id, "queued_preview", "previewing");
-    transitionAgentRun(run.id, "previewing", "awaiting_approval", { preview });
+    finishPreview(run.id);
 
     expect(approveAgentRun(run.id)?.state).toBe("queued_execution");
     expect(approveAgentRun(run.id)).toBeNull();
@@ -130,8 +175,7 @@ describe("agent run domain", () => {
     (state) => {
       const run = createQueuedRun(`cancel-${state}`);
       if (state !== "queued_preview") {
-        transitionAgentRun(run.id, "queued_preview", "previewing");
-        transitionAgentRun(run.id, "previewing", "awaiting_approval", { preview });
+        finishPreview(run.id);
       }
       if (state === "queued_execution") {
         approveAgentRun(run.id);
@@ -148,14 +192,15 @@ describe("agent run domain", () => {
     "marks active %s work for cooperative cancellation",
     (state) => {
       const run = createQueuedRun(`active-${state}`);
-      transitionAgentRun(run.id, "queued_preview", "previewing");
+      const workerId = `active-worker-${state}`;
+      claimNextPreview(workerId, 60_000);
       if (state !== "previewing") {
-        transitionAgentRun(run.id, "previewing", "awaiting_approval", { preview });
+        transitionOwnedAgentRun(run.id, workerId, "previewing", "awaiting_approval", { preview });
         approveAgentRun(run.id);
-        claimNextExecution(`active-worker-${state}`, 60_000);
+        claimNextExecution(workerId, 60_000);
       }
       if (state === "verifying") {
-        transitionAgentRun(run.id, "executing", "verifying");
+        transitionOwnedAgentRun(run.id, workerId, "executing", "verifying");
       }
 
       expect(requestAgentRunCancellation(run.id)).toMatchObject({
@@ -177,7 +222,7 @@ describe("agent run domain", () => {
   it("persists validated preview data and serializes a public view without lease internals", () => {
     const run = createQueuedRun("public");
     claimNextPreview("preview-worker", 60_000);
-    transitionAgentRun(run.id, "previewing", "awaiting_approval", {
+    transitionOwnedAgentRun(run.id, "preview-worker", "previewing", "awaiting_approval", {
       preview,
       usage: { inputTokens: 120, outputTokens: 35 }
     });
@@ -222,8 +267,7 @@ describe("agent run leases and recovery", () => {
 
   it("atomically renews an owned execution run and its exact global lease", () => {
     const run = createQueuedRun("renew-execution");
-    transitionAgentRun(run.id, "queued_preview", "previewing");
-    transitionAgentRun(run.id, "previewing", "awaiting_approval", { preview });
+    finishPreview(run.id);
     approveAgentRun(run.id);
     const claimed = claimNextExecution("execution-owner", 1_000);
 
@@ -237,8 +281,7 @@ describe("agent run leases and recovery", () => {
 
   it("fails closed when the execution row and global lease no longer match exactly", () => {
     const run = createQueuedRun("renew-mismatch");
-    transitionAgentRun(run.id, "queued_preview", "previewing");
-    transitionAgentRun(run.id, "previewing", "awaiting_approval", { preview });
+    finishPreview(run.id);
     approveAgentRun(run.id);
     claimNextExecution("execution-owner", 60_000);
     const originalExpiry = getAgentRun(run.id)!.leaseExpiresAt;
@@ -253,10 +296,37 @@ describe("agent run leases and recovery", () => {
     expect(getAgentRun(run.id)?.leaseExpiresAt).toBe(originalExpiry);
   });
 
+  it("prevents an expired preview owner from publishing a late completion", () => {
+    const run = createQueuedRun("late-preview");
+    claimNextPreview("late-owner", -1);
+
+    expect(
+      transitionOwnedAgentRun(run.id, "late-owner", "previewing", "awaiting_approval", { preview })
+    ).toBeNull();
+    expect(getAgentRun(run.id)?.state).toBe("previewing");
+    expect(interruptOwnedAgentRun(run.id, "late-owner")).toBe(true);
+    expect(getAgentRun(run.id)?.state).toBe("interrupted");
+  });
+
+  it("prevents a stale execution owner from completing after the exact lease is replaced", () => {
+    const run = createQueuedRun("late-execution");
+    finishPreview(run.id);
+    approveAgentRun(run.id);
+    claimNextExecution("stale-owner", 60_000);
+    const db = new Database(process.env.JOBTRACKER_DB_PATH!);
+    db.prepare("UPDATE agent_worker_leases SET worker_id = 'replacement-owner'").run();
+    db.close();
+
+    expect(
+      transitionOwnedAgentRun(run.id, "stale-owner", "executing", "verifying")
+    ).toBeNull();
+    expect(interruptOwnedAgentRun(run.id, "stale-owner")).toBe(false);
+    expect(getAgentRun(run.id)?.state).toBe("executing");
+  });
+
   function queueExecution(suffix: string) {
     const run = createQueuedRun(suffix);
-    transitionAgentRun(run.id, "queued_preview", "previewing");
-    transitionAgentRun(run.id, "previewing", "awaiting_approval", { preview });
+    finishPreview(run.id);
     approveAgentRun(run.id);
     return run;
   }
@@ -296,14 +366,30 @@ describe("agent run leases and recovery", () => {
     });
   });
 
+  it("does not allow the generic transition API to bypass active owner fencing", () => {
+    const run = createQueuedRun("active-bypass");
+    expect(transitionAgentRun(run.id, "queued_preview", "previewing")).toBeNull();
+    claimNextPreview("lease-owner", 60_000);
+
+    expect(
+      transitionAgentRun(run.id, "previewing", "awaiting_approval", { preview })
+    ).toBeNull();
+    expect(getAgentRun(run.id)).toMatchObject({ state: "previewing", workerId: "lease-owner" });
+  });
+
   it.each(["executing", "verifying"] as const)(
     "interrupts an expired %s lease before safely claiming the next execution",
     (state) => {
       const abandoned = queueExecution(`expired-${state}`);
-      claimNextExecution("expired-owner", -1);
+      claimNextExecution("expired-owner", 60_000);
       if (state === "verifying") {
-        transitionAgentRun(abandoned.id, "executing", "verifying");
+        transitionOwnedAgentRun(abandoned.id, "expired-owner", "executing", "verifying");
       }
+      const db = new Database(process.env.JOBTRACKER_DB_PATH!);
+      const expiredAt = new Date(Date.now() - 1).toISOString();
+      db.prepare("UPDATE agent_runs SET lease_expires_at = ? WHERE id = ?").run(expiredAt, abandoned.id);
+      db.prepare("UPDATE agent_worker_leases SET expires_at = ? WHERE run_id = ?").run(expiredAt, abandoned.id);
+      db.close();
       const next = queueExecution(`after-expired-${state}`);
 
       expect(claimNextExecution("replacement-owner", 60_000)).toMatchObject({
@@ -325,7 +411,7 @@ describe("agent run leases and recovery", () => {
       const abandoned = queueExecution(`foreign-${state}`);
       claimNextExecution("foreign-owner", 60_000);
       if (state === "verifying") {
-        transitionAgentRun(abandoned.id, "executing", "verifying");
+        transitionOwnedAgentRun(abandoned.id, "foreign-owner", "executing", "verifying");
       }
       const next = queueExecution(`after-foreign-${state}`);
 
@@ -347,8 +433,8 @@ describe("agent run leases and recovery", () => {
   it("releases the execution lease when execution reaches a terminal state", () => {
     const completed = queueExecution("completed-execution");
     claimNextExecution("worker-a", 60_000);
-    transitionAgentRun(completed.id, "executing", "verifying");
-    transitionAgentRun(completed.id, "verifying", "succeeded");
+    transitionOwnedAgentRun(completed.id, "worker-a", "executing", "verifying");
+    transitionOwnedAgentRun(completed.id, "worker-a", "verifying", "succeeded");
     const next = queueExecution("after-completion");
 
     expect(claimNextExecution("worker-b", 60_000)).toMatchObject({
@@ -365,14 +451,12 @@ describe("agent run leases and recovery", () => {
     const expired = createQueuedRun("expired");
     claimNextPreview("current-worker", -1);
 
-    const queuedPreview = createQueuedRun("queued");
     const awaitingApproval = createQueuedRun("approval");
-    transitionAgentRun(awaitingApproval.id, "queued_preview", "previewing");
-    transitionAgentRun(awaitingApproval.id, "previewing", "awaiting_approval", { preview });
+    finishPreview(awaitingApproval.id);
     const queuedExecution = createQueuedRun("queued-execution");
-    transitionAgentRun(queuedExecution.id, "queued_preview", "previewing");
-    transitionAgentRun(queuedExecution.id, "previewing", "awaiting_approval", { preview });
+    finishPreview(queuedExecution.id);
     approveAgentRun(queuedExecution.id);
+    const queuedPreview = createQueuedRun("queued");
 
     expect(recoverAbandonedAgentRuns("current-worker")).toBe(2);
     expect(getAgentRun(foreign.id)?.state).toBe("interrupted");
@@ -380,6 +464,16 @@ describe("agent run leases and recovery", () => {
     expect(getAgentRun(queuedPreview.id)?.state).toBe("queued_preview");
     expect(getAgentRun(awaitingApproval.id)?.state).toBe("awaiting_approval");
     expect(getAgentRun(queuedExecution.id)?.state).toBe("queued_execution");
+  });
+
+  it("recovers a legacy active row that has no owner", () => {
+    const run = createQueuedRun("ownerless");
+    const db = new Database(process.env.JOBTRACKER_DB_PATH!);
+    db.prepare("UPDATE agent_runs SET state = 'previewing' WHERE id = ?").run(run.id);
+    db.close();
+
+    expect(recoverAbandonedAgentRuns("current-worker")).toBe(1);
+    expect(getAgentRun(run.id)).toMatchObject({ state: "interrupted", workerId: null, leaseExpiresAt: null });
   });
 
   it("never requeues interrupted rows", () => {

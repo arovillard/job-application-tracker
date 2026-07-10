@@ -520,7 +520,11 @@ export function transitionAgentRun(
   nextState: AgentRunState,
   patch: AgentRunTransitionPatch = {}
 ): AgentRun | null {
-  if (!LEGAL_TRANSITIONS[expectedState].has(nextState)) {
+  if (
+    ACTIVE_STATES.has(expectedState) ||
+    ACTIVE_STATES.has(nextState) ||
+    !LEGAL_TRANSITIONS[expectedState].has(nextState)
+  ) {
     return null;
   }
   const db = getDatabase();
@@ -757,6 +761,106 @@ export function renewAgentRunLease(
   }).immediate();
 }
 
+export function transitionOwnedAgentRun(
+  id: string,
+  workerId: string,
+  expectedState: "previewing" | "executing" | "verifying",
+  nextState: AgentRunState,
+  patch: AgentRunTransitionPatch = {}
+): AgentRun | null {
+  if (!LEGAL_TRANSITIONS[expectedState].has(nextState)) return null;
+  const owner = requireWorkerId(workerId);
+  const db = getDatabase();
+  return db.transaction(() => {
+    const timestamp = nowIso();
+    const run = db.prepare(`
+      SELECT worker_id, lease_expires_at, cancellation_requested
+      FROM agent_runs WHERE id = ? AND state = ?
+    `).get(id, expectedState) as
+      | { worker_id: string | null; lease_expires_at: string | null; cancellation_requested: number }
+      | undefined;
+    if (!run || run.worker_id !== owner || !run.lease_expires_at || run.lease_expires_at <= timestamp) {
+      return null;
+    }
+    if (nextState === "cancelled" ? run.cancellation_requested !== 1 : run.cancellation_requested !== 0) {
+      return null;
+    }
+    if ((expectedState === "executing" || expectedState === "verifying") &&
+        !hasExactExecutionLease(db, id, owner, run.lease_expires_at, timestamp)) {
+      return null;
+    }
+
+    const { columns, values } = transitionColumns(patch);
+    columns.unshift("state = ?");
+    values.unshift(nextState);
+    if (!ACTIVE_STATES.has(nextState)) columns.push("worker_id = NULL", "lease_expires_at = NULL");
+    columns.push("updated_at = ?");
+    values.push(timestamp);
+    const cancellation = nextState === "cancelled" ? 1 : 0;
+    const updated = db.prepare(`
+      UPDATE agent_runs SET ${columns.join(", ")}
+      WHERE id = ? AND state = ? AND worker_id = ? AND lease_expires_at = ?
+        AND cancellation_requested = ?
+    `).run(...values, id, expectedState, owner, run.lease_expires_at, cancellation);
+    if (updated.changes !== 1) return null;
+    if ((expectedState === "executing" || expectedState === "verifying") && !ACTIVE_STATES.has(nextState)) {
+      const released = db.prepare(`
+        DELETE FROM agent_worker_leases
+        WHERE name = ? AND run_id = ? AND worker_id = ? AND expires_at = ?
+      `).run(EXECUTION_LEASE_NAME, id, owner, run.lease_expires_at);
+      if (released.changes !== 1) throw new Error("Agent execution lease release failed");
+    }
+    return getAgentRun(id);
+  }).immediate();
+}
+
+export function interruptOwnedAgentRun(id: string, workerId: string): boolean {
+  const owner = requireWorkerId(workerId);
+  const db = getDatabase();
+  return db.transaction(() => {
+    const run = db.prepare(`
+      SELECT state, lease_expires_at FROM agent_runs
+      WHERE id = ? AND state IN ('previewing', 'executing', 'verifying') AND worker_id = ?
+    `).get(id, owner) as { state: string; lease_expires_at: string | null } | undefined;
+    if (!run?.lease_expires_at) return false;
+    if ((run.state === "executing" || run.state === "verifying") &&
+        !hasExactExecutionLease(db, id, owner, run.lease_expires_at)) {
+      return false;
+    }
+    const updated = db.prepare(`
+      UPDATE agent_runs
+      SET state = 'interrupted', worker_id = NULL, lease_expires_at = NULL, updated_at = ?
+      WHERE id = ? AND state = ? AND worker_id = ? AND lease_expires_at = ?
+    `).run(nowIso(), id, run.state, owner, run.lease_expires_at);
+    if (updated.changes !== 1) return false;
+    if (run.state === "executing" || run.state === "verifying") {
+      const released = db.prepare(`
+        DELETE FROM agent_worker_leases
+        WHERE name = ? AND run_id = ? AND worker_id = ? AND expires_at = ?
+      `).run(EXECUTION_LEASE_NAME, id, owner, run.lease_expires_at);
+      if (released.changes !== 1) throw new Error("Agent execution lease release failed");
+    }
+    return true;
+  }).immediate();
+}
+
+function hasExactExecutionLease(
+  db: SqliteDatabase,
+  runId: string,
+  workerId: string,
+  expiresAt: string,
+  after?: string
+) {
+  const lease = db.prepare(`
+    SELECT 1 FROM agent_worker_leases
+    WHERE name = ? AND run_id = ? AND worker_id = ? AND expires_at = ?
+      ${after ? "AND expires_at > ?" : ""}
+  `).get(...(after
+    ? [EXECUTION_LEASE_NAME, runId, workerId, expiresAt, after]
+    : [EXECUTION_LEASE_NAME, runId, workerId, expiresAt]));
+  return Boolean(lease);
+}
+
 export function recoverAbandonedAgentRuns(workerId: string): number {
   const owner = requireWorkerId(workerId);
   const db = getDatabase();
@@ -767,8 +871,7 @@ export function recoverAbandonedAgentRuns(workerId: string): number {
         SELECT id
         FROM agent_runs
         WHERE state IN ('previewing', 'executing', 'verifying')
-          AND worker_id IS NOT NULL
-          AND (worker_id <> ? OR lease_expires_at IS NULL OR lease_expires_at <= ?)
+          AND (worker_id IS NULL OR worker_id <> ? OR lease_expires_at IS NULL OR lease_expires_at <= ?)
       `)
       .all(owner, timestamp) as Array<{ id: string }>;
     if (abandoned.length === 0) {

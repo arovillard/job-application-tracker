@@ -16,6 +16,7 @@ export type JsonCommandChild = {
     event: "close",
     listener: (code: number | null, signal: NodeJS.Signals | null) => void
   ): unknown;
+  removeListener(event: "error", listener: (error: Error) => void): unknown;
 };
 
 export type JsonCommandSpawn = (
@@ -103,12 +104,21 @@ export async function runJsonCommand(
     let reason: JsonCommandErrorCode | null = null;
     let forceKill: ReturnType<typeof setTimeout> | undefined;
     let settled = false;
+    const safeKill = (signal: NodeJS.Signals) => {
+      try {
+        child.kill(signal);
+      } catch {
+        // The close event remains the single settlement boundary.
+      }
+    };
     const stop = (code: JsonCommandErrorCode) => {
-      if (reason) return;
+      if (reason || settled) return;
       reason = code;
-      child.kill("SIGTERM");
+      safeKill("SIGTERM");
       forceKill = setTimeout(
-        () => child.kill("SIGKILL"),
+        () => {
+          if (!settled) safeKill("SIGKILL");
+        },
         options.killGraceMs ?? DEFAULT_KILL_GRACE_MS
       );
       forceKill.unref();
@@ -118,27 +128,37 @@ export async function runJsonCommand(
     const onAbort = () => stop("command_cancelled");
     options.signal?.addEventListener("abort", onAbort, { once: true });
 
-    child.stdout.on("data", (chunk: Buffer | string) => {
+    const onStdout = (chunk: Buffer | string) => {
       const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       if (stdout.length + data.length > maxOutputBytes) {
         stop("command_output_invalid");
         return;
       }
       stdout = Buffer.concat([stdout, data]);
-    });
-    child.stderr.on("data", (chunk: Buffer | string) => {
+    };
+    const onStderr = (chunk: Buffer | string) => {
       stderrBytes += Buffer.byteLength(chunk);
       if (stderrBytes > maxOutputBytes) stop("command_output_invalid");
-    });
-    child.once("error", () => {
-      reason ??= "command_failed";
-    });
-    child.once("close", (code) => {
-      if (settled) return;
-      settled = true;
+    };
+    const onChildError = () => stop("command_failed");
+    const onStdinError = () => stop("command_failed");
+    const cleanup = () => {
       clearTimeout(timeout);
       if (forceKill) clearTimeout(forceKill);
       options.signal?.removeEventListener("abort", onAbort);
+      child.stdout.removeListener("data", onStdout);
+      child.stderr.removeListener("data", onStderr);
+      child.stdin.removeListener("error", onStdinError);
+      child.removeListener("error", onChildError);
+    };
+    child.stdout.on("data", onStdout);
+    child.stderr.on("data", onStderr);
+    child.stdin.on("error", onStdinError);
+    child.once("error", onChildError);
+    child.once("close", (code) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       if (reason) {
         reject(new JsonCommandError(reason));
         return;
@@ -153,7 +173,11 @@ export async function runJsonCommand(
         reject(new JsonCommandError("command_output_invalid"));
       }
     });
-    child.stdin.end(stdin);
+    try {
+      child.stdin.end(stdin);
+    } catch {
+      stop("command_failed");
+    }
   });
 }
 
