@@ -319,6 +319,39 @@ describe("agent workflow orchestration", () => {
     expect(getAgentRun(second.id)).toMatchObject({ state: "failed", failureCode: "upsert_readback_invalid" });
   });
 
+  it.each(["extra", "missing"] as const)(
+    "rejects a fresh run-specific audit note with %s text before materials",
+    async (scenario) => {
+      const fake = provider();
+      let materialsCalled = false;
+      fake.createMaterials = async () => {
+        materialsCalled = true;
+        return { manifest: [], usage: null };
+      };
+      const spawn: JsonCommandSpawn = (command, args, options) => {
+        const child = nodeSpawn(command, [...args], options as never);
+        if (args[0]?.endsWith("upsert-job-posting.mjs")) {
+          child.once("close", () => {
+            const db = new Database(dbPath);
+            if (scenario === "extra") {
+              db.prepare("UPDATE application_notes SET body = body || ' tampered'").run();
+            } else {
+              db.prepare("UPDATE application_notes SET body = replace(body, 'changes:', 'change:')").run();
+            }
+            db.close();
+          });
+        }
+        return child as never;
+      };
+      const run = await queueApprovedRun(`https://jobs.example.com/audit-${scenario}`, fake);
+
+      await processNextAgentRun({ ...dependencies(fake), spawn });
+
+      expect(materialsCalled).toBe(false);
+      expect(getAgentRun(run.id)).toMatchObject({ state: "failed", failureCode: "upsert_readback_invalid" });
+    }
+  );
+
   it("prevalidates the full manifest before making any registration call", async () => {
     const fake = provider();
     fake.createMaterials = async () => {
@@ -485,6 +518,117 @@ describe("agent workflow orchestration", () => {
     db.close();
   });
 
+  it("does not compensate a later manifest key that this invocation never attempted", async () => {
+    const fake = provider();
+    const first = path.join(applicationsDir, "never-first.md");
+    const later = path.join(applicationsDir, "never-later.md");
+    fake.createMaterials = async () => {
+      writeFileSync(first, "first");
+      writeFileSync(later, "later");
+      return { manifest: [
+        { type: "fit_analysis", title: "First", filePath: first, contentType: "text/markdown" },
+        { type: "cover_letter", title: "Concurrent later", filePath: later, contentType: "text/markdown" }
+      ], usage: null };
+    };
+    let applicationId = "";
+    const concurrentTimestamp = "2099-01-01T00:00:00.000Z";
+    const spawn: JsonCommandSpawn = (command, args, options) => {
+      if (!args[0]?.endsWith("register-application-artifact.mjs")) return nodeSpawn(command, [...args], options as never) as never;
+      applicationId = args[args.indexOf("--application-id") + 1];
+      const db = new Database(dbPath);
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS application_artifacts (
+          id TEXT PRIMARY KEY, application_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL,
+          file_path TEXT NOT NULL, content_type TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+          UNIQUE(application_id, type, file_path)
+        )
+      `);
+      db.prepare(`
+        INSERT INTO application_artifacts
+          (id, application_id, type, title, file_path, content_type, created_at, updated_at)
+        VALUES ('concurrent-later', ?, 'cover_letter', 'Concurrent later', ?, 'text/markdown', ?, ?)
+      `).run(applicationId, realpathSync(later), concurrentTimestamp, concurrentTimestamp);
+      db.prepare("UPDATE applications SET updated_at = ? WHERE id = ?").run(concurrentTimestamp, applicationId);
+      db.close();
+      return nodeSpawn(command, ["-e", "process.stdin.resume();process.stdin.on('end',()=>process.exit(1))"], options as never) as never;
+    };
+    const run = await queueApprovedRun("https://jobs.example.com/never-attempted", fake);
+
+    await processNextAgentRun({ ...dependencies(fake), spawn });
+
+    expect(getAgentRun(run.id)?.state).toBe("failed");
+    const db = new Database(dbPath, { readonly: true });
+    expect(db.prepare("SELECT id FROM application_artifacts WHERE id = 'concurrent-later'").get()).toEqual({ id: "concurrent-later" });
+    expect((db.prepare("SELECT updated_at FROM applications WHERE id = ?").get(applicationId) as { updated_at: string }).updated_at).toBe(concurrentTimestamp);
+    db.close();
+  });
+
+  it("preserves a replacement write made after lease loss", async () => {
+    const fake = provider();
+    const first = path.join(applicationsDir, "replacement-first.md");
+    const second = path.join(applicationsDir, "replacement-second.md");
+    fake.createMaterials = async () => {
+      writeFileSync(first, "first");
+      writeFileSync(second, "second");
+      return { manifest: [
+        { type: "fit_analysis", title: "First", filePath: first, contentType: "text/markdown" },
+        { type: "cover_letter", title: "Second", filePath: second, contentType: "text/markdown" }
+      ], usage: null };
+    };
+    let registrations = 0;
+    let applicationId = "";
+    const replacementTimestamp = "2099-02-01T00:00:00.000Z";
+    const spawn: JsonCommandSpawn = (command, args, options) => {
+      if (!args[0]?.endsWith("register-application-artifact.mjs")) return nodeSpawn(command, [...args], options as never) as never;
+      registrations += 1;
+      applicationId = args[args.indexOf("--application-id") + 1];
+      if (registrations === 1) return nodeSpawn(command, [...args], options as never) as never;
+      const db = new Database(dbPath);
+      db.prepare("UPDATE agent_worker_leases SET worker_id = 'replacement'").run();
+      db.prepare(`
+        UPDATE application_artifacts SET title = 'Replacement', updated_at = ?
+        WHERE application_id = ? AND type = 'fit_analysis' AND file_path = ?
+      `).run(replacementTimestamp, applicationId, realpathSync(first));
+      db.prepare("UPDATE applications SET updated_at = ? WHERE id = ?").run(replacementTimestamp, applicationId);
+      db.close();
+      return nodeSpawn(command, ["-e", "process.stdin.resume();process.stdin.on('end',()=>process.exit(1))"], options as never) as never;
+    };
+    const run = await queueApprovedRun("https://jobs.example.com/replacement", fake);
+
+    await processNextAgentRun({ ...dependencies(fake), spawn });
+
+    expect(getAgentRun(run.id)?.state).toBe("verifying");
+    const db = new Database(dbPath, { readonly: true });
+    expect(db.prepare("SELECT title, updated_at FROM application_artifacts WHERE type = 'fit_analysis'").get()).toEqual({
+      title: "Replacement",
+      updated_at: replacementTimestamp
+    });
+    expect((db.prepare("SELECT updated_at FROM applications WHERE id = ?").get(applicationId) as { updated_at: string }).updated_at).toBe(replacementTimestamp);
+    db.close();
+  });
+
+  it("compensates a registration that committed before returning malformed output", async () => {
+    const spawn: JsonCommandSpawn = (command, args, options) => {
+      if (!args[0]?.endsWith("register-application-artifact.mjs")) return nodeSpawn(command, [...args], options as never) as never;
+      const wrapper = `
+        const { spawnSync } = require('node:child_process');
+        spawnSync(${JSON.stringify(command)}, ${JSON.stringify([...args])}, {
+          cwd: ${JSON.stringify(options.cwd)}, env: process.env, input: '{}', encoding: 'utf8'
+        });
+        process.stdout.write('{');
+      `;
+      return nodeSpawn(command, ["-e", wrapper], options as never) as never;
+    };
+    const run = await queueApprovedRun("https://jobs.example.com/commit-malformed");
+
+    await processNextAgentRun({ ...dependencies(), spawn });
+
+    expect(getAgentRun(run.id)?.state).toBe("failed");
+    const db = new Database(dbPath, { readonly: true });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM application_artifacts").get()).toEqual({ count: 0 });
+    db.close();
+  });
+
   it("restores preexisting affected artifacts and preserves unrelated rows", async () => {
     const initial = await queueApprovedRun("https://jobs.example.com/preserve");
     await processNextAgentRun(dependencies());
@@ -618,6 +762,53 @@ describe("agent workflow orchestration", () => {
 
     expect(getAgentRun(run.id)?.state).toBe("interrupted");
     expect(getAgentRun(run.id)?.preview).toBeNull();
+  });
+
+  it("contains compensation errors and continues to a later queued run", async () => {
+    const controller = new AbortController();
+    const fake = provider();
+    let previewCalls = 0;
+    fake.preview = async () => {
+      previewCalls += 1;
+      if (previewCalls === 2) setTimeout(() => controller.abort(), 20);
+      return { preview, usage: null };
+    };
+    fake.createMaterials = async () => {
+      const first = path.join(applicationsDir, "throw-first.md");
+      const second = path.join(applicationsDir, "throw-second.md");
+      writeFileSync(first, "first");
+      writeFileSync(second, "second");
+      return { manifest: [
+        { type: "fit_analysis", title: "First", filePath: first, contentType: "text/markdown" },
+        { type: "cover_letter", title: "Second", filePath: second, contentType: "text/markdown" }
+      ], usage: null };
+    };
+    let registrations = 0;
+    const spawn: JsonCommandSpawn = (command, args, options) => {
+      if (!args[0]?.endsWith("register-application-artifact.mjs")) return nodeSpawn(command, [...args], options as never) as never;
+      registrations += 1;
+      if (registrations === 1) {
+        const child = nodeSpawn(command, [...args], options as never);
+        child.once("close", () => {
+          const db = new Database(dbPath);
+          db.exec(`
+            CREATE TRIGGER fail_compensation BEFORE DELETE ON application_artifacts
+            BEGIN SELECT RAISE(FAIL, 'secret rollback failure'); END
+          `);
+          db.close();
+        });
+        return child as never;
+      }
+      return nodeSpawn(command, ["-e", "process.stdin.resume();process.stdin.on('end',()=>process.exit(1))"], options as never) as never;
+    };
+    const failed = await queueApprovedRun("https://jobs.example.com/compensation-throws", fake);
+    const later = createAgentRun({ provider: "codex", model: "model", canonicalJobUrl: "https://jobs.example.com/later-run" });
+
+    await expect(runAgentWorker({ ...dependencies(fake), spawn, signal: controller.signal, pollIntervalMs: 5 })).resolves.toBeUndefined();
+
+    expect(getAgentRun(failed.id)).toMatchObject({ state: "failed", failureCode: "artifact_compensation_failed" });
+    expect(getAgentRun(failed.id)?.failureMessage).not.toContain("secret rollback failure");
+    expect(getAgentRun(later.id)?.state).toBe("awaiting_approval");
   });
 });
 
