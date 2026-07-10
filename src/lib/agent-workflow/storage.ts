@@ -101,7 +101,7 @@ const LEGAL_TRANSITIONS: Readonly<Record<AgentRunState, ReadonlySet<AgentRunStat
   queued_preview: new Set(["previewing", "cancelled"]),
   previewing: new Set(["awaiting_approval", "failed", "cancelled", "interrupted"]),
   awaiting_approval: new Set(["queued_execution", "cancelled"]),
-  queued_execution: new Set(["executing", "cancelled"]),
+  queued_execution: new Set(["cancelled"]),
   executing: new Set(["verifying", "failed", "cancelled", "interrupted"]),
   verifying: new Set(["succeeded", "failed", "cancelled", "interrupted"]),
   succeeded: new Set(),
@@ -610,10 +610,43 @@ export function claimNextExecution(workerId: string, leaseDurationMs = 30_000): 
   const db = getDatabase();
   return db.transaction(() => {
     const timestamp = nowIso();
-    db.prepare("DELETE FROM agent_worker_leases WHERE name = ? AND expires_at <= ?").run(
-      EXECUTION_LEASE_NAME,
-      timestamp
-    );
+    const existingLease = db
+      .prepare("SELECT worker_id, run_id, expires_at FROM agent_worker_leases WHERE name = ?")
+      .get(EXECUTION_LEASE_NAME) as
+      | { worker_id: string; run_id: string; expires_at: string }
+      | undefined;
+    if (existingLease && existingLease.expires_at > timestamp) {
+      return null;
+    }
+    if (existingLease) {
+      const leasedRun = db.prepare("SELECT state, worker_id FROM agent_runs WHERE id = ?").get(
+        existingLease.run_id
+      ) as { state: string; worker_id: string | null } | undefined;
+      if (
+        leasedRun &&
+        (leasedRun.state === "executing" || leasedRun.state === "verifying")
+      ) {
+        const interrupted = db
+          .prepare(`
+            UPDATE agent_runs
+            SET state = 'interrupted', worker_id = NULL, lease_expires_at = NULL, updated_at = ?
+            WHERE id = ? AND state IN ('executing', 'verifying') AND worker_id = ?
+          `)
+          .run(timestamp, existingLease.run_id, existingLease.worker_id);
+        if (interrupted.changes !== 1) {
+          return null;
+        }
+      }
+      db.prepare(`
+        DELETE FROM agent_worker_leases
+        WHERE name = ? AND worker_id = ? AND run_id = ? AND expires_at = ?
+      `).run(
+        EXECUTION_LEASE_NAME,
+        existingLease.worker_id,
+        existingLease.run_id,
+        existingLease.expires_at
+      );
+    }
     const row = db
       .prepare("SELECT id FROM agent_runs WHERE state = 'queued_execution' ORDER BY created_at, id LIMIT 1")
       .get() as { id: string } | undefined;
