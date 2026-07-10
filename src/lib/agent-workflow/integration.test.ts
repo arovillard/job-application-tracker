@@ -3,8 +3,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  createSafeSmokeOutput,
+  installSmokeSignalHandlers,
+  runBestEffortCleanup
+} from "../../../scripts/smoke-agent-workflow";
 import { POST as approveRun } from "../../app/api/agent-runs/[id]/approve/route";
 import { createPostHandler } from "../../app/api/agent-runs/route";
 import { getApplicationDetail, resetStorageForTests } from "../storage";
@@ -60,16 +65,33 @@ afterEach(() => {
 function fakeProvider(): AgentProvider {
   return {
     diagnose: async () => ({ available: true, version: "integration-fake 1" }),
-    preview: async (_request, hooks) => {
+    preview: async (request, hooks) => {
+      expect(request).toMatchObject({
+        jobUrl,
+        model: "integration-model",
+        resumeContext: `Base resume path: ${baseResumePath}`
+      });
+      expect(request.signal).toBeInstanceOf(AbortSignal);
+      expect(request.signal?.aborted).toBe(false);
       hooks?.onEvent?.({ kind: "progress", message: "Posting reviewed.", metadata: null, usage: null });
       return { preview, usage: { inputTokens: 13, outputTokens: 8 } };
     },
-    createMaterials: async (_request, hooks) => {
+    createMaterials: async (request, hooks) => {
+      expect(request).toMatchObject({
+        jobUrl,
+        model: "integration-model",
+        preview,
+        resumeContext: `Base resume path: ${baseResumePath}`
+      });
+      expect(request.signal).toBeInstanceOf(AbortSignal);
+      expect(request.signal?.aborted).toBe(false);
+      const resume = readFileSync(baseResumePath, "utf8");
+      expect(resume).toContain("Private integration fixture.");
       const materialDir = path.join(applicationsDir, "Integration Company", "Platform Engineer");
       const fitPath = path.join(materialDir, "fit-analysis.md");
       const outreachPath = path.join(materialDir, "outreach-message.md");
       mkdirSync(materialDir, { recursive: true });
-      writeFileSync(fitPath, "# Fit analysis\n\nStrong platform and reliability alignment.\n");
+      writeFileSync(fitPath, `# Fit analysis\n\nStrong platform and reliability alignment.\n\n${resume}`);
       writeFileSync(outreachPath, "# Outreach message\n\nI build reliable developer infrastructure.\n");
       hooks?.onEvent?.({ kind: "progress", message: "Materials created.", metadata: null, usage: null });
       return {
@@ -132,6 +154,8 @@ describe("full agent workflow integration", () => {
     const awaiting = getPublicAgentRun(queued.id);
     expect(awaiting).toMatchObject({
       state: "awaiting_approval",
+      canonicalJobUrl: jobUrl,
+      model: "integration-model",
       preview,
       applicationId: null,
       artifactLinks: [],
@@ -178,7 +202,9 @@ describe("full agent workflow integration", () => {
     for (const artifact of detail?.artifacts ?? []) {
       expect(statSync(artifact.filePath).isFile()).toBe(true);
       expect(`${realpathSync(artifact.filePath)}${path.sep}`.startsWith(canonicalRoot)).toBe(true);
-      expect(readFileSync(artifact.filePath, "utf8")).toMatch(/^# (Fit analysis|Outreach message)/);
+      const content = readFileSync(artifact.filePath, "utf8");
+      expect(content).toMatch(/^# (Fit analysis|Outreach message)/);
+      if (artifact.type === "fit_analysis") expect(content).toContain("Private integration fixture.");
       const link = completed?.artifactLinks.find(({ id }) => id === artifact.id);
       expect(link?.href).toBe(`/api/applications/${applicationId}/artifacts/${artifact.id}/file`);
     }
@@ -198,5 +224,63 @@ describe("full agent workflow integration", () => {
     ]));
 
     expect(existsSync(path.join(projectRoot, "scripts", "smoke-agent-workflow.ts"))).toBe(true);
+  });
+
+  it("redacts provider preview secrets, controls, and every private temp fragment before stdout", () => {
+    const writes: string[] = [];
+    const output = createSafeSmokeOutput({
+      write: (value) => writes.push(value),
+      forbiddenFragments: [root, dbPath, applicationsDir, baseResumePath]
+    });
+
+    const emitted = output.emit("preview", {
+      company: `Company ${root} OPENAI_API_KEY=sk-projectsecret123`,
+      role: `Role Bearer bearer-secret-123`,
+      location: `${applicationsDir}\u0000password: hunter2`,
+      summary: `${baseResumePath}; GITHUB_TOKEN=ghp_1234567890; token: abcdefghijk`,
+      nested: [{ title: `${dbPath}\nsecret=value123` }]
+    });
+
+    const serialized = JSON.stringify(emitted);
+    expect(serialized).toContain("[REDACTED]");
+    for (const fragment of [root, dbPath, applicationsDir, baseResumePath]) {
+      expect(serialized).not.toContain(fragment);
+      expect(writes.join("")).not.toContain(fragment);
+    }
+    expect(writes.join("")).not.toMatch(/projectsecret|bearer-secret|hunter2|ghp_1234567890|abcdefghijk|value123/);
+    expect(writes.join("")).not.toContain("\\u0000");
+  });
+
+  it("attempts every cleanup step even when earlier steps throw", () => {
+    const calls: string[] = [];
+    const cleaned = runBestEffortCleanup([
+      () => { calls.push("agent-cache"); throw new Error("private cache error"); },
+      () => calls.push("application-cache"),
+      () => { calls.push("environment"); throw new Error("private environment error"); },
+      () => calls.push("temporary-root")
+    ]);
+
+    expect(cleaned).toBe(false);
+    expect(calls).toEqual(["agent-cache", "application-cache", "environment", "temporary-root"]);
+  });
+
+  it.each([
+    ["SIGINT", 130],
+    ["SIGTERM", 143]
+  ] as const)("aborts active work and records the conventional %s exit code", (signal, exitCode) => {
+    const listeners = new Map<string, () => void>();
+    const source = {
+      once: vi.fn((name: NodeJS.Signals, handler: () => void) => { listeners.set(name, handler); }),
+      off: vi.fn((name: NodeJS.Signals) => { listeners.delete(name); })
+    };
+    const controller = new AbortController();
+    const installed = installSmokeSignalHandlers(controller, source);
+
+    listeners.get(signal)?.();
+
+    expect(controller.signal.aborted).toBe(true);
+    expect(installed.exitCode()).toBe(exitCode);
+    installed.dispose();
+    expect(source.off).toHaveBeenCalledTimes(2);
   });
 });

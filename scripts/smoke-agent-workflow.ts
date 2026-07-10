@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { loadEnvConfig } from "@next/env";
 import Database from "better-sqlite3";
@@ -14,7 +15,7 @@ import {
 } from "../src/lib/agent-workflow/config";
 import { processNextAgentRun } from "../src/lib/agent-workflow/orchestrator";
 import { createClaudeProvider, createCodexProvider } from "../src/lib/agent-workflow/providers";
-import { validatePublicJobUrl } from "../src/lib/agent-workflow/security";
+import { redactSensitiveText, validatePublicJobUrl } from "../src/lib/agent-workflow/security";
 import {
   approveAgentRunAndGetPublic,
   enqueueAgentRun,
@@ -43,10 +44,26 @@ type ArtifactRow = {
 
 class SafeSmokeError extends Error {}
 
+class SignalExitError extends Error {
+  constructor(readonly exitCode: number, readonly cleanupFailed: boolean) {
+    super(cleanupFailed ? "Temporary smoke cleanup failed." : "Smoke interrupted.");
+  }
+}
+
+type SignalSource = {
+  once(signal: NodeJS.Signals, listener: () => void): unknown;
+  off(signal: NodeJS.Signals, listener: () => void): unknown;
+};
+
+type SafeSmokeOutputOptions = {
+  write(value: string): void;
+  forbiddenFragments: string[];
+};
+
 const projectRoot = process.cwd();
 
-async function main() {
-  const args = parseArguments(process.argv.slice(2));
+async function main(argv: string[], writeStdout: (value: string) => void) {
+  const args = parseArguments(argv);
   const previousEnvironment = captureEnvironment([
     "JOBTRACKER_DB_PATH",
     "JOBTRACKER_APPLICATIONS_DIR",
@@ -94,6 +111,11 @@ async function main() {
   const dbPath = path.join(root, "data", "tracker.sqlite");
   const applicationsDir = path.join(root, "applications");
   const baseResumePath = path.join(applicationsDir, "private", "synthetic-resume.md");
+  const privateFragments = [root, dbPath, applicationsDir, baseResumePath];
+  const output = createSafeSmokeOutput({ write: writeStdout, forbiddenFragments: privateFragments });
+  const controller = new AbortController();
+  const signals = installSmokeSignalHandlers(controller);
+  let operationError: unknown;
 
   try {
     mkdirSync(path.dirname(baseResumePath), { recursive: true });
@@ -120,7 +142,8 @@ async function main() {
       applicationsDir,
       baseResumePath,
       resumeContext: `Base resume path: ${baseResumePath}`,
-      providers
+      providers,
+      signal: controller.signal
     };
 
     const queued = enqueueAgentRun({ provider: args.provider, model, canonicalJobUrl });
@@ -129,7 +152,7 @@ async function main() {
     }
     const awaiting = requireState(queued.id, "awaiting_approval", "Preview did not reach approval.");
     if (!awaiting.preview) throw new SafeSmokeError("Preview result is unavailable.");
-    printSafe("preview", {
+    const previewPayload = output.prepare({
       runId: awaiting.id,
       state: awaiting.state,
       provider: awaiting.provider,
@@ -140,35 +163,54 @@ async function main() {
       postingState: awaiting.preview.postingState,
       summary: awaiting.preview.summary
     });
+    output.emit("preview", previewPayload);
 
     if (!args.approve) {
-      printSafe("result", { runId: awaiting.id, state: awaiting.state, execution: "not-approved" });
-      return;
+      output.emit("result", { runId: awaiting.id, state: awaiting.state, execution: "not-approved" });
+    } else {
+      const approved = approveAgentRunAndGetPublic(awaiting.id);
+      if (!approved || approved.state !== "queued_execution") {
+        throw new SafeSmokeError("Run could not be approved atomically.");
+      }
+      if (!await processNextAgentRun(workerDependencies)) {
+        throw new SafeSmokeError("Execution worker did not claim the approved run.");
+      }
+      const completed = requireState(awaiting.id, "succeeded", "Approved run did not succeed.");
+      const resultPayload = output.prepare({
+        runId: completed.id,
+        state: completed.state,
+        applicationId: completed.applicationId,
+        artifactLinks: completed.artifactLinks
+      });
+      const verification = verifyCompletedRun(
+        completed,
+        dbPath,
+        applicationsDir,
+        canonicalJobUrl,
+        [previewPayload, resultPayload],
+        privateFragments
+      );
+      output.emit("result", resultPayload);
+      output.emit("verification", verification);
     }
-
-    const approved = approveAgentRunAndGetPublic(awaiting.id);
-    if (!approved || approved.state !== "queued_execution") {
-      throw new SafeSmokeError("Run could not be approved atomically.");
-    }
-    if (!await processNextAgentRun(workerDependencies)) {
-      throw new SafeSmokeError("Execution worker did not claim the approved run.");
-    }
-    const completed = requireState(awaiting.id, "succeeded", "Approved run did not succeed.");
-    const verification = verifyCompletedRun(completed, dbPath, applicationsDir, canonicalJobUrl);
-    printSafe("result", {
-      runId: completed.id,
-      state: completed.state,
-      applicationId: completed.applicationId,
-      artifactLinks: completed.artifactLinks
-    });
-    printSafe("verification", verification);
-  } finally {
-    resetAgentRunStorageForTests();
-    resetStorageForTests();
-    restoreEnvironment(previousEnvironment);
-    if (args.keepTemp) printSafe("temporary-state", { root });
-    else rmSync(root, { recursive: true, force: true });
+  } catch (error) {
+    operationError = error;
   }
+
+  const cleanupSucceeded = runBestEffortCleanup([
+    () => resetAgentRunStorageForTests(),
+    () => resetStorageForTests(),
+    () => restoreEnvironment(previousEnvironment),
+    () => signals.dispose(),
+    () => {
+      if (args.keepTemp) writeStdout(`temporary-state: ${JSON.stringify({ root })}\n`);
+      else rmSync(root, { recursive: true, force: true });
+    }
+  ]);
+  const signalExitCode = signals.exitCode();
+  if (signalExitCode !== null) throw new SignalExitError(signalExitCode, !cleanupSucceeded);
+  if (!cleanupSucceeded) throw new SafeSmokeError("Temporary smoke cleanup failed.");
+  if (operationError) throw operationError;
 }
 
 function parseArguments(argv: string[]): SmokeArguments {
@@ -215,7 +257,9 @@ function verifyCompletedRun(
   run: PublicAgentRun,
   dbPath: string,
   applicationsDir: string,
-  canonicalJobUrl: string
+  canonicalJobUrl: string,
+  emittedPayloads: unknown[],
+  forbiddenFragments: string[]
 ) {
   if (!run.applicationId || !run.preview || run.artifactLinks.length === 0) {
     throw new SafeSmokeError("Completion verification failed.");
@@ -258,8 +302,12 @@ function verifyCompletedRun(
     }
   }
 
-  const publicText = JSON.stringify({ events: run.events, links: run.artifactLinks });
-  if (publicText.includes(path.dirname(applicationsDir))) {
+  const publicText = JSON.stringify({
+    emittedPayloads,
+    events: run.events,
+    links: run.artifactLinks
+  });
+  if (forbiddenFragments.some((fragment) => fragment && publicText.includes(fragment))) {
     throw new SafeSmokeError("Public output privacy verification failed.");
   }
   return {
@@ -282,12 +330,115 @@ function restoreEnvironment(values: Record<string, string | undefined>) {
   }
 }
 
-function printSafe(label: string, value: unknown) {
-  process.stdout.write(`${label}: ${JSON.stringify(value)}\n`);
+export function createSafeSmokeOutput(options: SafeSmokeOutputOptions) {
+  const forbiddenFragments = [...new Set(options.forbiddenFragments.filter(Boolean))]
+    .sort((left, right) => right.length - left.length);
+  const prepare = (value: unknown) => {
+    const prepared = sanitizeOutputValue(value, forbiddenFragments);
+    const serialized = JSON.stringify(prepared);
+    if (forbiddenFragments.some((fragment) => serialized.includes(fragment))) {
+      throw new SafeSmokeError("Public output privacy verification failed.");
+    }
+    return prepared;
+  };
+  return {
+    prepare,
+    emit(label: string, value: unknown) {
+      const safeLabel = sanitizeOutputString(label, forbiddenFragments);
+      const prepared = prepare(value);
+      options.write(`${safeLabel}: ${JSON.stringify(prepared)}\n`);
+      return prepared;
+    }
+  };
 }
 
-main().catch((error) => {
-  const message = error instanceof SafeSmokeError ? error.message : "Smoke workflow failed safely.";
-  process.stderr.write(`Smoke failed: ${message}\n`);
-  process.exitCode = 1;
-});
+function sanitizeOutputValue(value: unknown, forbiddenFragments: string[]): unknown {
+  if (typeof value === "string") return sanitizeOutputString(value, forbiddenFragments);
+  if (Array.isArray(value)) return value.map((item) => sanitizeOutputValue(item, forbiddenFragments));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        sanitizeOutputString(key, forbiddenFragments),
+        sanitizeOutputValue(item, forbiddenFragments)
+      ])
+    );
+  }
+  return value;
+}
+
+function sanitizeOutputString(value: string, forbiddenFragments: string[]) {
+  let sanitized = value;
+  for (const fragment of forbiddenFragments) {
+    sanitized = sanitized.split(fragment).join("[REDACTED]");
+  }
+  return redactSensitiveText(sanitized)
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function runBestEffortCleanup(steps: Array<() => void>): boolean {
+  let succeeded = true;
+  for (const step of steps) {
+    try {
+      step();
+    } catch {
+      succeeded = false;
+    }
+  }
+  return succeeded;
+}
+
+export function installSmokeSignalHandlers(
+  controller: AbortController,
+  source: SignalSource = process
+) {
+  let requestedExitCode: number | null = null;
+  const handlers = {
+    SIGINT: () => {
+      requestedExitCode ??= 130;
+      controller.abort();
+    },
+    SIGTERM: () => {
+      requestedExitCode ??= 143;
+      controller.abort();
+    }
+  } as const;
+  source.once("SIGINT", handlers.SIGINT);
+  source.once("SIGTERM", handlers.SIGTERM);
+  return {
+    exitCode: () => requestedExitCode,
+    dispose: () => {
+      source.off("SIGINT", handlers.SIGINT);
+      source.off("SIGTERM", handlers.SIGTERM);
+    }
+  };
+}
+
+export async function runSmokeCli(
+  argv = process.argv.slice(2),
+  output = { stdout: (value: string) => process.stdout.write(value), stderr: (value: string) => process.stderr.write(value) }
+) {
+  try {
+    await main(argv, output.stdout);
+    return 0;
+  } catch (error) {
+    if (error instanceof SignalExitError) {
+      output.stderr(`Smoke failed: ${error.message}\n`);
+      return error.exitCode;
+    }
+    const message = error instanceof SafeSmokeError ? error.message : "Smoke workflow failed safely.";
+    output.stderr(`Smoke failed: ${message}\n`);
+    return 1;
+  }
+}
+
+function isDirectExecution() {
+  return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+}
+
+if (isDirectExecution()) {
+  void runSmokeCli().then((exitCode) => {
+    process.exitCode = exitCode;
+  });
+}

@@ -84,7 +84,11 @@ npm exec tsx scripts/smoke-agent-workflow.ts -- --provider codex --model gpt-5.6
 
 Use a genuine public posting URL for provider testing. An approved smoke independently checks the application detail, every registered artifact and safe link, regular-file status, canonical containment, required fit analysis, and public event privacy. It prints structured preview/result summaries, not prompts, reasoning, raw CLI output, stderr, environment values, or private file paths.
 
+All normal smoke stdout passes through one recursive sanitizer. It replaces every temporary root/database/applications/resume fragment, redacts recognized API keys, bearer credentials, passwords, secrets, and tokens, and removes control text before printing provider-derived company, role, location, summary, artifact titles, or other human-facing fields.
+
 Add `--keep-temp` only when local debugging requires the temporary files. The command then prints the temporary root and leaves it on disk; delete it manually when finished.
+
+`SIGINT` and `SIGTERM` abort active provider/worker operations. The harness then independently attempts both storage-cache closes, environment restoration, signal-handler removal, and temporary-root removal before exiting with the conventional nonzero signal status. Cleanup failures are reduced to one fixed safe message; raw cleanup errors are never printed. `--keep-temp` remains the only exception to temporary-root removal.
 
 Claude uses the identical interface:
 
@@ -93,6 +97,8 @@ npm exec tsx scripts/smoke-agent-workflow.ts -- --provider claude --model sonnet
 ```
 
 Claude smoke testing is optional at the controller stage and should run only when the Claude CLI is installed and authenticated. An unavailable or unauthenticated Claude installation is not a Codex workflow failure.
+
+The real authenticated Codex smoke, optional authenticated Claude smoke, browser checks, ignore audit, and final review are controller release gates. Adding and testing this harness does not mark those external gates complete; they remain pending until the controller runs and records them.
 
 ## Security and privacy boundaries
 
