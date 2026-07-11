@@ -288,7 +288,16 @@ describe("agent workflow orchestration", () => {
   it.each([
     ["LinkedIn", "LinkedIn Login", "Sign in to access LinkedIn account."],
     ["LinkedIn", "Welcome to LinkedIn", "Access your LinkedIn account securely."],
-    ["Indeed", "Authentication Required", "Access your Indeed account securely."]
+    ["Indeed", "Authentication Required", "Access your Indeed account securely."],
+    ["LinkedIn", "Sign Up", "Create your LinkedIn account securely."],
+    ["LinkedIn", "Join LinkedIn", "Create your LinkedIn account securely."],
+    ["Acme", "403 Forbidden", "Access to Acme service is forbidden."],
+    ["Acme", "Robot Check", "Complete the Acme robot verification check."],
+    ["Acme", "Are You a Robot", "Complete the Acme robot verification check."],
+    ["Acme", "Checking Your Browser", "Acme is checking your browser securely."],
+    ["Acme", "Enable JavaScript", "Enable JavaScript for the Acme page."],
+    ["Acme", "Request Blocked", "The Acme request was blocked securely."],
+    ["Acme", "Temporarily Unavailable", "The Acme service is temporarily unavailable."]
   ])("rejects fully grounded branded non-job title: %s / %s", (company, role, summary) => {
     const candidate = { ...preview, company, role, summary };
     const context = `${company} ${role} ${summary}`;
@@ -299,7 +308,11 @@ describe("agent workflow orchestration", () => {
     ["Identity and Access Management Engineer", "Design identity access management systems."],
     ["Authentication Engineer", "Build secure authentication services."],
     ["Account Executive", "Lead strategic account growth."],
-    ["Security Engineer", "Implement reliable security controls."]
+    ["Security Engineer", "Implement reliable security controls."],
+    ["Login Platform Engineer", "Build reliable login platform services."],
+    ["Authentication Product Manager", "Lead authentication product strategy."],
+    ["Access Control Architect", "Design scalable access control systems."],
+    ["Account Executive", "Own strategic account relationships."]
   ])("keeps grounded real title usable: %s", (role, summary) => {
     const candidate = { ...preview, role, summary };
     const context = `Acme ${role} ${summary}`;
