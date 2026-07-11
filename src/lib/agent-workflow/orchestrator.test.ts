@@ -236,7 +236,12 @@ describe("agent workflow orchestration", () => {
     "Access to the careers page failed, and no role data was available.",
     "This URL is unavailable and job details could not be found.",
     "Job information could not be extracted from the listing.",
-    "Unfortunately we cannot open the page to view role details."
+    "Unfortunately we cannot open the page to view role details.",
+    "I was not able to access the posting.",
+    "The page returned an empty response.",
+    "The link contains no job details.",
+    "The careers site blocked access to the listing.",
+    "Investigate another URL because this posting is unavailable."
   ])("rejects retrieval fallback summary: %s", (summary) => {
     expect(isUsablePreview({ ...preview, summary })).toBe(false);
   });
@@ -253,7 +258,9 @@ describe("agent workflow orchestration", () => {
     "Monitor job listing access failures and lead remediation.",
     "Develop tooling for unavailable career pages and job data recovery.",
     "Diagnose why URLs fail to load and improve job data pipelines.",
-    "Create dashboards for posting retrieval failures and implement alerting."
+    "Create dashboards for posting retrieval failures and implement alerting.",
+    "The engineer will monitor job listing access failures and lead remediation.",
+    "Responsible for diagnosing job page access failures."
   ])("keeps legitimate summary usable: %s", (summary) => {
     expect(isUsablePreview({ ...preview, summary })).toBe(true);
   });

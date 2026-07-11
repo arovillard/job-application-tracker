@@ -188,16 +188,27 @@ const ROLE_WORK_ACTIONS = [
   "implement", "operate", "maintain", "monitor", "diagnose"
 ] as const;
 const ROLE_WORK_START = new RegExp(`^(?:${ROLE_WORK_ACTIONS.join("|")})\\b`);
+const ROLE_WORK_SUBJECT = new RegExp(
+  String.raw`^(?:(?:the|this)\s+)?(?:engineer|candidate|person|role|position)\b.{0,48}\b` +
+  String.raw`(?:will|responsible|accountable|${ROLE_WORK_ACTIONS.join("|")})\b`
+);
+const RESPONSIBILITY_START = /^(?:responsible|accountable)\s+for\b/;
 const RETRIEVAL_FAILURE_SIGNALS = [
-  /\b(?:unable|cannot|can t|could not|couldn t|failed|failure|failures|unavailable|inaccessible)\b/,
+  /\b(?:unable|not able|cannot|can t|could not|couldn t|failed|failure|failures|unavailable|inaccessible)\b/,
   /\bdid not contain\b/,
-  /\bno\b.{0,48}\b(?:available|found|extracted|retrieved|loaded|accessible|usable)\b/
+  /\bno\b.{0,48}\b(?:available|found|extracted|retrieved|loaded|accessible|usable)\b/,
+  /\b(?:empty response|blocked access)\b/
 ] as const;
 const POSTING_SOURCE_OBJECTS = [
-  /\b(?:posting|page|listing|link|url)\b/,
-  /\b(?:job|role)\s+(?:details|information|data)\b/,
+  /\b(?:posting|page|listing|link|url|site)\b/,
+  /\b(?:job|role)\s+(?:details|information|info|data)\b/,
   /\b(?:details|information|data)\b.{0,32}\b(?:link|url)\b/
 ] as const;
+const FIRST_PERSON_ACCESS_FAILURE = /\b(?:i|we)\s+(?:(?:was|were|am|are)\s+)?(?:not able|unable|could not|couldn t|cannot|can t)\b/;
+const DEICTIC_SOURCE = /\b(?:this|provided)\s+(?:url|link|posting|page|listing)\b/;
+const NO_CURRENT_ROLE_DETAILS = /\bno\s+(?:job|role)\s+(?:details|information|info|data)\b/;
+const EMPTY_SOURCE_RESPONSE = /\b(?:page|site)\b.{0,32}\bempty response\b/;
+const BLOCKED_SOURCE_ACCESS = /\b(?:page|site)\b.{0,32}\bblocked access\b|\bblocked access\b.{0,32}\b(?:listing|posting|page|site)\b/;
 
 export function isUsablePreview(preview: AgentPreview): boolean {
   const company = preview.company.trim().toLocaleLowerCase();
@@ -210,15 +221,32 @@ export function isUsablePreview(preview: AgentPreview): boolean {
 }
 
 function isRetrievalFallbackSummary(summary: string): boolean {
-  if (hasRoleWorkFraming(summary)) return false;
   const normalized = normalizeSummaryText(summary);
-  return RETRIEVAL_FAILURE_SIGNALS.some((pattern) => pattern.test(normalized)) &&
-    POSTING_SOURCE_OBJECTS.some((pattern) => pattern.test(normalized));
+  if (isExplicitRetrievalDiagnostic(normalized)) return true;
+  if (hasRoleWorkFraming(summary)) return false;
+  return hasAmbiguousRetrievalFailure(normalized);
+}
+
+function isExplicitRetrievalDiagnostic(normalized: string): boolean {
+  if (NO_CURRENT_ROLE_DETAILS.test(normalized) || EMPTY_SOURCE_RESPONSE.test(normalized) ||
+      BLOCKED_SOURCE_ACCESS.test(normalized)) return true;
+  const deicticFraming = normalized.startsWith("unfortunately ") ||
+    FIRST_PERSON_ACCESS_FAILURE.test(normalized) || DEICTIC_SOURCE.test(normalized);
+  return deicticFraming && hasAmbiguousRetrievalFailure(normalized);
 }
 
 function hasRoleWorkFraming(summary: string): boolean {
   const clauses = summary.split(";").map(normalizeSummaryText);
-  return ROLE_WORK_START.test(clauses[0]) || clauses.slice(1).some((clause) => ROLE_WORK_START.test(clause));
+  return isRoleWorkClause(clauses[0]) || clauses.slice(1).some(isRoleWorkClause);
+}
+
+function isRoleWorkClause(clause: string): boolean {
+  return ROLE_WORK_START.test(clause) || ROLE_WORK_SUBJECT.test(clause) || RESPONSIBILITY_START.test(clause);
+}
+
+function hasAmbiguousRetrievalFailure(normalized: string): boolean {
+  return RETRIEVAL_FAILURE_SIGNALS.some((pattern) => pattern.test(normalized)) &&
+    POSTING_SOURCE_OBJECTS.some((pattern) => pattern.test(normalized));
 }
 
 function normalizeSummaryText(summary: string): string {
