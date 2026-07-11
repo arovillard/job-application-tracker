@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
 
-import type { AgentProviderName, AgentRunState, PublicAgentRun } from "../lib/agent-workflow/types";
+import type { AgentProviderName, AgentRunState, AgentWorkerHealth, PublicAgentRun } from "../lib/agent-workflow/types";
 
 type ProviderDiagnostic = {
   provider: AgentProviderName;
@@ -16,6 +16,9 @@ type ProviderDiagnostic = {
 type Props = { open: boolean; onClose(): void };
 
 const POLLABLE = new Set(["queued_preview", "previewing", "queued_execution", "executing", "verifying"]);
+const WORKER_HEALTH_POLL_MS = 5_000;
+const QUEUED = new Set<AgentRunState>(["queued_preview", "queued_execution"]);
+const ACTIVE = new Set<AgentRunState>(["previewing", "executing", "verifying"]);
 const CANCELLABLE = new Set([...POLLABLE, "awaiting_approval"]);
 const TERMINAL = new Set(["cancelled", "failed", "interrupted", "succeeded"]);
 const SAFE_FAILURE_MESSAGES: Record<string, string> = {
@@ -37,22 +40,22 @@ function formatEventTime(value: string) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-function stageFor(run: PublicAgentRun) {
-  if (run.state === "queued_preview" || run.state === "previewing") {
-    const latest = [...run.events]
+function stageFor(run: PublicAgentRun, health: AgentWorkerHealth | null) {
+  if (QUEUED.has(run.state)) {
+    return health?.status === "online" ? "Waiting for agent worker" : "Agent worker is offline";
+  }
+  if (ACTIVE.has(run.state) && health?.status === "offline") return "Agent worker connection lost";
+  if (run.state === "previewing") {
+    return [...run.events]
       .sort((left, right) => left.sequence - right.sequence)
       .filter((event) => HOST_PREVIEW_STAGES.has(event.message))
-      .at(-1)?.message;
-    if (latest) return latest;
+      .at(-1)?.message ?? "Analyzing job posting.";
   }
-  const stages: Partial<Record<AgentRunState, string>> = {
-    queued_preview: "Validating public job URL.",
-    previewing: "Analyzing job posting.",
-    queued_execution: "Preparing application materials.",
+  const activeStages: Partial<Record<AgentRunState, string>> = {
     executing: "Creating application materials.",
     verifying: "Verifying application artifacts."
   };
-  return stages[run.state] ?? run.state.replaceAll("_", " ");
+  return activeStages[run.state] ?? run.state.replaceAll("_", " ");
 }
 
 function formatUsage(usage: PublicAgentRun["usage"]) {
@@ -85,6 +88,7 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [diagnosticsFailed, setDiagnosticsFailed] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [workerHealth, setWorkerHealth] = useState<AgentWorkerHealth | null>(null);
   const diagnosticsLoaded = useRef(false);
   const diagnosticsInFlight = useRef(false);
   const enteredOpenState = useRef(false);
@@ -92,6 +96,8 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
   const mountedRef = useRef(true);
   const epochRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const healthTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const healthControllerRef = useRef<AbortController | null>(null);
   const controllers = useRef(new Set<AbortController>());
   const pollControllerRef = useRef<AbortController | null>(null);
   const urlRef = useRef<HTMLInputElement>(null);
@@ -109,6 +115,13 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
       pollController.abort();
       controllers.current.delete(pollController);
     }
+  }, []);
+
+  const clearHealthPoll = useCallback(() => {
+    if (healthTimerRef.current) clearTimeout(healthTimerRef.current);
+    healthTimerRef.current = null;
+    healthControllerRef.current?.abort();
+    healthControllerRef.current = null;
   }, []);
 
   const invalidateRequests = useCallback(() => {
@@ -136,6 +149,31 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
       return await readResponse<T>(await fetch(url, { ...init, signal: controller.signal }));
     } finally {
       controllers.current.delete(controller);
+    }
+  }, []);
+
+  const loadWorkerHealth = useCallback(async function load() {
+    if (!mountedRef.current || !openRef.current || healthControllerRef.current) return;
+    const controller = new AbortController();
+    healthControllerRef.current = controller;
+    try {
+      const response = await fetch("/api/agent-worker-health", {
+        cache: "no-store",
+        signal: controller.signal
+      });
+      const next = await readResponse<AgentWorkerHealth>(response);
+      if (mountedRef.current && openRef.current && healthControllerRef.current === controller) {
+        setWorkerHealth(next);
+      }
+    } catch (caught) {
+      if (!(caught instanceof DOMException && caught.name === "AbortError") && mountedRef.current && openRef.current) {
+        setWorkerHealth({ status: "offline", lastSeenAt: null });
+      }
+    } finally {
+      if (healthControllerRef.current === controller) healthControllerRef.current = null;
+      if (mountedRef.current && openRef.current) {
+        healthTimerRef.current = setTimeout(() => { void load(); }, WORKER_HEALTH_POLL_MS);
+      }
     }
   }, []);
 
@@ -197,14 +235,16 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      clearHealthPoll();
       invalidateRequests();
     };
-  }, [invalidateRequests]);
+  }, [clearHealthPoll, invalidateRequests]);
 
   useEffect(() => {
     openRef.current = open;
     if (!open) {
       if (run && TERMINAL.has(run.state)) terminalResetOnOpen.current = true;
+      clearHealthPoll();
       invalidateRequests();
       diagnosticsInFlight.current = false;
       setDiagnosticsLoading(false);
@@ -220,6 +260,7 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
       enteredOpenState.current = true;
       restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       (urlRef.current ?? dialogRef.current?.querySelector<HTMLElement>("button, a[href], input"))?.focus();
+      void loadWorkerHealth();
     }
 
     if (!diagnosticsLoaded.current && !diagnosticsInFlight.current) void loadDiagnostics();
@@ -243,10 +284,9 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [invalidateRequests, loadDiagnostics, onClose, open, resetLocalWorkflow, run, schedulePoll]);
+  }, [clearHealthPoll, invalidateRequests, loadDiagnostics, loadWorkerHealth, onClose, open, resetLocalWorkflow, run, schedulePoll]);
 
   const activeRunId = run && POLLABLE.has(run.state) ? run.id : null;
-  const runIsActive = Boolean(activeRunId);
   useEffect(() => {
     if (!open || !activeRunId) return;
     if (elapsedRunId.current !== activeRunId) {
@@ -259,7 +299,7 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
 
   const start = async (event: FormEvent) => {
     event.preventDefault();
-    if (pending || !providers?.find((item) => item.provider === provider)?.available) return;
+    if (pending || workerHealth?.status !== "online" || !chosen?.available) return;
     invalidateRequests();
     const epoch = epochRef.current;
     setPending("start"); setError(null);
@@ -303,7 +343,17 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
   const chosen = providers?.find((item) => item.provider === provider);
   const unavailable = providers && !providers.some((item) => item.available);
   const closeBackdrop = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) onClose(); };
-  const currentStage = run ? stageFor(run) : "";
+  const currentStage = run ? stageFor(run, workerHealth) : "";
+  const runIsQueued = Boolean(run && QUEUED.has(run.state));
+  const runIsOwned = Boolean(run && ACTIVE.has(run.state));
+  const showActivity = runIsQueued || runIsOwned;
+  const activityIsOffline = Boolean(
+    (runIsQueued && workerHealth?.status !== "online") ||
+    (runIsOwned && workerHealth?.status === "offline")
+  );
+  const activityTimerLabel = runIsQueued
+    ? activityIsOffline ? "Waiting to reconnect" : "Queue time"
+    : activityIsOffline ? "Waiting for recovery" : "Working…";
   const usage = formatUsage(run?.usage ?? null);
   const safeFailureMessage = run?.failureCode ? SAFE_FAILURE_MESSAGES[run.failureCode] : undefined;
   const submittedHostname = (() => {
@@ -329,15 +379,16 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
             {chosen ? <p className="agent-drawer__default">Default model: {chosen.defaultModel}</p> : null}
             <label>Model override <span>(optional)</span><input name="model" value={model} onChange={(event) => setModel(event.target.value)} placeholder="Leave blank for default" /></label>
             {unavailable ? <p className="notice notice--error">No agent provider is available on this machine.</p> : null}
+            {workerHealth?.status === "offline" ? <p className="notice notice--error">Agent worker is offline. Start JobTracker with npm run dev.</p> : null}
             {(diagnosticsFailed || unavailable) ? <button className="button" type="button" disabled={diagnosticsLoading} onClick={() => void loadDiagnostics()}>{diagnosticsLoading ? "Checking providers…" : "Retry provider check"}</button> : null}
-            <button className="button button--primary" type="submit" disabled={Boolean(pending) || !chosen?.available}>{pending === "start" ? "Starting…" : "Start preview"}</button>
+            <button className="button button--primary" type="submit" disabled={Boolean(pending) || workerHealth?.status !== "online" || !chosen?.available}>{pending === "start" ? "Starting…" : "Start preview"}</button>
           </form> : <div className="agent-thread">
-            {runIsActive ? <div className="agent-activity" role="status" aria-label="Agent work in progress">
-              <span className="agent-activity__spinner" aria-hidden="true" />
-              <div><strong>{currentStage}</strong><span>Working… · {formatElapsed(elapsedSeconds)}</span></div>
+            {showActivity ? <div className={`agent-activity${activityIsOffline ? " agent-activity--offline" : ""}`} role="status" aria-label="Agent work in progress">
+              {!activityIsOffline ? <span className="agent-activity__spinner" aria-hidden="true" /> : null}
+              <div><strong>{currentStage}</strong><span>{activityTimerLabel} · {formatElapsed(elapsedSeconds)}</span></div>
             </div> : null}
             <section className="agent-thread__progress" aria-live="polite" aria-label="Agent progress">
-              {!runIsActive ? <p className="agent-message agent-message--status">{run.state.replaceAll("_", " ")}</p> : null}
+              {!showActivity ? <p className="agent-message agent-message--status">{run.state.replaceAll("_", " ")}</p> : null}
               {[...run.events].sort((left, right) => left.sequence - right.sequence).filter((event) => event.kind !== "usage").map((event) => <p className={`agent-message agent-message--${event.kind}`} key={event.id}>
                 <time className="agent-event-time" dateTime={event.createdAt}>{formatEventTime(event.createdAt)}</time>{event.message}
               </p>)}

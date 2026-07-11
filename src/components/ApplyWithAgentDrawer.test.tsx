@@ -4,11 +4,18 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import { ApplyWithAgentDrawer } from "./ApplyWithAgentDrawer";
 
 type FetchReply = { body: unknown; ok?: boolean; status?: number };
+type DrawerFetchOptions = {
+  [key: string]: unknown;
+  body?: string;
+  method?: string;
+  signal?: AbortSignal;
+};
+type DrawerFetch = (url: string, options: DrawerFetchOptions) => Promise<Response>;
 
 const diagnostics = {
   providers: [
@@ -16,6 +23,8 @@ const diagnostics = {
     { provider: "claude", available: false, version: null, defaultModel: "sonnet", error: "Provider executable is unavailable." }
   ]
 };
+const onlineHealth = { status: "online" as const, lastSeenAt: "2026-07-10T20:00:00.000Z" };
+const offlineHealth = { status: "offline" as const, lastSeenAt: null };
 
 function run(state: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -45,16 +54,21 @@ describe("ApplyWithAgentDrawer", () => {
   let root: Root;
   let mounted: boolean;
   let replies: FetchReply[];
-  let fetchMock: ReturnType<typeof vi.fn>;
+  let workflowFetchMock: Mock<DrawerFetch>;
+  let fetchMock: Mock<DrawerFetch>;
 
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers();
     replies = [];
-    fetchMock = vi.fn(() => {
+    workflowFetchMock = vi.fn<DrawerFetch>(() => {
       const reply = replies.shift();
       if (!reply) throw new Error("Unexpected fetch");
       return jsonReply(reply);
+    });
+    fetchMock = vi.fn<DrawerFetch>((url, options = {}) => {
+      if (url === "/api/agent-worker-health") return jsonReply({ body: onlineHealth });
+      return workflowFetchMock(url, options);
     });
     vi.stubGlobal("fetch", fetchMock);
     container = document.createElement("div");
@@ -94,6 +108,119 @@ describe("ApplyWithAgentDrawer", () => {
     await act(async () => button("Start preview").click());
   }
 
+  function installWorkerScenario({
+    health = [onlineHealth],
+    created = run("queued_preview"),
+    polled = created
+  }: {
+    health?: Array<typeof onlineHealth | typeof offlineHealth>;
+    created?: ReturnType<typeof run>;
+    polled?: ReturnType<typeof run>;
+  } = {}) {
+    let healthIndex = 0;
+    fetchMock.mockImplementation((url, options = {}) => {
+      if (url === "/api/agent-providers") return jsonReply({ body: diagnostics });
+      if (url === "/api/agent-worker-health") {
+        const body = health[Math.min(healthIndex, health.length - 1)];
+        healthIndex += 1;
+        return jsonReply({ body });
+      }
+      if (url === "/api/agent-runs" && options.method === "POST") {
+        return jsonReply({ body: created, status: 202 });
+      }
+      if (url === `/api/agent-runs/${created.id}`) return jsonReply({ body: polled });
+      throw new Error(`Unexpected test URL: ${url}`);
+    });
+  }
+
+  it("disables new previews and explains how to start an offline worker", async () => {
+    installWorkerScenario({ health: [offlineHealth] });
+    await render();
+    await act(async () => {});
+    expect(container.textContent).toContain("Agent worker is offline. Start JobTracker with npm run dev.");
+    expect(button("Start preview").disabled).toBe(true);
+  });
+
+  it.each([
+    ["queued_preview", "Waiting for agent worker", "Queue time"],
+    ["queued_execution", "Waiting for agent worker", "Queue time"]
+  ])("renders online %s as queued rather than active work", async (state, stage, timerLabel) => {
+    installWorkerScenario({ created: run(state) });
+    await render(); await act(async () => {}); await submitRun();
+    expect(container.textContent).toContain(stage);
+    expect(container.textContent).toContain(timerLabel);
+    expect(container.textContent).not.toContain("Validating public job URL");
+  });
+
+  it("shows offline reconnect status for an existing queued run", async () => {
+    installWorkerScenario({ health: [onlineHealth, offlineHealth] });
+    await render(); await act(async () => {}); await submitRun();
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    expect(container.textContent).toContain("Agent worker is offline");
+    expect(container.textContent).toContain("Waiting to reconnect");
+    expect(button("Cancel")).toBeTruthy();
+  });
+
+  it("shows validation only after the worker owns previewing", async () => {
+    const previewing = run("previewing", {
+      events: [{
+        id: "event-validation", runId: "run-1", sequence: 2, kind: "status",
+        message: "Validating public job URL.", metadata: null,
+        createdAt: "2026-07-10T20:00:01.000Z"
+      }]
+    });
+    installWorkerScenario({ created: previewing });
+    await render(); await act(async () => {}); await submitRun();
+    expect(container.textContent).toContain("Validating public job URL.");
+    expect(container.textContent).toContain("Working…");
+  });
+
+  it("shows connection loss without rewriting an active run", async () => {
+    installWorkerScenario({ health: [onlineHealth, offlineHealth], created: run("previewing") });
+    await render(); await act(async () => {}); await submitRun();
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    expect(container.textContent).toContain("Agent worker connection lost");
+    expect(container.textContent).not.toContain("interrupted");
+  });
+
+  it("enables previews after worker health changes from offline to online", async () => {
+    installWorkerScenario({ health: [offlineHealth, onlineHealth] });
+    await render(); await act(async () => {});
+    expect(button("Start preview").disabled).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(4_999));
+    expect(button("Start preview").disabled).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(button("Start preview").disabled).toBe(false);
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/agent-worker-health")).toHaveLength(2);
+  });
+
+  it.each(["close", "unmount"])("aborts and clears worker health polling on %s", async (action) => {
+    let healthCalls = 0;
+    let healthSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation((url, options = {}) => {
+      if (url === "/api/agent-providers") return jsonReply({ body: diagnostics });
+      if (url === "/api/agent-worker-health") {
+        healthCalls += 1;
+        if (healthCalls === 1) return jsonReply({ body: onlineHealth });
+        healthSignal = options.signal;
+        return new Promise(() => {});
+      }
+      throw new Error(`Unexpected test URL: ${url}`);
+    });
+    await render(); await act(async () => {});
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    expect(healthSignal?.aborted).toBe(false);
+    if (action === "close") await render(false);
+    else {
+      await act(async () => root.unmount());
+      mounted = false;
+    }
+    expect(healthSignal?.aborted).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    expect(healthCalls).toBe(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("loads diagnostics on first open and exposes provider defaults and one required URL", async () => {
     replies.push({ body: diagnostics });
     await render();
@@ -127,7 +254,7 @@ describe("ApplyWithAgentDrawer", () => {
         createdAt: "2026-01-01T12:34:58Z"
       }]
     });
-    fetchMock.mockImplementation((url) => jsonReply({ body: url === "/api/agent-providers" ? diagnostics : active }));
+    workflowFetchMock.mockImplementation((url) => jsonReply({ body: url === "/api/agent-providers" ? diagnostics : active }));
     await render(); await act(async () => {}); await submitRun();
 
     expect(container.querySelector('[aria-label="Agent work in progress"]')).not.toBeNull();
@@ -155,7 +282,7 @@ describe("ApplyWithAgentDrawer", () => {
         message: "Analyzing job posting.", metadata: null, createdAt: "2026-01-01T12:34:56Z"
       }]
     });
-    fetchMock.mockImplementation((url) => jsonReply({ body: url === "/api/agent-providers" ? diagnostics : active }));
+    workflowFetchMock.mockImplementation((url) => jsonReply({ body: url === "/api/agent-providers" ? diagnostics : active }));
     await render(); await act(async () => {}); await submitRun();
     expect(container.querySelector(".agent-activity strong")?.textContent).toBe(expectedStage);
   });
@@ -204,35 +331,36 @@ describe("ApplyWithAgentDrawer", () => {
     replies.push({ body: diagnostics }, { body: run("cancelled"), status: 202 });
     await render(); await act(async () => {}); await submitRun("custom-model");
     await act(async () => button("Start another application").click());
-    expect(fetchMock.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(false);
+    expect(workflowFetchMock.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(false);
     expect((container.querySelector("input[type=url]") as HTMLInputElement).value).toBe("");
     expect((container.querySelector("input[name=model]") as HTMLInputElement).value).toBe("");
     await act(async () => vi.advanceTimersByTimeAsync(5000));
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("posts only the strict local payload and omits a blank model override", async () => {
     replies.push({ body: diagnostics }, { body: run("queued_preview"), status: 202 });
     await render(); await act(async () => {}); await act(async () => vi.advanceTimersByTimeAsync(0)); await submitRun();
-    const [url, options] = fetchMock.mock.calls[1];
+    const [url, options] = workflowFetchMock.mock.calls[1];
     expect(url).toBe("/api/agent-runs");
-    expect(JSON.parse(options.body)).toEqual({ jobUrl: "https://example.com/job", provider: "codex" });
+    expect(JSON.parse(options.body!)).toEqual({ jobUrl: "https://example.com/job", provider: "codex" });
     expect(fetchMock.mock.calls.every(([calledUrl]) => String(calledUrl).startsWith("/api/agent-"))).toBe(true);
   });
 
   it("has no client import path to providers, orchestrator, workers, or model SDKs", () => {
     const source = readFileSync(resolve(process.cwd(), "src/components/ApplyWithAgentDrawer.tsx"), "utf8");
-    expect(source).not.toMatch(/agent-workflow\/(providers|orchestrator)|agent-worker|@anthropic-ai|openai(?!-)/);
+    expect(source).not.toMatch(/agent-workflow\/(providers|orchestrator)|@anthropic-ai|openai(?!-)/);
+    expect(source).not.toMatch(/from\s+["'][^"']*agent-worker/);
   });
 
   it("includes a nonblank model override and prevents double submission", async () => {
     let resolvePost!: (value: Response) => void;
     replies.push({ body: diagnostics });
-    fetchMock.mockImplementationOnce(() => jsonReply(replies.shift()!)).mockImplementationOnce(() => new Promise((resolve) => { resolvePost = resolve; }));
+    workflowFetchMock.mockImplementationOnce(() => jsonReply(replies.shift()!)).mockImplementationOnce(() => new Promise((resolve) => { resolvePost = resolve; }));
     await render(); await act(async () => {}); await submitRun("custom-model");
     button("Starting").click();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ jobUrl: "https://example.com/job", provider: "codex", model: "custom-model" });
+    expect(workflowFetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(workflowFetchMock.mock.calls[1][1].body!)).toEqual({ jobUrl: "https://example.com/job", provider: "codex", model: "custom-model" });
     await act(async () => resolvePost(await jsonReply({ body: run("queued_preview"), status: 202 })));
   });
 
@@ -253,7 +381,7 @@ describe("ApplyWithAgentDrawer", () => {
     expect(container.textContent).toContain("Good fit");
     expect(button("Approve and create materials")).toBeTruthy();
     await act(async () => vi.advanceTimersByTimeAsync(5000));
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("retries a transient poll failure after one second without overlapping", async () => {
@@ -265,11 +393,11 @@ describe("ApplyWithAgentDrawer", () => {
     await act(async () => vi.advanceTimersByTimeAsync(1000));
     expect(container.textContent).toContain("Agent progress is temporarily unavailable. Retrying");
     expect(container.textContent).not.toContain("temporary");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(3);
     await act(async () => vi.advanceTimersByTimeAsync(999));
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(3);
     await act(async () => vi.advanceTimersByTimeAsync(1));
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(4);
     expect(container.textContent).toMatch(/cancelled/i);
   });
 
@@ -281,14 +409,14 @@ describe("ApplyWithAgentDrawer", () => {
     );
     await render(); await act(async () => {}); await submitRun();
     await act(async () => vi.advanceTimersByTimeAsync(3000));
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(2);
     await act(async () => button("Approve and create materials").click());
-    expect(fetchMock.mock.calls[2][0]).toBe("/api/agent-runs/run-1/approve");
+    expect(workflowFetchMock.mock.calls[2][0]).toBe("/api/agent-runs/run-1/approve");
     await act(async () => vi.advanceTimersByTimeAsync(1000));
     expect(container.querySelector('a[href="/applications/app-1"]')).not.toBeNull();
     expect(container.querySelector('a[href="/api/applications/app-1/artifacts/a1"]')?.textContent).toContain("Tailored resume");
     await act(async () => vi.advanceTimersByTimeAsync(3000));
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(4);
   });
 
   it.each(["failed", "interrupted", "cancelled"])("stops at %s and shows a safe message", async (state) => {
@@ -297,21 +425,21 @@ describe("ApplyWithAgentDrawer", () => {
     expect(container.textContent).toMatch(state === "failed" ? /could not complete/i : state === "interrupted" ? /interrupted/i : /cancelled/i);
     expect(container.textContent).not.toContain("/private/raw stderr");
     await act(async () => vi.advanceTimersByTimeAsync(3000));
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("cancels active or approval work and stops when cancelled", async () => {
     replies.push({ body: diagnostics }, { body: run("previewing"), status: 202 }, { body: run("cancelled") });
     await render(); await act(async () => {}); await submitRun();
     await act(async () => button("Cancel").click());
-    expect(fetchMock.mock.calls[2][0]).toBe("/api/agent-runs/run-1/cancel");
+    expect(workflowFetchMock.mock.calls[2][0]).toBe("/api/agent-runs/run-1/cancel");
     expect(container.textContent).toMatch(/cancelled/i);
   });
 
   it("ignores a stale in-flight poll that resolves after cancellation", async () => {
     const stalePoll = deferred<Response>();
     let staleSignal: AbortSignal | undefined;
-    fetchMock
+    workflowFetchMock
       .mockImplementationOnce(() => jsonReply({ body: diagnostics }))
       .mockImplementationOnce(() => jsonReply({ body: run("previewing"), status: 202 }))
       .mockImplementationOnce((_url, options) => { staleSignal = options.signal; return stalePoll.promise; })
@@ -323,13 +451,13 @@ describe("ApplyWithAgentDrawer", () => {
     await act(async () => stalePoll.resolve(await jsonReply({ body: run("previewing") })));
     expect(container.textContent).toMatch(/cancelled/i);
     await act(async () => vi.advanceTimersByTimeAsync(5000));
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("starts exactly one fresh poll chain when cancellation fails for an active run", async () => {
     const stalePoll = deferred<Response>();
     let staleSignal: AbortSignal | undefined;
-    fetchMock
+    workflowFetchMock
       .mockImplementationOnce(() => jsonReply({ body: diagnostics }))
       .mockImplementationOnce(() => jsonReply({ body: run("executing"), status: 202 }))
       .mockImplementationOnce((_url, options) => { staleSignal = options.signal; return stalePoll.promise; })
@@ -344,12 +472,12 @@ describe("ApplyWithAgentDrawer", () => {
     expect(container.textContent).not.toContain("awaiting approval");
     expect(container.textContent).toContain("Cancellation is temporarily unavailable.");
     await act(async () => vi.advanceTimersByTimeAsync(999));
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(4);
     await act(async () => vi.advanceTimersByTimeAsync(1));
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(5);
     expect(container.textContent).toMatch(/cancelled/i);
     await act(async () => vi.advanceTimersByTimeAsync(5000));
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("does not poll after cancellation fails while awaiting approval", async () => {
@@ -361,14 +489,14 @@ describe("ApplyWithAgentDrawer", () => {
     await render(); await act(async () => {}); await submitRun();
     await act(async () => button("Cancel").click());
     await act(async () => vi.advanceTimersByTimeAsync(5000));
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(3);
     expect(container.textContent).toContain("awaiting approval");
   });
 
   it("ignores an older action completion after the drawer is closed", async () => {
     const pendingCancel = deferred<Response>();
     let actionSignal: AbortSignal | undefined;
-    fetchMock
+    workflowFetchMock
       .mockImplementationOnce(() => jsonReply({ body: diagnostics }))
       .mockImplementationOnce(() => jsonReply({ body: run("previewing"), status: 202 }))
       .mockImplementationOnce((_url, options) => { actionSignal = options.signal; return pendingCancel.promise; });
@@ -398,13 +526,13 @@ describe("ApplyWithAgentDrawer", () => {
     replies.push({ body: diagnostics }, { body: run(state), status: 202 }, { body: run("cancelled") });
     await render(); await act(async () => {}); await submitRun();
     await act(async () => vi.advanceTimersByTimeAsync(1000));
-    expect(fetchMock.mock.calls[2][0]).toBe("/api/agent-runs/run-1");
+    expect(workflowFetchMock.mock.calls[2][0]).toBe("/api/agent-runs/run-1");
   });
 
   it("clears polling and aborts an in-flight request when closed", async () => {
     let pollSignal: AbortSignal | undefined;
     replies.push({ body: diagnostics }, { body: run("previewing"), status: 202 });
-    fetchMock.mockImplementationOnce(() => jsonReply(replies.shift()!))
+    workflowFetchMock.mockImplementationOnce(() => jsonReply(replies.shift()!))
       .mockImplementationOnce(() => jsonReply(replies.shift()!))
       .mockImplementationOnce((_url, options) => {
         pollSignal = options.signal;
@@ -416,14 +544,14 @@ describe("ApplyWithAgentDrawer", () => {
     await render(false);
     expect(pollSignal?.aborted).toBe(true);
     await act(async () => vi.advanceTimersByTimeAsync(5000));
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("clears a scheduled poll timer when closed before it fires", async () => {
     replies.push({ body: diagnostics }, { body: run("previewing"), status: 202 });
     await render(); await act(async () => {});
     await act(async () => vi.advanceTimersByTimeAsync(0));
-    expect(vi.getTimerCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(1);
     await submitRun();
     expect(vi.getTimerCount()).toBeGreaterThan(0);
     await render(false);
@@ -432,7 +560,7 @@ describe("ApplyWithAgentDrawer", () => {
 
   it("aborts an in-flight request on unmount", async () => {
     let signal: AbortSignal | undefined;
-    fetchMock.mockImplementationOnce((_url, options) => {
+    workflowFetchMock.mockImplementationOnce((_url, options) => {
       signal = options.signal;
       return new Promise(() => {});
     });
@@ -447,12 +575,12 @@ describe("ApplyWithAgentDrawer", () => {
     const pendingPoll = deferred<Response>();
     let pollSignal: AbortSignal | undefined;
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    fetchMock
+    workflowFetchMock
       .mockImplementationOnce(() => jsonReply({ body: diagnostics }))
       .mockImplementationOnce(() => jsonReply({ body: run("previewing"), status: 202 }))
       .mockImplementationOnce((_url, options) => {
         pollSignal = options.signal;
-        options.signal.addEventListener("abort", () => pendingPoll.reject(new DOMException("Aborted", "AbortError")), { once: true });
+        options.signal!.addEventListener("abort", () => pendingPoll.reject(new DOMException("Aborted", "AbortError")), { once: true });
         return pendingPoll.promise;
       });
     await render(); await act(async () => {}); await act(async () => vi.advanceTimersByTimeAsync(0)); await submitRun();
@@ -461,7 +589,7 @@ describe("ApplyWithAgentDrawer", () => {
     mounted = false;
     expect(pollSignal?.aborted).toBe(true);
     await act(async () => {});
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(3);
     expect(vi.getTimerCount()).toBe(0);
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
@@ -471,12 +599,12 @@ describe("ApplyWithAgentDrawer", () => {
     const pendingApproval = deferred<Response>();
     let approvalSignal: AbortSignal | undefined;
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    fetchMock
+    workflowFetchMock
       .mockImplementationOnce(() => jsonReply({ body: diagnostics }))
       .mockImplementationOnce(() => jsonReply({ body: run("awaiting_approval", { preview: { company: "Acme", role: "Engineer", location: null, summary: "Fit", postingState: "open" } }), status: 202 }))
       .mockImplementationOnce((_url, options) => {
         approvalSignal = options.signal;
-        options.signal.addEventListener("abort", () => pendingApproval.reject(new DOMException("Aborted", "AbortError")), { once: true });
+        options.signal!.addEventListener("abort", () => pendingApproval.reject(new DOMException("Aborted", "AbortError")), { once: true });
         return pendingApproval.promise;
       });
     await render(); await act(async () => {}); await act(async () => vi.advanceTimersByTimeAsync(0)); await submitRun();
@@ -485,7 +613,7 @@ describe("ApplyWithAgentDrawer", () => {
     mounted = false;
     expect(approvalSignal?.aborted).toBe(true);
     await act(async () => {});
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(3);
     expect(vi.getTimerCount()).toBe(0);
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
@@ -525,16 +653,16 @@ describe("ApplyWithAgentDrawer", () => {
     await render(); await act(async () => {});
     expect(container.textContent).toContain("Provider availability could not be checked");
     await act(async () => button("Retry provider check").click());
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain("Default model: gpt-5");
   });
 
   it("retries failed diagnostics after close and reopen", async () => {
-    fetchMock.mockImplementationOnce(() => Promise.reject(new TypeError("offline"))).mockImplementationOnce(() => jsonReply({ body: diagnostics }));
+    workflowFetchMock.mockImplementationOnce(() => Promise.reject(new TypeError("offline"))).mockImplementationOnce(() => jsonReply({ body: diagnostics }));
     await render(); await act(async () => {});
     await render(false);
     await render(true); await act(async () => {});
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(workflowFetchMock).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain("Codex");
   });
 

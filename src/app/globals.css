@@ -414,6 +414,7 @@ kbd {
 .agent-drawer__default { color: var(--ink-muted); margin: -8px 0 0; }
 .agent-thread__progress { display: grid; gap: 9px; }
 .agent-activity { align-items: center; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 13px; display: flex; gap: 12px; padding: 13px 14px; }
+.agent-activity--offline { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); color: var(--danger); }
 .agent-activity__spinner { animation: agent-spinner 900ms linear infinite; border: 3px solid color-mix(in srgb, var(--accent) 25%, transparent); border-radius: 999px; border-top-color: var(--accent); flex: 0 0 auto; height: 22px; opacity: 0.9; width: 22px; }
 .agent-activity div { display: grid; gap: 3px; min-width: 0; }
 .agent-activity strong { overflow-wrap: anywhere; }
