@@ -18,5 +18,10 @@ When setting up this project for a new user or new machine:
 3. Do not collect API keys or secrets in this repository; use the host agent's secure provider setup flow when needed.
 4. For agent-owned installs, check `git`, `node`, and `npm`; install missing prerequisites with the system package manager or ask before using administrator privileges.
 5. Run `npm install`, `npm run setup`, `npm run skills:install`, `npm run verify`, and `npm run build`.
-6. Start the app with `npm run dev`, give the local URL, and tell the user setup is ready for the first job posting link.
-7. Confirm `.env.local`, `data/*.sqlite`, resumes, and generated `applications/*` content remain private and uncommitted.
+6. Start the app with `npm run dev`; it supervises both the web app and the separate agent worker.
+   - Wait for both Web ready and Agent worker ready.
+   - Confirm GET /api/agent-worker-health reports online.
+   - Confirm the selected provider is available.
+   - Do not report setup complete merely because the web URL responds.
+7. Give the local URL and tell the user setup is ready for the first job posting link.
+8. Confirm `.env.local`, `data/*.sqlite`, resumes, and generated `applications/*` content remain private and uncommitted.

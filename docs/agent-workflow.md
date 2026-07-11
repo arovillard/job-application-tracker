@@ -38,19 +38,21 @@ Keep the base resume under the ignored applications directory or outside the rep
 
 JobTracker requires Node.js 20.18.1 or newer.
 
-Run the worker in one terminal:
-
-```bash
-npm run agent:worker
-```
-
-Run the web app in a second terminal:
+Start the complete local runtime with one command:
 
 ```bash
 npm run dev
 ```
 
-Open the local URL printed by Next.js and choose the primary **Apply with Agent** action. Manual entry is the backup path for an application that was already submitted or does not need posting review and tailored materials. Enter one public HTTP or HTTPS job URL and select a provider. The flow is:
+`npm run dev` starts and supervises both the web app and the separate agent worker. Wait for the combined ready message, then open the printed local URL. One Ctrl+C stops both processes.
+
+The drawer checks `GET /api/agent-worker-health` before accepting work. A healthy worker reports `online` with its newest heartbeat timestamp and enables **Start preview**. When no heartbeat is current, the drawer says **Agent worker is offline** and disables submission.
+
+A new request can briefly enter `queued_preview` during a health race. Until a worker claims it, the drawer says **Waiting to reconnect**, keeps **Cancel** available, and does not claim that validation is active. When the worker claims the same queued run, its state changes to `previewing` and the drawer begins **Validating public job URL**; no replacement run is created.
+
+If a heartbeat disappears during `previewing`, `executing`, or `verifying`, the drawer says **Agent worker connection lost** while the active lease is still authoritative. The state changes only when lease recovery updates the run; heartbeat loss alone does not rewrite an active run.
+
+Open the printed local URL and choose the primary **Apply with Agent** action. Manual entry is the backup path for an application that was already submitted or does not need posting review and tailored materials. Enter one public HTTP or HTTPS job URL and select a provider. The flow is:
 
 1. `queued_preview` — the API stored the request.
 2. `previewing` — the worker validates the public URL, retrieves bounded posting context on the host, and performs a read-only, schema-constrained inspection.
@@ -112,6 +114,17 @@ Claude smoke testing is optional at the controller stage and should run only whe
 
 The real authenticated Codex smoke, optional authenticated Claude smoke, browser checks, ignore audit, and final review are controller release gates. Adding and testing this harness does not mark those external gates complete; they remain pending until the controller runs and records them.
 
+## Advanced debugging
+
+When debugging the two processes independently, run the web app and worker in separate terminals:
+
+```bash
+npm run dev:web
+npm run agent:worker
+```
+
+This split workflow is for advanced debugging only. Normal startup uses the supervisor through `npm run dev` so readiness, failure handling, and one-signal shutdown remain coordinated.
+
 ## Security and privacy boundaries
 
 - Only public HTTP/HTTPS URLs are accepted. Embedded credentials, localhost, loopback, private, link-local, reserved, or privately resolving hosts are rejected.
@@ -139,6 +152,6 @@ Use `git status --short --ignored` to inspect the boundary.
 - **Agent provider configuration is invalid:** compare the ignored file with `jobtracker.agent.example.json`; both provider objects and only the two allowed fields are required.
 - **Job URL could not be validated safely:** use a direct public HTTP/HTTPS posting URL whose DNS answers are public.
 - **Preview or execution failed:** inspect the safe state and event messages in the drawer. Re-run the provider's normal authentication check outside JobTracker; raw provider errors are deliberately not displayed.
-- **Run was interrupted:** restart `npm run agent:worker`, then start a new run. Interrupted work is not automatically retried.
+- **Run was interrupted:** restart the normal `npm run dev` supervisor, then start a new run. Interrupted work is not automatically retried.
 - **Artifact verification failed:** with a disposable smoke run, repeat using `--keep-temp` and inspect the printed temporary root. Verify generated files are regular files below the applications root and use supported extensions/content types.
-- **No work advances:** confirm both `npm run agent:worker` and `npm run dev` are running against the same `.env.local` database path.
+- **No work advances:** confirm the normal `npm run dev` supervisor reached its combined ready message, the health endpoint reports `online`, and the selected provider is available.

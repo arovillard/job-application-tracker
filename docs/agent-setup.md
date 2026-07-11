@@ -28,7 +28,11 @@ When the human asks the agent to own installation end to end, complete the setup
 7. Run `npm run skills:install`.
 8. If the human already has generated files in the application-materials folder, run `npm run artifacts:backfill`.
 9. Run `npm run verify` and `npm run build`.
-10. Start the app with `npm run dev`.
+10. Start the app with `npm run dev`; it supervises both the web app and the separate agent worker.
+    - Wait for both Web ready and Agent worker ready.
+    - Confirm GET /api/agent-worker-health reports online.
+    - Confirm the selected provider is available.
+    - Do not report setup complete merely because the web URL responds.
 11. Confirm private files remain uncommitted.
 12. Tell the human setup is complete, give the local app URL, and ask for the first job posting link.
 
@@ -43,49 +47,32 @@ node --version
 npm --version
 ```
 
-2. Install dependencies:
+2. Install, configure, verify, build, and start JobTracker:
 
 ```bash
 npm install
-```
-
-3. Run setup:
-
-```bash
 npm run setup
-```
-
-If you already collected the human's answers, you may write `.env.local` directly using `.env.example` as the template.
-
-4. Install the packaged Codex and Claude skills:
-
-```bash
 npm run skills:install
+npm run verify
+npm run build
+npm run dev
 ```
 
-Use a provider-specific command when the human only wants one agent configured:
+`npm run dev` starts and supervises both the web app and the separate agent worker. Wait for the combined ready message, then open the printed local URL. One Ctrl+C stops both processes.
+
+If you already collected the human's answers, you may write `.env.local` directly using `.env.example` as the template before running verification.
+
+Use a provider-specific skill-install command when the human only wants one agent configured:
 
 ```bash
 npm run skills:install:codex
 npm run skills:install:claude
 ```
 
-5. Backfill existing generated files, if this is an existing install:
+3. Backfill existing generated files, if this is an existing install:
 
 ```bash
 npm run artifacts:backfill
-```
-
-6. Verify the project:
-
-```bash
-npm run verify
-```
-
-7. Start the app:
-
-```bash
-npm run dev
 ```
 
 ## Application Workflow For Agents

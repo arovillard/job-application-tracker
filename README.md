@@ -25,10 +25,15 @@ This repo does not store API keys, provider credentials, private resumes, genera
 ```bash
 npm install
 npm run setup
+npm run skills:install
+npm run verify
+npm run build
 npm run dev
 ```
 
-Open the local URL printed by Next.js. By default the app uses `data/jobtracker.sqlite`; the file is created automatically.
+`npm run dev` starts and supervises both the web app and the separate agent worker. Wait for the combined ready message, then open the printed local URL. One Ctrl+C stops both processes.
+
+By default the app uses `data/jobtracker.sqlite`; the file is created automatically.
 
 For a non-interactive default setup:
 
@@ -63,9 +68,10 @@ Do the following in order:
 7. Run npm run setup and provide the answers I gave you, or write .env.local from .env.example using those values.
 8. Run npm run skills:install so the packaged Codex and Claude skills are installed.
 9. Run npm run verify and npm run build. Fix any setup issue that prevents them from passing.
-10. Start the app with npm run dev and tell me the local URL.
-11. Confirm that .env.local, the SQLite database, my resume, and generated application materials are private and not committed to Git.
-12. Finish by telling me setup is complete and that you are ready for the first job posting link. When I provide a job link, create or update the tracker record first, then prepare the application materials, fit analysis, and outreach/referral drafts.
+10. Start the app with npm run dev. Wait for both Web ready and Agent worker ready, then confirm GET /api/agent-worker-health reports online and the selected provider is available. Do not report setup complete merely because the web URL responds.
+11. Tell me the local URL from the combined ready message.
+12. Confirm that .env.local, the SQLite database, my resume, and generated application materials are private and not committed to Git.
+13. Finish by telling me setup is complete and that you are ready for the first job posting link. When I provide a job link, create or update the tracker record first, then prepare the application materials, fit analysis, and outreach/referral drafts.
 ```
 
 ## Configuration
@@ -126,6 +132,19 @@ npm run test
 npm run verify
 npm run build
 ```
+
+### Native Codex implementation agents
+
+This repository includes project-scoped Codex agents for controlled implementation:
+
+- `terra-worker` uses `gpt-5.6-terra` for scoped code and test changes.
+- `sol-reviewer` uses `gpt-5.6-sol` for requirements and code review.
+
+Start the controller task with `gpt-5.6-sol`, then delegate by these agent names.
+The model settings live in `.codex/agents/`, so orchestration does not depend on a
+per-dispatch model override. See
+[`docs/goals/in-app-agent-workflow.md`](./docs/goals/in-app-agent-workflow.md) for
+the complete persistent goal prompt.
 
 Useful local state:
 
