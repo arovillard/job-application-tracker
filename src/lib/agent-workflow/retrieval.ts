@@ -13,6 +13,7 @@ export type RetrievedPosting = {
   requestedUrl: string;
   finalUrl: string;
   context: string;
+  hasStructuredJobPosting: boolean;
 };
 
 export type PostingRetrievalOptions = {
@@ -105,11 +106,15 @@ export async function retrievePublicPosting(
       const bytes = await readBoundedBody(response, maximumBytes, boundary);
       currentResponse = null;
       const text = new TextDecoder().decode(bytes);
-      const context = contentType === "text/plain"
-        ? truncateByCodePoint(collapseWhitespace(text), maximumCharacters)
+      const extracted = contentType === "text/plain"
+        ? {
+            context: truncateByCodePoint(collapseWhitespace(text), maximumCharacters),
+            hasStructuredJobPosting: false
+          }
         : extractHtmlContext(text, maximumCharacters);
+      const { context, hasStructuredJobPosting } = extracted;
       if (!context) throw new PostingRetrievalError();
-      return { requestedUrl, finalUrl: currentUrl, context };
+      return { requestedUrl, finalUrl: currentUrl, context, hasStructuredJobPosting };
     }
   } catch (error) {
     controller.abort();
@@ -177,9 +182,13 @@ function cancelResponseBody(response: Response) {
   }
 }
 
-function extractHtmlContext(html: string, maximumCharacters: number): string {
+function extractHtmlContext(
+  html: string,
+  maximumCharacters: number
+): Pick<RetrievedPosting, "context" | "hasStructuredJobPosting"> {
   const $ = load(html);
   const sections: Array<{ label: string; value: string }> = [];
+  let hasStructuredJobPosting = false;
   addSection(sections, "Canonical URL", $("link[rel='canonical']").first().attr("href"));
   addSection(sections, "Title", $("title").first().text());
   addSection(sections, "Open Graph title", $("meta[property='og:title']").first().attr("content"));
@@ -189,6 +198,7 @@ function extractHtmlContext(html: string, maximumCharacters: number): string {
   $("script[type='application/ld+json']").each((_index, element) => {
     try {
       collectJobPostings(JSON.parse($(element).text()), (posting) => {
+        hasStructuredJobPosting = true;
         addSection(sections, "Job title", stringValue(posting.title));
         const organization = recordValue(posting.hiringOrganization);
         addSection(sections, "Company", stringValue(organization?.name));
@@ -199,6 +209,10 @@ function extractHtmlContext(html: string, maximumCharacters: number): string {
       // Malformed untrusted JSON-LD is ignored while other readable content remains usable.
     }
   });
+
+  hasStructuredJobPosting ||= $("[itemscope][itemtype]").toArray().some((element) =>
+    ($(element).attr("itemtype") ?? "").split(/\s+/u).some(isSchemaJobPostingUrl)
+  );
 
   $("script, style, nav, form, noscript, [hidden], [aria-hidden='true']").remove();
   addSection(sections, "Page text", $("body").text());
@@ -212,7 +226,10 @@ function extractHtmlContext(html: string, maximumCharacters: number): string {
     seen.add(normalized);
     output.push(`${section.label}: ${value}`);
   }
-  return truncateByCodePoint(output.join("\n"), maximumCharacters);
+  return {
+    context: truncateByCodePoint(output.join("\n"), maximumCharacters),
+    hasStructuredJobPosting
+  };
 }
 
 function collectJobPostings(value: unknown, visit: (posting: Record<string, unknown>) => void) {
@@ -222,9 +239,18 @@ function collectJobPostings(value: unknown, visit: (posting: Record<string, unkn
   }
   const record = recordValue(value);
   if (!record) return;
-  const type = record["@type"];
-  if (type === "JobPosting" || (Array.isArray(type) && type.includes("JobPosting"))) visit(record);
+  if (isJobPostingType(record["@type"])) visit(record);
   if (record["@graph"]) collectJobPostings(record["@graph"], visit);
+}
+
+function isJobPostingType(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(isJobPostingType);
+  if (typeof value !== "string") return false;
+  return value === "JobPosting" || isSchemaJobPostingUrl(value);
+}
+
+function isSchemaJobPostingUrl(value: string): boolean {
+  return /^https?:\/\/(?:www\.)?schema\.org\/JobPosting\/?$/iu.test(value);
 }
 
 function extractLocation(posting: Record<string, unknown>): string | undefined {

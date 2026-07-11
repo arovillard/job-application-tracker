@@ -55,6 +55,7 @@ export type RetrievedPosting = {
   requestedUrl: string;
   finalUrl: string;
   context: string;
+  hasStructuredJobPosting: boolean;
 };
 
 export type PostingRetrievalOptions = {
@@ -78,7 +79,7 @@ export async function retrievePublicPosting(
 
 - Extend `AgentProviderRequest` with `postingContext?: string` and `postingFinalUrl?: string`.
 - Extend `AgentOrchestratorDependencies` with `retrievePosting?: typeof retrievePublicPosting` for deterministic tests.
-- Add `export function isUsablePreview(preview: AgentPreview, postingContext: string): boolean` in `orchestrator.ts` or a focused schema helper imported by it.
+- Add `export function isUsablePreview(preview: AgentPreview, posting: RetrievedPosting): boolean` in `orchestrator.ts` or a focused schema helper imported by it so context and retrieval evidence travel together.
 - Preserve all existing API response types and SQLite columns.
 
 - [ ] **Step 1: Install the parser dependency**
@@ -114,6 +115,7 @@ it("extracts bounded context from a LinkedIn-like guest posting", async () => {
     validateUrl: async (url) => url
   });
   expect(result.finalUrl).toContain("linkedin.com/jobs/view");
+  expect(result.hasStructuredJobPosting).toBe(true);
   expect(result.context).toContain("Technical Director");
   expect(result.context).toContain("Thrillworks");
   expect(result.context).not.toContain("<script");
@@ -121,7 +123,7 @@ it("extracts bounded context from a LinkedIn-like guest posting", async () => {
 });
 ```
 
-Add cases for plain text, a valid redirect, private redirect rejection, sixth redirect rejection, redirect loop, timeout, non-2xx, unsupported content type, empty extraction, a stream exceeding `2 * 1024 * 1024`, malformed JSON-LD tolerance, duplicate-text removal, and forbidden raw values absent from the thrown safe error.
+Add cases for plain text, a valid redirect, private redirect rejection, sixth redirect rejection, redirect loop, timeout, non-2xx, unsupported content type, empty extraction, a stream exceeding `2 * 1024 * 1024`, malformed JSON-LD tolerance, duplicate-text removal, and forbidden raw values absent from the thrown safe error. Assert structured evidence for a LinkedIn-like fixture, nested `@graph`, string/array schema.org URL `@type` forms, and explicit schema.org `JobPosting` microdata. Assert no evidence for login/error/generic HTML, malformed JSON-LD, and plain text.
 
 Run:
 
@@ -146,7 +148,7 @@ const ACCEPTED_CONTENT_TYPES = new Set(["text/html", "application/xhtml+xml", "t
 
 Use one `AbortController` for the total deadline, `redirect: "manual"`, and `validatePublicJobUrl` by default. Resolve relative `Location` values against the current URL, validate before the next fetch, track visited canonical destinations, and throw only `new PostingRetrievalError()` externally.
 
-Read `response.body` with a reader, count bytes before concatenation, cancel and fail once the ceiling is crossed, and decode only after the stream completes. For HTML, use Cheerio to remove `script` after separately parsing valid `application/ld+json`, plus `style`, `nav`, `form`, `noscript`, `[hidden]`, and `[aria-hidden="true"]`. Build labeled sections from canonical URL, title/meta fields, `JobPosting` title/company/location/description, and readable body text. Collapse whitespace, discard duplicate normalized sections, join with newlines, and truncate by Unicode code points to the character ceiling.
+Read `response.body` with a reader, count bytes before concatenation, cancel and fail once the ceiling is crossed, and decode only after the stream completes. For HTML, use Cheerio to remove `script` after separately parsing valid `application/ld+json`, plus `style`, `nav`, `form`, `noscript`, `[hidden]`, and `[aria-hidden="true"]`. Build labeled sections from canonical URL, title/meta fields, `JobPosting` title/company/location/description, and readable body text. Set `hasStructuredJobPosting` only for JSON-LD whose `@type` is `JobPosting` (string or array, bare or schema.org HTTP(S) URL, including nested `@graph`) or explicit schema.org `JobPosting` microdata. Plain text and unsupported or malformed page markup return false while preserving usable context. Collapse whitespace, discard duplicate normalized sections, join with newlines, and truncate by Unicode code points to the character ceiling.
 
 Run:
 
@@ -209,7 +211,8 @@ it("retrieves before provider preview and passes only bounded context", async ()
   const retrievePosting = vi.fn(async () => ({
     requestedUrl: run.canonicalJobUrl,
     finalUrl: run.canonicalJobUrl,
-    context: "Technical Director at Thrillworks"
+    context: "Technical Director at Thrillworks",
+    hasStructuredJobPosting: true
   }));
   // Process preview and assert retrievePosting precedes provider.preview.
   // Assert the provider receives postingContext and postingFinalUrl.
@@ -224,9 +227,9 @@ it.each([
 });
 ```
 
-The final quality-gate contract is deterministic context grounding, not fallback-phrase classification. Normalize preview labels, summary, and retrieved context with NFKC, lowercase, and collapsed non-alphanumeric runs. Require whole normalized company and role phrase evidence. For title shape, first exempt titles ending in credible occupational role heads (`engineer`, `manager`, `developer`, `architect`, `specialist`, `analyst`, `lead`, `director`, `executive`, `designer`, `administrator`, `consultant`, `scientist`, `researcher`); then reject page cores regardless of short brand prefixes or suffixes, including authentication/join/welcome/create-account, account-access, HTTP/error, and robot/browser/JavaScript/request/security interstitial titles. Require at least 3 unique meaningful summary terms of at least 3 characters with context matches of at least `max(3, ceil(0.60 * meaningful terms))`. The explicit stopword set is `a, an, and, are, as, at, be, by, for, from, in, into, is, it, of, on, or, that, the, their, this, to, with, you, your`.
+The final quality-gate contract is structured posting evidence plus deterministic context grounding, not title or occupation classification. Require `posting.hasStructuredJobPosting === true`. Normalize preview labels, summary, and retrieved context with NFKC, lowercase, and collapsed non-alphanumeric runs. Require whole normalized company and role phrase evidence. Require at least 3 unique meaningful summary terms of at least 3 characters with context matches of at least `max(3, ceil(0.60 * meaningful terms))`. The explicit stopword set is `a, an, and, are, as, at, be, by, for, from, in, into, is, it, of, on, or, that, the, their, this, to, with, you, your`.
 
-Provider prompt tests must require an extractive responsibility summary using posting language and prohibit retrieval/access/login/missing-content commentary. Orchestration tests must cover grounded legitimate retrieval-systems work, error/login pages, missing useful role content, hallucinated company/role, exact overlap boundaries, and insufficiently grounded paraphrases.
+Provider prompt tests must require an extractive responsibility summary using posting language and prohibit retrieval/access/login/missing-content commentary. Orchestration tests must prove that fully grounded login/error titles fail solely when structured evidence is false, while matching-context legitimate titles such as `403(b) Retirement Plan Coordinator`, `Login Product Owner`, `Join Our Team Sales Representative`, and `Unauthorized Payments Investigator` pass with true evidence. Also cover missing useful role content, hallucinated company/role, exact overlap boundaries, and insufficiently grounded paraphrases.
 
 Add retrieval rejection asserting provider preview is never called, final state is `failed`, failure code is `posting_retrieval_failed`, safe failure message is exact, and events contain only the four approved stage strings as applicable. Update all existing fake providers/dependencies to supply deterministic retrieval so tests never access the network.
 
@@ -249,7 +252,7 @@ In `processPreview`:
 5. map `PostingRetrievalError` to `posting_retrieval_failed` and the exact safe message;
 6. append `Analyzing job posting.`;
 7. pass transient context/final URL to the provider inside `activePhase`;
-8. apply deterministic label and summary grounding against the transient retrieved context, then reject an unusable preview with `SafeWorkflowError("preview_unusable", exactMessage)`;
+8. require structured `JobPosting` evidence and apply deterministic label and summary grounding against the transient retrieved context, then reject an unusable preview with `SafeWorkflowError("preview_unusable", exactMessage)`;
 9. transition to approval and append `Preview ready for approval.` only on success.
 
 Make failure classification preserve these two safe workflow codes instead of replacing them with `preview_failed`. Keep lease ownership, cancellation, and cleanup semantics unchanged.

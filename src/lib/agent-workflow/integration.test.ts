@@ -121,7 +121,8 @@ function workerDependencies(provider: AgentProvider) {
       return {
         requestedUrl: url,
         finalUrl: url,
-        context: "Integration Company Platform Engineer Build reliable developer infrastructure."
+        context: "Integration Company Platform Engineer Build reliable developer infrastructure.",
+        hasStructuredJobPosting: true
       };
     },
     leaseDurationMs: 5_000,

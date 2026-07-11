@@ -49,7 +49,8 @@ Create a focused server/worker module with an injectable fetch dependency. It mu
 - stream at most 2 MiB of response bytes and abort before buffering more;
 - reject non-2xx responses, invalid redirects, unsupported content, empty content, timeout, and size overflow with stable safe error codes;
 - parse HTML with a direct production dependency on `cheerio`;
-- extract document title, description and Open Graph metadata, canonical URL, `JobPosting` JSON-LD fields, and readable body text after removing script, style, navigation, form, and hidden content;
+- extract document title, description and Open Graph metadata, canonical URL, `JobPosting` JSON-LD fields, schema.org `JobPosting` microdata, and readable body text after removing script, style, navigation, form, and hidden content;
+- record structured posting evidence only for JSON-LD whose `@type` is `JobPosting` (including string or array values, schema.org HTTP(S) URL forms, and nested `@graph` entries) or explicit schema.org `JobPosting` microdata `itemtype`; plain text, generic/login/error HTML, and malformed JSON-LD do not provide this evidence;
 - collapse whitespace, deduplicate repeated sections, and produce at most 32,000 UTF-8 characters of untrusted plain-text context;
 - never persist raw HTML, response headers, cookies, resolved addresses, private paths, or unsanitized network errors.
 
@@ -65,13 +66,13 @@ After schema parsing, a preview is usable only when:
 
 - `company.trim()` and `role.trim()` are nonempty;
 - neither normalized value is `unknown`, `unavailable`, `not found`, `n/a`, or `null`;
-- the normalized role ends with a credible occupational role head (`engineer`, `manager`, `developer`, `architect`, `specialist`, `analyst`, `lead`, `director`, `executive`, `designer`, `administrator`, `consultant`, `scientist`, or `researcher`) or does not match a non-job page-title shape; after this suffix exemption, page cores are recognized with short brand text before or after them and cover login/log-in/sign-in/sign-up/join/welcome/create-account titles, authentication/attention-required and access/account pages, common HTTP/error titles and codes, and access-denied, robot/browser/JavaScript, request-blocked, unavailable, human-verification, and security-check/challenge interstitials;
+- host retrieval found structured schema.org `JobPosting` evidence as defined above;
 - the host retrieval produced nonempty bounded context;
 - NFKC-normalized, lowercased company and role phrases, with non-alphanumeric runs collapsed to spaces, each occur as whole normalized phrases in the retrieved context;
 - `summary.trim()` is nonempty and contains at least 3 unique meaningful normalized terms of at least 3 characters after excluding the explicit stopword set `a, an, and, are, as, at, be, by, for, from, in, into, is, it, of, on, or, that, the, their, this, to, with, you, your`;
 - retrieved context contains at least `max(3, ceil(0.60 * meaningful summary terms))` of those unique meaningful terms.
 
-The provider prompt must request an extractive responsibility summary using posting language and must prohibit retrieval, access, login, or missing-content commentary. This deterministic grounding contract replaces natural-language retrieval-fallback heuristics: legitimate retrieval-systems roles pass when their labels and responsibility language are evidenced in context, while login pages, error pages, hallucinated labels, and ungrounded paraphrases fail.
+The provider prompt must request an extractive responsibility summary using posting language and must prohibit retrieval, access, login, or missing-content commentary. The deterministic gate does not classify titles or occupations: any title can pass when the page supplies structured `JobPosting` evidence and its labels and responsibility language are grounded in context. Unsupported public pages, including fully grounded login or error pages without that evidence, fail safe.
 
 An unusable preview must transition from `previewing` to `failed` with failure code `preview_unusable` and safe message **The job posting could not be identified reliably. Try another public posting URL.** It must never enter `awaiting_approval` and must never expose the approval action.
 

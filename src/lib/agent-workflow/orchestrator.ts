@@ -154,7 +154,7 @@ async function processPreview(run: AgentRun, deps: AgentOrchestratorDependencies
         }
       )
     );
-    if (!isUsablePreview(result.preview, posting.context)) {
+    if (!isUsablePreview(result.preview, posting)) {
       throw new SafeWorkflowError(
         "preview_unusable",
         "The job posting could not be identified reliably. Try another public posting URL."
@@ -183,16 +183,6 @@ async function processPreview(run: AgentRun, deps: AgentOrchestratorDependencies
 }
 
 const UNUSABLE_PREVIEW_VALUES = new Set(["unknown", "unavailable", "not found", "n/a", "null"]);
-const OCCUPATIONAL_ROLE_HEAD = /\b(?:engineer|manager|developer|architect|specialist|analyst|lead|director|executive|designer|administrator|consultant|scientist|researcher)$/;
-const NON_JOB_ROLE_TITLE_PATTERNS = [
-  /\b(?:login|log in|sign in|sign up)\b/,
-  /\b(?:join|welcome to)\b/,
-  /\b(?:create (?:an? )?account|authentication required|attention required)\b/,
-  /\b(?:access (?:your )?account|(?:your )?account access)\b/,
-  /\b(?:400|401|403|404|429|500|502|503)(?: (?:error|forbidden|unauthorized|not found|bad request|too many requests|service unavailable|bad gateway|gateway timeout))?\b/,
-  /\b(?:forbidden|unauthorized|not found|bad request|service unavailable|too many requests|page not found)\b/,
-  /\b(?:access denied|robot check|are you a robot|checking your browser|enable javascript|request blocked|temporarily unavailable|just a moment|verify you are human|security check|security challenge)\b/
-] as const;
 const SUMMARY_STOPWORDS = new Set([
   "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "into", "is",
   "it", "of", "on", "or", "that", "the", "their", "this", "to", "with", "you", "your"
@@ -200,24 +190,19 @@ const SUMMARY_STOPWORDS = new Set([
 const MINIMUM_SUMMARY_TERMS = 3;
 const MINIMUM_SUMMARY_OVERLAP = 0.6;
 
-export function isUsablePreview(preview: AgentPreview, postingContext: string): boolean {
+export function isUsablePreview(preview: AgentPreview, posting: RetrievedPosting): boolean {
   const company = normalizeGroundingText(preview.company);
   const role = normalizeGroundingText(preview.role);
   const summary = normalizeGroundingText(preview.summary);
-  const context = normalizeGroundingText(postingContext);
+  const context = normalizeGroundingText(posting.context);
   return Boolean(company && role && summary) &&
+    posting.hasStructuredJobPosting &&
     Boolean(context) &&
     !UNUSABLE_PREVIEW_VALUES.has(company) &&
     !UNUSABLE_PREVIEW_VALUES.has(role) &&
-    !isNonJobRoleTitle(role) &&
     containsNormalizedPhrase(context, company) &&
     containsNormalizedPhrase(context, role) &&
     hasGroundedSummary(summary, context);
-}
-
-function isNonJobRoleTitle(role: string): boolean {
-  if (OCCUPATIONAL_ROLE_HEAD.test(role)) return false;
-  return NON_JOB_ROLE_TITLE_PATTERNS.some((pattern) => pattern.test(role));
 }
 
 function normalizeGroundingText(value: string): string {

@@ -36,9 +36,17 @@ const preview = {
   postingState: "open" as const
 };
 const NORMAL_POSTING_CONTEXT = "Acme Platform Engineer Build reliable infrastructure for scalable services.";
+function retrievedPosting(context: string, hasStructuredJobPosting = true) {
+  return {
+    requestedUrl: "https://jobs.example/role",
+    finalUrl: "https://jobs.example/role",
+    context,
+    hasStructuredJobPosting
+  };
+}
 const evaluatePreview = isUsablePreview as unknown as (
   candidate: typeof preview,
-  postingContext: string
+  posting: ReturnType<typeof retrievedPosting>
 ) => boolean;
 
 beforeEach(() => {
@@ -88,7 +96,7 @@ function dependencies(fakeProvider = provider()) {
     providers: { codex: fakeProvider, claude: fakeProvider },
     retrievePosting: async (url: string, options?: { onInitialValidated?(): void }) => {
       options?.onInitialValidated?.();
-      return { requestedUrl: url, finalUrl: url, context: NORMAL_POSTING_CONTEXT };
+      return { ...retrievedPosting(NORMAL_POSTING_CONTEXT), requestedUrl: url, finalUrl: url };
     },
     leaseDurationMs: 5_000,
     heartbeatIntervalMs: 25,
@@ -204,7 +212,7 @@ describe("agent workflow orchestration", () => {
       retrievalStarted = true;
       await validation;
       options?.onInitialValidated?.();
-      return { requestedUrl: url, finalUrl: url, context: NORMAL_POSTING_CONTEXT };
+      return { ...retrievedPosting(NORMAL_POSTING_CONTEXT), requestedUrl: url, finalUrl: url };
     });
     const processing = processNextAgentRun({ ...dependencies(), retrievePosting });
     await waitFor(() => retrievalStarted);
@@ -248,7 +256,7 @@ describe("agent workflow orchestration", () => {
     "The careers site blocked access to the listing.",
     "Investigate another URL because this posting is unavailable."
   ])("rejects retrieval fallback summary: %s", (summary) => {
-    expect(evaluatePreview({ ...preview, summary }, NORMAL_POSTING_CONTEXT)).toBe(false);
+    expect(evaluatePreview({ ...preview, summary }, retrievedPosting(NORMAL_POSTING_CONTEXT))).toBe(false);
   });
 
   it.each([
@@ -268,7 +276,7 @@ describe("agent workflow orchestration", () => {
     "Responsible for diagnosing job page access failures."
   ])("keeps legitimate summary usable: %s", (summary) => {
     const context = `Acme Platform Engineer Responsibilities ${summary}`;
-    expect(evaluatePreview({ ...preview, summary }, context)).toBe(true);
+    expect(evaluatePreview({ ...preview, summary }, retrievedPosting(context))).toBe(true);
   });
 
   it.each(["Sign in", "Sign-In", "Login", "Log in", "Access denied", "Page not found"])(
@@ -281,7 +289,8 @@ describe("agent workflow orchestration", () => {
         summary: "Access LinkedIn account login securely."
       };
       const context = `LinkedIn ${role} Access LinkedIn account login securely.`;
-      expect(evaluatePreview(candidate, context)).toBe(false);
+      expect(evaluatePreview(candidate, retrievedPosting(context, false))).toBe(false);
+      expect(evaluatePreview(candidate, retrievedPosting(context, true))).toBe(true);
     }
   );
 
@@ -306,7 +315,8 @@ describe("agent workflow orchestration", () => {
   ])("rejects fully grounded branded non-job title: %s / %s", (company, role, summary) => {
     const candidate = { ...preview, company, role, summary };
     const context = `${company} ${role} ${summary}`;
-    expect(evaluatePreview(candidate, context)).toBe(false);
+    expect(evaluatePreview(candidate, retrievedPosting(context, false))).toBe(false);
+    expect(evaluatePreview(candidate, retrievedPosting(context, true))).toBe(true);
   });
 
   it.each([
@@ -315,14 +325,18 @@ describe("agent workflow orchestration", () => {
     ["Account Executive", "Lead strategic account growth."],
     ["Security Engineer", "Implement reliable security controls."],
     ["Login Platform Engineer", "Build reliable login platform services."],
+    ["Login Product Owner", "Own secure login product delivery."],
     ["Authentication Product Manager", "Lead authentication product strategy."],
     ["Access Control Architect", "Design scalable access control systems."],
     ["Account Executive", "Own strategic account relationships."],
-    ["Password Manager", "Manage secure password services."]
+    ["Password Manager", "Manage secure password services."],
+    ["403(b) Retirement Plan Coordinator", "Coordinate retirement plan participant services."],
+    ["Join Our Team Sales Representative", "Grow customer sales relationships."],
+    ["Unauthorized Payments Investigator", "Investigate unauthorized customer payment activity."]
   ])("keeps grounded real title usable: %s", (role, summary) => {
     const candidate = { ...preview, role, summary };
     const context = `Acme ${role} ${summary}`;
-    expect(evaluatePreview(candidate, context)).toBe(true);
+    expect(evaluatePreview(candidate, retrievedPosting(context))).toBe(true);
   });
 
   it.each([
@@ -341,7 +355,7 @@ describe("agent workflow orchestration", () => {
       "Acme Engineer Build reliable."
     ]
   ])("rejects %s", (_label, candidate, context) => {
-    expect(evaluatePreview(candidate as typeof preview, context as string)).toBe(false);
+    expect(evaluatePreview(candidate as typeof preview, retrievedPosting(context as string))).toBe(false);
   });
 
   it("accepts the exact three-token and sixty-percent grounding boundary", () => {
@@ -351,7 +365,7 @@ describe("agent workflow orchestration", () => {
       summary: "Build reliable systems with cloud delivery."
     };
     const context = "Acme Engineer Build reliable systems for customer operations.";
-    expect(evaluatePreview(candidate, context)).toBe(true);
+    expect(evaluatePreview(candidate, retrievedPosting(context))).toBe(true);
   });
 
   it("normalizes NFKC punctuation while requiring whole company and role phrases", () => {
@@ -362,8 +376,8 @@ describe("agent workflow orchestration", () => {
       summary: "Build reliable infrastructure."
     };
     const context = "Acme Inc seeks a Platform Engineer to build reliable infrastructure.";
-    expect(evaluatePreview(candidate, context)).toBe(true);
-    expect(evaluatePreview({ ...candidate, company: "Acme Incorporated" }, context)).toBe(false);
+    expect(evaluatePreview(candidate, retrievedPosting(context))).toBe(true);
+    expect(evaluatePreview({ ...candidate, company: "Acme Incorporated" }, retrievedPosting(context))).toBe(false);
   });
 
   it("promptly cancels retrieval without invoking the provider", async () => {
@@ -443,7 +457,8 @@ describe("agent workflow orchestration", () => {
       return {
         requestedUrl: run.canonicalJobUrl,
         finalUrl: "https://public.example/final",
-        context: "Technical Director at Thrillworks Lead technical strategy and delivery."
+        context: "Technical Director at Thrillworks Lead technical strategy and delivery.",
+        hasStructuredJobPosting: true
       };
     });
 

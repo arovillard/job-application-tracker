@@ -61,6 +61,7 @@ describe("retrievePublicPosting", () => {
     expect(result.context).toContain("Thrillworks");
     expect(result.context).not.toContain("<script");
     expect(result.context.length).toBeLessThanOrEqual(32_000);
+    expect(result.hasStructuredJobPosting).toBe(true);
   });
 
   it("retrieves bounded plain text", async () => {
@@ -70,6 +71,36 @@ describe("retrievePublicPosting", () => {
       maximumCharacters: 8
     });
     expect(result.context).toBe("Senior E");
+    expect(result.hasStructuredJobPosting).toBe(false);
+  });
+
+  it.each([
+    ["nested schema URL JSON-LD", `<script type="application/ld+json">${JSON.stringify({
+      "@graph": [{ "@type": "https://schema.org/JobPosting", title: "Engineer" }]
+    })}</script><main>Acme Engineer builds reliable systems.</main>`],
+    ["array schema URL JSON-LD", `<script type="application/ld+json">${JSON.stringify({
+      "@type": ["Thing", "http://schema.org/JobPosting"], title: "Engineer"
+    })}</script><main>Acme Engineer builds reliable systems.</main>`],
+    ["schema.org JobPosting microdata", `<main itemscope itemtype="https://schema.org/JobPosting">Acme Engineer builds reliable systems.</main>`]
+  ])("detects structured evidence from %s", async (_label, html) => {
+    const result = await retrievePublicPosting("https://jobs.example/role", {
+      fetchImpl: async () => response(`<html><body>${html}</body></html>`),
+      validateUrl: async (url) => url
+    });
+    expect(result.hasStructuredJobPosting).toBe(true);
+  });
+
+  it.each([
+    ["login HTML", "<html><body><h1>Sign in</h1><p>Access your account securely.</p></body></html>"],
+    ["error HTML", "<html><body><h1>403 Forbidden</h1><p>Access denied.</p></body></html>"],
+    ["generic HTML", "<html><body><main>Acme Engineer builds reliable systems.</main></body></html>"],
+    ["non-schema microdata", '<html><body><main itemscope itemtype="JobPosting">Acme Engineer builds reliable systems.</main></body></html>']
+  ])("does not infer structured evidence from %s", async (_label, html) => {
+    const result = await retrievePublicPosting("https://jobs.example/role", {
+      fetchImpl: async () => response(html),
+      validateUrl: async (url) => url
+    });
+    expect(result.hasStructuredJobPosting).toBe(false);
   });
 
   it("announces initial validation before fetch without exposing URL data", async () => {
@@ -296,6 +327,7 @@ describe("retrievePublicPosting", () => {
       validateUrl: async (url) => url
     });
     expect(result.context).toContain("Platform Engineer at Acme");
+    expect(result.hasStructuredJobPosting).toBe(false);
   });
 
   it("removes duplicate normalized sections", async () => {
