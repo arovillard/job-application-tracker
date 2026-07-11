@@ -225,7 +225,10 @@ describe("agent workflow orchestration", () => {
     "Unable to load the job page right now.",
     "Could not access this job listing.",
     "Failed retrieving the job posting.",
-    "The job posting was unavailable."
+    "The job posting was unavailable.",
+    "Unable to retrieve details from the provided URL.",
+    "The link could not be accessed.",
+    "No job information could be extracted."
   ])("rejects retrieval fallback summary: %s", (summary) => {
     expect(isUsablePreview({ ...preview, summary })).toBe(false);
   });
@@ -234,7 +237,10 @@ describe("agent workflow orchestration", () => {
     "Build retrieval systems for public job postings.",
     "Improve page load performance for the careers site.",
     "Own accessible posting workflows and data quality.",
-    "Design handling for unavailable job posting states."
+    "Design handling for unavailable job posting states.",
+    "Investigate when job posting retrieval has failed for enterprise customers.",
+    "Build alerts when job listing access has failed in production.",
+    "Own job posting unavailable-state reporting."
   ])("keeps legitimate summary usable: %s", (summary) => {
     expect(isUsablePreview({ ...preview, summary })).toBe(true);
   });

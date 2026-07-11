@@ -200,12 +200,21 @@ function isRetrievalFallbackSummary(summary: string): boolean {
     .replace(/[’']/g, " ")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
-  const failureThenAction = /\b(?:failed|unable|could not|couldn t|cannot|can t)(?:\s+to)?\s+(?:retriev(?:e|ing)|access|load|open|view|reach)\b.{0,48}\b(?:job\s+)?(?:posting|page|listing)\b/;
-  const objectThenFailure = /\b(?:job\s+)?(?:posting|page|listing)\s+(?:retrieval|access|loading|load)\s+(?:has\s+)?failed\b/;
-  const passiveFailure = /\b(?:job\s+)?(?:posting|page|listing)\b.{0,40}\b(?:could not|couldn t|unable|failed)\b.{0,24}\b(?:retrieve|retrieved|access|load|loaded|open|view)\b/;
-  const unavailableObject = /\b(?:job\s+)?(?:posting|page|listing)\b.{0,16}\b(?:unavailable|inaccessible)\b/;
-  return failureThenAction.test(normalized) || objectThenFailure.test(normalized) ||
-    passiveFailure.test(normalized) || unavailableObject.test(normalized);
+  const target = String.raw`(?:details|information|(?:job\s+)?(?:posting|page|listing)|link|url)`;
+  const diagnosticAction = new RegExp(
+    String.raw`^(?:(?:i|we)\s+)?(?:failed|unable|could not|couldn t|cannot|can t)(?:\s+to)?\s+` +
+    String.raw`(?:retriev(?:e|ing)|access|load|open|view|reach|extract)\b.{0,80}\b${target}\b`
+  );
+  const diagnosticObject = new RegExp(
+    String.raw`^(?:the\s+)?(?:public\s+|provided\s+)?${target}\b.{0,64}\b` +
+    String.raw`(?:could not|couldn t|cannot|can t|unable|unavailable|inaccessible|failed)\b`
+  );
+  const noInformation = new RegExp(
+    String.raw`^no\s+(?:job\s+)?(?:information|details|posting data)\b.{0,48}\b` +
+    String.raw`(?:extract|extracted|retrieve|retrieved|access|load|loaded)\b`
+  );
+  return diagnosticAction.test(normalized) || diagnosticObject.test(normalized) ||
+    noInformation.test(normalized);
 }
 
 async function processExecution(run: AgentRun, deps: AgentOrchestratorDependencies) {
