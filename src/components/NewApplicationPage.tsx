@@ -47,8 +47,8 @@ export function NewApplicationPage() {
     <main className="app-shell app-shell--narrow">
       <header className="app-header">
         <div>
-          <p className="app-header__eyebrow">New application</p>
-          <h1 className="app-header__title">Create Application</h1>
+          <p className="app-header__eyebrow">Manual entry</p>
+          <h1 className="app-header__title">Add an existing application</h1>
         </div>
         <Link className="button" href="/">
           Back to dashboard
@@ -59,7 +59,10 @@ export function NewApplicationPage() {
 
       <section className="tracker-panel">
         <div className="tracker-panel__header">
-          <h2 className="tracker-panel__title">Application details</h2>
+          <div>
+            <h2 className="tracker-panel__title">Application details</h2>
+            <p className="tracker-panel__support">Use this path for a job you already applied to or do not need the agent to review.</p>
+          </div>
           {saving ? <span className="tracker-panel__meta">Saving</span> : null}
         </div>
         <ApplicationForm isSubmitting={saving} onSubmit={createApplication} submitLabel="Create application" />

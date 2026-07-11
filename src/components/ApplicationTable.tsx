@@ -18,6 +18,10 @@ type ApplicationTableProps = {
   emptyMessage?: string;
   loading?: boolean;
   pendingStatusId?: string | null;
+  emptyActions?: {
+    onApplyWithAgent(): void;
+    manualHref: string;
+  };
 };
 
 const DATE_FORMAT = new Intl.DateTimeFormat("en-US", {
@@ -52,7 +56,8 @@ export function ApplicationTable({
   onStatusChange,
   emptyMessage,
   loading = false,
-  pendingStatusId = null
+  pendingStatusId = null,
+  emptyActions
 }: ApplicationTableProps) {
   if (loading) {
     return (
@@ -69,13 +74,16 @@ export function ApplicationTable({
       <div className="application-table application-table--empty">
         <div className="application-table__empty-state">
           <span className="empty-state__icon" aria-hidden="true">✦</span>
-          <strong className="application-table__empty-title">Your pipeline is clear</strong>
+          <strong className="application-table__empty-title">{emptyActions ? "Start your next application" : "No opportunities match this view"}</strong>
           <p className="application-table__empty-message">
-            {emptyMessage ?? "Create an application to start making your next move visible."}
+            {emptyActions
+              ? "Give the agent a public job posting. Review the role before it creates tailored materials and adds the application to your tracker."
+              : emptyMessage ?? "Try clearing a filter or search term."}
           </p>
-          <Link className="button button--primary" href="/applications/new">
-            Create application
-          </Link>
+          {emptyActions ? <div className="application-table__empty-actions">
+            <button className="button button--primary" type="button" onClick={emptyActions.onApplyWithAgent}>Apply with Agent</button>
+            <Link className="button application-table__manual-action" href={emptyActions.manualHref}>Already applied? Add it manually</Link>
+          </div> : null}
         </div>
       </div>
     );

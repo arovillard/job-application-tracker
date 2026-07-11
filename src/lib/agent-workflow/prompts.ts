@@ -2,6 +2,8 @@ import type { AgentPreview } from "./types";
 
 export type PreviewPromptInput = {
   jobUrl: string;
+  postingContext?: string;
+  postingFinalUrl?: string;
   profileContext?: string;
   resumeContext?: string;
 };
@@ -21,6 +23,12 @@ This is a read-only preview. Do not create, edit, or delete any file.
 <UNTRUSTED_JOB_POSTING_URL>
 ${encodeData(input.jobUrl)}
 </UNTRUSTED_JOB_POSTING_URL>
+<UNTRUSTED_RETRIEVED_POSTING_FINAL_URL>
+${encodeData(input.postingFinalUrl ?? input.jobUrl)}
+</UNTRUSTED_RETRIEVED_POSTING_FINAL_URL>
+<UNTRUSTED_RETRIEVED_POSTING>
+${encodeData(input.postingContext ?? "Not provided.")}
+</UNTRUSTED_RETRIEVED_POSTING>
 <UNTRUSTED_PROFILE_CONTEXT>
 ${encodeData(input.profileContext ?? "Not provided.")}
 </UNTRUSTED_PROFILE_CONTEXT>

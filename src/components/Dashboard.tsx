@@ -272,7 +272,10 @@ export function Dashboard() {
         </div>
         <div className="dashboard-header__actions">
           <span className="shortcut-hint"><kbd>⌘</kbd><kbd>K</kbd> Search</span>
-          <button className="button agent-drawer-trigger" type="button" onClick={() => setAgentDrawerOpen(true)}>Apply with agent</button>
+          <button className="button button--primary agent-drawer-trigger" type="button" onClick={() => setAgentDrawerOpen(true)}>Apply with Agent</button>
+          <Link className="button dashboard-new-application" href="/applications/new">
+            Add existing application <kbd>N</kbd>
+          </Link>
           <button
             className="icon-button"
             type="button"
@@ -281,9 +284,6 @@ export function Dashboard() {
           >
             {theme === "light" ? "◐" : "☼"}
           </button>
-          <Link className="button button--primary dashboard-new-application" href="/applications/new">
-            <span aria-hidden="true">+</span> New application <kbd>N</kbd>
-          </Link>
         </div>
       </header>
 
@@ -344,6 +344,11 @@ export function Dashboard() {
             search || pipelineFocus !== "all" || statusFilter !== "all"
               ? "No opportunities match this view. Try clearing a filter or search term."
               : "Your opportunities will appear here. Select New application to add the first one."
+          }
+          emptyActions={
+            !search && pipelineFocus === "all" && statusFilter === "all"
+              ? { onApplyWithAgent: () => setAgentDrawerOpen(true), manualHref: "/applications/new" }
+              : undefined
           }
         />
       </section>

@@ -110,6 +110,92 @@ describe("ApplyWithAgentDrawer", () => {
     expect(document.activeElement).toBe(container.querySelector("input[type=url]"));
   });
 
+  it("shows active stage, activity status, elapsed time, event timestamps, and formatted usage", async () => {
+    const active = run("previewing", {
+      usage: { input_tokens: 208992, output_tokens: 1241, cached_input_tokens: 150784 },
+      events: [{
+        id: "e1", runId: "run-1", sequence: 1, kind: "status",
+        message: "Retrieving public job posting.", metadata: { path: "/private" },
+        createdAt: "2026-01-01T12:34:56Z"
+      }, {
+        id: "e2", runId: "run-1", sequence: 2, kind: "progress",
+        message: "Provider processing details.", metadata: null,
+        createdAt: "2026-01-01T12:34:57Z"
+      }, {
+        id: "e3", runId: "run-1", sequence: 3, kind: "usage",
+        message: "Provider usage update.", metadata: null,
+        createdAt: "2026-01-01T12:34:58Z"
+      }]
+    });
+    fetchMock.mockImplementation((url) => jsonReply({ body: url === "/api/agent-providers" ? diagnostics : active }));
+    await render(); await act(async () => {}); await submitRun();
+
+    expect(container.querySelector('[aria-label="Agent work in progress"]')).not.toBeNull();
+    expect(container.textContent).toContain("Retrieving public job posting.");
+    expect(container.textContent).toContain("Working… · 0:00");
+    expect(container.textContent).toContain("208,992 input");
+    expect(container.textContent).toContain("1,241 output");
+    expect(container.textContent).toContain("150,784 cached");
+    expect(container.textContent).not.toContain("Provider usage update.");
+    expect(container.textContent).not.toContain("/private");
+    expect(container.querySelector("time")?.getAttribute("datetime")).toBe("2026-01-01T12:34:56Z");
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(container.textContent).toContain("Working… · 0:01");
+    await act(async () => vi.advanceTimersByTimeAsync(64_000));
+    expect(container.textContent).toContain("Working… · 1:05");
+  });
+
+  it.each([
+    ["preview_unusable", "The job posting could not be identified reliably. Try another public posting URL."],
+    ["posting_retrieval_failed", "The public job posting could not be retrieved safely. Check the link or try another public posting URL."]
+  ])("shows safe %s recovery without approval", async (failureCode, failureMessage) => {
+    replies.push({ body: diagnostics }, { body: run("failed", { failureCode, failureMessage }), status: 202 });
+    await render(); await act(async () => {}); await submitRun();
+    expect(container.textContent).toContain(failureMessage);
+    expect(button("Try another URL")).toBeTruthy();
+    expect(button("Approve and create materials")).toBeFalsy();
+  });
+
+  it.each(["cancelled", "failed", "interrupted", "succeeded"])("offers restart for terminal %s", async (state) => {
+    replies.push({ body: diagnostics }, { body: run(state), status: 202 });
+    await render(); await act(async () => {}); await submitRun();
+    expect(button("Start another application")).toBeTruthy();
+  });
+
+  it.each(["cancelled", "failed", "interrupted", "succeeded"])("resets terminal %s after close and reopen", async (state) => {
+    replies.push({ body: diagnostics }, { body: run(state), status: 202 });
+    await render(); await act(async () => {}); await submitRun("custom-model");
+    await render(false);
+    await render(true);
+    expect(container.querySelectorAll("input[type=url]")).toHaveLength(1);
+    expect((container.querySelector("input[type=url]") as HTMLInputElement).value).toBe("");
+    expect((container.querySelector("input[name=model]") as HTMLInputElement).value).toBe("");
+    expect(container.querySelector(".agent-thread__progress")).toBeNull();
+  });
+
+  it.each(["previewing", "awaiting_approval"])("preserves %s after close and reopen", async (state) => {
+    const overrides = state === "awaiting_approval"
+      ? { preview: { company: "Acme", role: "Engineer", location: null, summary: "Fit", postingState: "open" } }
+      : {};
+    replies.push({ body: diagnostics }, { body: run(state, overrides), status: 202 });
+    await render(); await act(async () => {}); await submitRun();
+    await render(false);
+    await render(true);
+    expect(container.textContent).toMatch(state === "previewing" ? /previewing|job posting/i : /Review job preview/);
+    expect(container.querySelector("input[type=url]")).toBeNull();
+  });
+
+  it("starts another application with local-only reset and clears timers", async () => {
+    replies.push({ body: diagnostics }, { body: run("cancelled"), status: 202 });
+    await render(); await act(async () => {}); await submitRun("custom-model");
+    await act(async () => button("Start another application").click());
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(false);
+    expect((container.querySelector("input[type=url]") as HTMLInputElement).value).toBe("");
+    expect((container.querySelector("input[name=model]") as HTMLInputElement).value).toBe("");
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("posts only the strict local payload and omits a blank model override", async () => {
     replies.push({ body: diagnostics }, { body: run("queued_preview"), status: 202 });
     await render(); await act(async () => {}); await act(async () => vi.advanceTimersByTimeAsync(0)); await submitRun();
@@ -239,7 +325,7 @@ describe("ApplyWithAgentDrawer", () => {
     await act(async () => button("Cancel").click());
     expect(staleSignal?.aborted).toBe(true);
     await act(async () => stalePoll.resolve(await jsonReply({ body: run("awaiting_approval") })));
-    expect(container.textContent).toContain("executing");
+    expect(container.textContent).toContain("Creating application materials.");
     expect(container.textContent).not.toContain("awaiting approval");
     expect(container.textContent).toContain("Cancellation is temporarily unavailable.");
     await act(async () => vi.advanceTimersByTimeAsync(999));
@@ -277,7 +363,7 @@ describe("ApplyWithAgentDrawer", () => {
     expect(actionSignal?.aborted).toBe(true);
     await act(async () => pendingCancel.reject(new DOMException("Aborted", "AbortError")));
     await render(true);
-    expect(container.textContent).toContain("previewing");
+    expect(container.textContent).toContain("Analyzing job posting.");
     expect(container.textContent).not.toContain("Unable to cancel");
   });
 

@@ -6,7 +6,7 @@ import path from "node:path";
 import { PassThrough, Writable } from "node:stream";
 
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { addApplicationNote, createApplication, resetStorageForTests } from "../storage";
 import type { AgentProvider } from "./providers";
@@ -22,6 +22,7 @@ import {
   resetAgentRunStorageForTests
 } from "./storage";
 import { processNextAgentRun, runAgentWorker } from "./orchestrator";
+import { PostingRetrievalError } from "./retrieval";
 
 let root: string;
 let dbPath: string;
@@ -80,6 +81,7 @@ function dependencies(fakeProvider = provider()) {
     dbPath,
     applicationsDir,
     providers: { codex: fakeProvider, claude: fakeProvider },
+    retrievePosting: async (url: string) => ({ requestedUrl: url, finalUrl: url, context: "Acme Platform Engineer public posting" }),
     leaseDurationMs: 5_000,
     heartbeatIntervalMs: 25,
     commandTimeoutMs: 10_000
@@ -185,6 +187,81 @@ async function waitFor(predicate: () => boolean) {
 }
 
 describe("agent workflow orchestration", () => {
+  it("retrieves before provider preview and passes only bounded context", async () => {
+    const order: string[] = [];
+    const fake = provider();
+    fake.preview = vi.fn(async (request) => {
+      order.push("preview");
+      expect(request).toMatchObject({
+        postingContext: "Technical Director at Thrillworks",
+        postingFinalUrl: "https://public.example/final"
+      });
+      return { preview, usage: null };
+    });
+    const run = createAgentRun({ provider: "codex", model: "model", canonicalJobUrl: "https://jobs.example.com/role" });
+    const retrievePosting = vi.fn(async () => {
+      order.push("retrieve");
+      return {
+        requestedUrl: run.canonicalJobUrl,
+        finalUrl: "https://public.example/final",
+        context: "Technical Director at Thrillworks"
+      };
+    });
+
+    await processNextAgentRun({ ...dependencies(fake), retrievePosting });
+
+    expect(order).toEqual(["retrieve", "preview"]);
+    expect(getAgentRun(run.id)?.state).toBe("awaiting_approval");
+    expect(getPublicAgentRun(run.id)?.events.map(({ message }) => message)).toEqual([
+      "Validating public job URL.",
+      "Retrieving public job posting.",
+      "Analyzing job posting.",
+      "Preview ready for approval."
+    ]);
+  });
+
+  it.each([
+    { company: "Unknown", role: "Engineer", summary: "Valid" },
+    { company: "Acme", role: "N/A", summary: "Valid" },
+    { company: "Acme", role: "Engineer", summary: "The public posting could not be retrieved." }
+  ])("fails an unusable preview without exposing approval", async (candidate) => {
+    const fake = provider();
+    fake.preview = async () => ({ preview: { ...preview, ...candidate }, usage: null });
+    const run = createAgentRun({ provider: "codex", model: "model", canonicalJobUrl: "https://jobs.example.com/unusable" });
+
+    await processNextAgentRun(dependencies(fake));
+
+    expect(getAgentRun(run.id)).toMatchObject({
+      state: "failed",
+      failureCode: "preview_unusable",
+      failureMessage: "The job posting could not be identified reliably. Try another public posting URL."
+    });
+    expect(getPublicAgentRun(run.id)?.events.map(({ message }) => message)).not.toContain("Preview ready for approval.");
+  });
+
+  it("fails retrieval safely without invoking the provider", async () => {
+    const fake = provider();
+    fake.preview = vi.fn(fake.preview);
+    const run = createAgentRun({ provider: "codex", model: "model", canonicalJobUrl: "https://jobs.example.com/missing" });
+
+    await processNextAgentRun({
+      ...dependencies(fake),
+      retrievePosting: async () => { throw new PostingRetrievalError(); }
+    });
+
+    expect(fake.preview).not.toHaveBeenCalled();
+    expect(getAgentRun(run.id)).toMatchObject({
+      state: "failed",
+      failureCode: "posting_retrieval_failed",
+      failureMessage: "The public job posting could not be retrieved safely. Check the link or try another public posting URL."
+    });
+    expect(getPublicAgentRun(run.id)?.events.map(({ message }) => message)).toEqual([
+      "Validating public job URL.",
+      "Retrieving public job posting.",
+      "The public job posting could not be retrieved safely. Check the link or try another public posting URL."
+    ]);
+  });
+
   it("previews without mutation, then upserts, verifies, registers, and exposes safe links", async () => {
     const run = createAgentRun({
       provider: "codex",

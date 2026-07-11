@@ -61,6 +61,8 @@ export type AgentProviderHooks = {
 
 export type AgentProviderRequest = {
   jobUrl: string;
+  postingContext?: string;
+  postingFinalUrl?: string;
   model?: string;
   profileContext?: string;
   resumeContext?: string;
@@ -150,9 +152,12 @@ export class AgentProviderError extends Error {
 }
 
 export function buildCodexInvocation(input: CodexInvocationInput): ProviderInvocation {
+  const previewDirectory = path.dirname(input.schemaPath);
+  const workingDirectory = input.operation === "preview" ? previewDirectory : input.projectRoot;
   const args = [
     "exec",
     "--ephemeral",
+    ...(input.operation === "preview" ? ["--ignore-user-config"] : []),
     "--json",
     "--sandbox",
     input.operation === "preview" ? "read-only" : "workspace-write",
@@ -163,7 +168,7 @@ export function buildCodexInvocation(input: CodexInvocationInput): ProviderInvoc
     "--model",
     input.model,
     "--cd",
-    input.projectRoot
+    workingDirectory
   ];
   if (input.operation === "materials") {
     args.push("--add-dir", input.applicationsDir);
@@ -172,7 +177,7 @@ export function buildCodexInvocation(input: CodexInvocationInput): ProviderInvoc
   return {
     command: input.executablePath,
     args,
-    cwd: input.projectRoot,
+    cwd: workingDirectory,
     shell: false,
     stdin: input.prompt
   };

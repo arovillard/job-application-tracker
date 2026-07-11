@@ -48,17 +48,27 @@ Run the web app in a second terminal:
 npm run dev
 ```
 
-Open the local URL printed by Next.js, choose **Apply with agent**, enter one public HTTP or HTTPS job URL, and select a provider. The flow is:
+Open the local URL printed by Next.js and choose the primary **Apply with Agent** action. Manual entry is the backup path for an application that was already submitted or does not need posting review and tailored materials. Enter one public HTTP or HTTPS job URL and select a provider. The flow is:
 
 1. `queued_preview` — the API stored the request.
-2. `previewing` — the worker is performing a read-only, schema-constrained inspection.
+2. `previewing` — the worker validates the public URL, retrieves bounded posting context on the host, and performs a read-only, schema-constrained inspection.
 3. `awaiting_approval` — review the company, role, location, summary, and posting state. No application record or materials exist yet.
 4. Approve to enter `queued_execution`, or cancel to enter `cancelled` without execution.
 5. `executing` — JobTracker upserts and verifies the tracker record, then asks the provider to create files.
 6. `verifying` — JobTracker verifies file type, existence, canonical containment, registration output, and SQLite readback.
 7. `succeeded` — the drawer shows the application and artifact links.
 
-The remaining terminal states are `failed`, `cancelled`, and `interrupted`. Cancellation is available while work is queued, awaiting approval, or active. If the worker stops during `previewing`, `executing`, or `verifying`, recovery marks abandoned work `interrupted`; it is never retried automatically. Start a new run after investigating the safe failure.
+The drawer shows the current stage, a text-and-motion activity indicator, an elapsed timer, safe event timestamps, and formatted token usage when available. Preview stages are **Validating public job URL**, **Retrieving public job posting**, **Analyzing job posting**, and **Preview ready for approval**. Execution labels distinguish material creation from artifact verification.
+
+The remaining terminal states are `failed`, `cancelled`, and `interrupted`. Cancellation is available while work is queued, awaiting approval, or active. Active and approval-pending runs remain available when the drawer closes. Terminal screens offer **Start another application**; closing a terminal screen resets the local drawer on its next open without deleting the historical run. If the worker stops during `previewing`, `executing`, or `verifying`, recovery marks abandoned work `interrupted`; it is never retried automatically.
+
+## Posting retrieval and preview quality
+
+JobTracker retrieves public posting content before invoking a provider. It manually revalidates every redirect, follows at most five redirects, uses a 15-second total deadline, accepts only HTML, XHTML, or plain text, and streams at most 2 MiB. HTML extraction uses Cheerio and removes scripts, styles, navigation, forms, and hidden content after separately reading valid `JobPosting` JSON-LD. Extracted, deduplicated plain text is limited to 32,000 Unicode characters.
+
+The extracted posting and final public URL are transient untrusted prompt data. Raw HTML, response headers, cookies, network details, and extracted posting text are not stored in events or SQLite. Codex preview runs from a temporary directory with user configuration ignored, read-only sandboxing, an explicit schema and model, and no additional writable directory. Materials execution retains its existing project and applications-directory access so it can use `job-application-resume`.
+
+Retrieval failure stops before provider invocation with `posting_retrieval_failed`. A structurally valid response with unknown company or role, a blank or retrieval-fallback summary, or other unusable identity data stops with `preview_unusable`. Both failures show only approved safe guidance and never expose approval. Only a usable preview reaches `awaiting_approval`.
 
 Artifact links use local routes such as `/api/applications/<application-id>/artifacts/<artifact-id>/file`. Files are served only after application ownership, registration, regular-file status, and configured-root containment are checked again.
 
@@ -103,6 +113,7 @@ The real authenticated Codex smoke, optional authenticated Claude smoke, browser
 ## Security and privacy boundaries
 
 - Only public HTTP/HTTPS URLs are accepted. Embedded credentials, localhost, loopback, private, link-local, reserved, or privately resolving hosts are rejected.
+- Every redirect is manually revalidated before another request; retrieval uses no browser session, cookies, authentication state, or user credentials.
 - Posting, profile, resume, and preview content is untrusted data. It cannot authorize submission, authentication, database writes, or command changes.
 - Provider commands use fixed argument arrays and no shell interpolation.
 - Preview is read-only. Execution writes only under `JOBTRACKER_APPLICATIONS_DIR`; JobTracker performs tracker mutations and artifact registration itself.

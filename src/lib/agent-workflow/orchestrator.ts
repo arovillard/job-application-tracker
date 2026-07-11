@@ -4,6 +4,11 @@ import Database from "better-sqlite3";
 
 import { runJsonCommand, type JsonCommandSpawn } from "./process";
 import type { AgentProvider } from "./providers";
+import {
+  PostingRetrievalError,
+  retrievePublicPosting,
+  type RetrievedPosting
+} from "./retrieval";
 import { sanitizeProviderEvent, verifyArtifactPath } from "./security";
 import {
   appendAgentRunEvent,
@@ -41,6 +46,7 @@ export type AgentOrchestratorDependencies = {
   commandTimeoutMs?: number;
   spawn?: JsonCommandSpawn;
   signal?: AbortSignal;
+  retrievePosting?: typeof retrievePublicPosting;
 };
 
 export type AgentWorkerOptions = AgentOrchestratorDependencies & {
@@ -94,12 +100,36 @@ export async function runAgentWorker(options: AgentWorkerOptions): Promise<void>
 }
 
 async function processPreview(run: AgentRun, deps: AgentOrchestratorDependencies) {
-  appendAgentRunEvent(run.id, { kind: "status", message: "Preview started." });
+  appendAgentRunEvent(run.id, { kind: "status", message: "Validating public job URL." });
   try {
+    appendAgentRunEvent(run.id, { kind: "status", message: "Retrieving public job posting." });
+    let posting: RetrievedPosting;
+    try {
+      posting = await activePhase(run.id, deps, () =>
+        (deps.retrievePosting ?? retrievePublicPosting)(run.canonicalJobUrl)
+      );
+    } catch (error) {
+      if (error instanceof PostingRetrievalError) {
+        throw new SafeWorkflowError(
+          "posting_retrieval_failed",
+          "The public job posting could not be retrieved safely. Check the link or try another public posting URL."
+        );
+      }
+      throw error;
+    }
+    if (!posting.context.trim()) {
+      throw new SafeWorkflowError(
+        "posting_retrieval_failed",
+        "The public job posting could not be retrieved safely. Check the link or try another public posting URL."
+      );
+    }
+    appendAgentRunEvent(run.id, { kind: "status", message: "Analyzing job posting." });
     const result = await activePhase(run.id, deps, (signal) =>
       deps.providers[run.provider].preview(
         {
           jobUrl: run.canonicalJobUrl,
+          postingContext: posting.context,
+          postingFinalUrl: posting.finalUrl,
           model: run.model,
           profileContext: deps.profileContext,
           resumeContext: deps.resumeContext ?? deps.baseResumePath,
@@ -117,6 +147,12 @@ async function processPreview(run: AgentRun, deps: AgentOrchestratorDependencies
         }
       )
     );
+    if (!isUsablePreview(result.preview)) {
+      throw new SafeWorkflowError(
+        "preview_unusable",
+        "The job posting could not be identified reliably. Try another public posting URL."
+      );
+    }
     const transitioned = transitionOwnedAgentRun(run.id, deps.workerId, "previewing", "awaiting_approval", {
       preview: result.preview,
       usage: result.usage
@@ -124,10 +160,33 @@ async function processPreview(run: AgentRun, deps: AgentOrchestratorDependencies
     if (!transitioned) throw new PhaseStoppedError(resolveStop(run.id));
     appendAgentRunEvent(run.id, { kind: "status", message: "Preview ready for approval." });
   } catch (error) {
-    finishActiveFailure(run.id, deps.workerId, "previewing", error, "preview_failed", "Preview failed.");
+    const safePreviewFailure = error instanceof SafeWorkflowError &&
+      (error.code === "posting_retrieval_failed" || error.code === "preview_unusable");
+    finishActiveFailure(
+      run.id,
+      deps.workerId,
+      "previewing",
+      error,
+      safePreviewFailure ? error.code : "preview_failed",
+      safePreviewFailure ? error.message : "Preview failed."
+    );
   } finally {
     interruptOwnedAgentRun(run.id, deps.workerId);
   }
+}
+
+const UNUSABLE_PREVIEW_VALUES = new Set(["unknown", "unavailable", "not found", "n/a", "null"]);
+
+export function isUsablePreview(preview: AgentPreview): boolean {
+  const company = preview.company.trim().toLocaleLowerCase();
+  const role = preview.role.trim().toLocaleLowerCase();
+  const summary = preview.summary.trim().toLocaleLowerCase();
+  return Boolean(company && role && summary) &&
+    !UNUSABLE_PREVIEW_VALUES.has(company) &&
+    !UNUSABLE_PREVIEW_VALUES.has(role) &&
+    !summary.includes("could not be retrieved") &&
+    !summary.includes("could not retrieve") &&
+    !summary.includes("unable to retrieve");
 }
 
 async function processExecution(run: AgentRun, deps: AgentOrchestratorDependencies) {

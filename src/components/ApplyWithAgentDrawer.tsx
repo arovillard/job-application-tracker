@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
 
-import type { AgentProviderName, PublicAgentRun } from "../lib/agent-workflow/types";
+import type { AgentProviderName, AgentRunState, PublicAgentRun } from "../lib/agent-workflow/types";
 
 type ProviderDiagnostic = {
   provider: AgentProviderName;
@@ -17,6 +17,54 @@ type Props = { open: boolean; onClose(): void };
 
 const POLLABLE = new Set(["queued_preview", "previewing", "queued_execution", "executing", "verifying"]);
 const CANCELLABLE = new Set([...POLLABLE, "awaiting_approval"]);
+const TERMINAL = new Set(["cancelled", "failed", "interrupted", "succeeded"]);
+const SAFE_FAILURE_MESSAGES: Record<string, string> = {
+  preview_unusable: "The job posting could not be identified reliably. Try another public posting URL.",
+  posting_retrieval_failed: "The public job posting could not be retrieved safely. Check the link or try another public posting URL."
+};
+const HOST_PREVIEW_STAGES = new Set([
+  "Validating public job URL.",
+  "Retrieving public job posting.",
+  "Analyzing job posting."
+]);
+
+function formatElapsed(seconds: number) {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function formatEventTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function stageFor(run: PublicAgentRun) {
+  const latest = [...run.events]
+    .sort((left, right) => left.sequence - right.sequence)
+    .filter((event) => HOST_PREVIEW_STAGES.has(event.message))
+    .at(-1)?.message;
+  if (latest) return latest;
+  const stages: Partial<Record<AgentRunState, string>> = {
+    queued_preview: "Validating public job URL.",
+    previewing: "Analyzing job posting.",
+    queued_execution: "Preparing application materials.",
+    executing: "Creating application materials.",
+    verifying: "Verifying application artifacts."
+  };
+  return stages[run.state] ?? run.state.replaceAll("_", " ");
+}
+
+function formatUsage(usage: PublicAgentRun["usage"]) {
+  if (!usage) return [];
+  const fields = [
+    ["input_tokens", "inputTokens", "input"],
+    ["output_tokens", "outputTokens", "output"],
+    ["cached_input_tokens", "cachedInputTokens", "cached"]
+  ] as const;
+  return fields.flatMap(([snake, camel, label]) => {
+    const value = usage[snake] ?? usage[camel];
+    return typeof value === "number" ? [`${value.toLocaleString()} ${label}`] : [];
+  });
+}
 
 async function readResponse<T>(response: Response): Promise<T> {
   const body = (await response.json().catch(() => null)) as (T & { error?: string }) | null;
@@ -34,6 +82,7 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [diagnosticsFailed, setDiagnosticsFailed] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const diagnosticsLoaded = useRef(false);
   const diagnosticsInFlight = useRef(false);
   const enteredOpenState = useRef(false);
@@ -46,6 +95,8 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
   const urlRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const terminalResetOnOpen = useRef(false);
+  const elapsedRunId = useRef<string | null>(null);
 
   const clearPoll = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -64,6 +115,18 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
     controllers.current.forEach((controller) => controller.abort());
     controllers.current.clear();
   }, [clearPoll]);
+
+  const resetLocalWorkflow = useCallback(() => {
+    invalidateRequests();
+    setRun(null);
+    setJobUrl("");
+    setModel("");
+    setError(null);
+    setPending(null);
+    setElapsedSeconds(0);
+    elapsedRunId.current = null;
+    terminalResetOnOpen.current = false;
+  }, [invalidateRequests]);
 
   const localFetch = useCallback(async <T,>(url: string, init: RequestInit = {}, controller = new AbortController()) => {
     controllers.current.add(controller);
@@ -139,6 +202,7 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
   useEffect(() => {
     openRef.current = open;
     if (!open) {
+      if (run && TERMINAL.has(run.state)) terminalResetOnOpen.current = true;
       invalidateRequests();
       diagnosticsInFlight.current = false;
       setDiagnosticsLoading(false);
@@ -147,6 +211,8 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
       enteredOpenState.current = false;
       return;
     }
+
+    if (terminalResetOnOpen.current) resetLocalWorkflow();
 
     if (!enteredOpenState.current) {
       enteredOpenState.current = true;
@@ -175,7 +241,19 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [invalidateRequests, loadDiagnostics, onClose, open, run, schedulePoll]);
+  }, [invalidateRequests, loadDiagnostics, onClose, open, resetLocalWorkflow, run, schedulePoll]);
+
+  const activeRunId = run && POLLABLE.has(run.state) ? run.id : null;
+  const runIsActive = Boolean(activeRunId);
+  useEffect(() => {
+    if (!open || !activeRunId) return;
+    if (elapsedRunId.current !== activeRunId) {
+      elapsedRunId.current = activeRunId;
+      setElapsedSeconds(0);
+    }
+    const timer = setInterval(() => setElapsedSeconds((value) => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, [activeRunId, open]);
 
   const start = async (event: FormEvent) => {
     event.preventDefault();
@@ -223,6 +301,12 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
   const chosen = providers?.find((item) => item.provider === provider);
   const unavailable = providers && !providers.some((item) => item.available);
   const closeBackdrop = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) onClose(); };
+  const currentStage = run ? stageFor(run) : "";
+  const usage = formatUsage(run?.usage ?? null);
+  const safeFailureMessage = run?.failureCode ? SAFE_FAILURE_MESSAGES[run.failureCode] : undefined;
+  const submittedHostname = (() => {
+    try { return run ? new URL(run.canonicalJobUrl).hostname : ""; } catch { return ""; }
+  })();
 
   return (
     <div className="agent-drawer-backdrop" onMouseDown={closeBackdrop}>
@@ -246,10 +330,17 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
             {(diagnosticsFailed || unavailable) ? <button className="button" type="button" disabled={diagnosticsLoading} onClick={() => void loadDiagnostics()}>{diagnosticsLoading ? "Checking providers…" : "Retry provider check"}</button> : null}
             <button className="button button--primary" type="submit" disabled={Boolean(pending) || !chosen?.available}>{pending === "start" ? "Starting…" : "Start preview"}</button>
           </form> : <div className="agent-thread">
+            {runIsActive ? <div className="agent-activity" role="status" aria-label="Agent work in progress">
+              <span className="agent-activity__spinner" aria-hidden="true" />
+              <div><strong>{currentStage}</strong><span>Working… · {formatElapsed(elapsedSeconds)}</span></div>
+            </div> : null}
             <section className="agent-thread__progress" aria-live="polite" aria-label="Agent progress">
-              <p className="agent-message agent-message--status">{run.state.replaceAll("_", " ")}</p>
-              {[...run.events].sort((left, right) => left.sequence - right.sequence).map((event) => <p className={`agent-message agent-message--${event.kind}`} key={event.id}>{event.message}</p>)}
+              {!runIsActive ? <p className="agent-message agent-message--status">{run.state.replaceAll("_", " ")}</p> : null}
+              {[...run.events].sort((left, right) => left.sequence - right.sequence).filter((event) => event.kind !== "usage").map((event) => <p className={`agent-message agent-message--${event.kind}`} key={event.id}>
+                <time className="agent-event-time" dateTime={event.createdAt}>{formatEventTime(event.createdAt)}</time>{event.message}
+              </p>)}
             </section>
+            {usage.length ? <p className="agent-usage" aria-label="Agent token usage">{usage.join(" · ")}</p> : null}
             {run.state === "awaiting_approval" && run.preview ? <section className="agent-preview" aria-labelledby="agent-preview-title">
               <h3 id="agent-preview-title">Review job preview</h3><dl>
                 <div><dt>Company</dt><dd>{run.preview.company}</dd></div><div><dt>Role</dt><dd>{run.preview.role}</dd></div>
@@ -259,9 +350,14 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
               <button className="button button--primary" type="button" disabled={Boolean(pending)} onClick={() => void actOnRun("approve")}>{pending === "approve" ? "Approving…" : "Approve and create materials"}</button>
             </section> : null}
             {run.state === "succeeded" && run.applicationId ? <section className="agent-result"><h3>Application materials ready</h3><Link href={`/applications/${run.applicationId}`}>View application</Link>{run.artifactLinks.map((artifact) => <a key={artifact.id} href={artifact.href}>{artifact.title}</a>)}</section> : null}
-            {run.state === "failed" ? <p className="notice notice--error">The agent could not complete this application.</p> : null}
+            {run.state === "failed" ? <div className="notice notice--error">
+              <p>{safeFailureMessage ?? "The agent could not complete this application."}</p>
+              {safeFailureMessage && submittedHostname ? <p>Submitted posting: {submittedHostname}</p> : null}
+            </div> : null}
             {run.state === "interrupted" ? <p className="notice notice--error">The agent run was interrupted. You can start again.</p> : null}
             {run.state === "cancelled" ? <p className="notice">The agent run was cancelled.</p> : null}
+            {safeFailureMessage ? <button className="button" type="button" onClick={resetLocalWorkflow}>Try another URL</button> : null}
+            {TERMINAL.has(run.state) ? <button className="button button--primary" type="button" onClick={resetLocalWorkflow}>Start another application</button> : null}
             {CANCELLABLE.has(run.state) && !run.cancellationRequested ? <button className="button button--danger" type="button" disabled={Boolean(pending)} onClick={() => void actOnRun("cancel")}>{pending === "cancel" ? "Cancelling…" : "Cancel"}</button> : null}
           </div>}
           {error ? <p className="notice notice--error" role="alert">{error}</p> : null}
