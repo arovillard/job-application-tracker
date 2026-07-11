@@ -46,6 +46,11 @@ export type AgentArtifactLink = {
 
 export type AgentUsage = Record<string, number>;
 
+export type AgentWorkerHealth = {
+  status: "online" | "offline";
+  lastSeenAt: string | null;
+};
+
 export type AgentRunEventKind = "status" | "progress" | "warning" | "usage" | "error";
 
 export type AgentEventMetadataValue = string | number | boolean | null;

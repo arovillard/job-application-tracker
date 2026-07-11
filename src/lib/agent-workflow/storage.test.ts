@@ -11,6 +11,8 @@ import {
   type AgentRunState
 } from "./types";
 import {
+  WORKER_HEARTBEAT_INTERVAL_MS,
+  WORKER_OFFLINE_AFTER_MS,
   appendAgentRunEvent,
   approveAgentRun,
   approveAgentRunAndGetPublic,
@@ -18,16 +20,20 @@ import {
   claimNextPreview,
   createAgentRun,
   enqueueAgentRun,
+  getAgentWorkerHealth,
   getAgentRun,
   getPublicAgentRun,
+  heartbeatAgentWorker,
   interruptOwnedAgentRun,
   recoverAbandonedAgentRuns,
   renewAgentRunLease,
+  registerAgentWorker,
   requestAgentRunCancellation,
   requestAgentRunCancellationAndGetPublic,
   resetAgentRunStorageForTests,
   transitionAgentRun,
-  transitionOwnedAgentRun
+  transitionOwnedAgentRun,
+  unregisterAgentWorker
 } from "./storage";
 
 let tempDir: string;
@@ -541,5 +547,51 @@ describe("agent run leases and recovery", () => {
     expect(claimNextPreview("new-worker", 60_000)).toBeNull();
     expect(claimNextExecution("new-worker", 60_000)).toBeNull();
     expect(getAgentRun(run.id)?.state).toBe("interrupted");
+  });
+});
+
+describe("agent worker health", () => {
+  it("uses the exact heartbeat and offline thresholds", () => {
+    expect(WORKER_HEARTBEAT_INTERVAL_MS).toBe(5_000);
+    expect(WORKER_OFFLINE_AFTER_MS).toBe(15_000);
+  });
+
+  it("is online through the threshold and offline immediately after it", () => {
+    const started = new Date("2026-07-10T20:00:00.000Z");
+    registerAgentWorker("worker-a", started);
+    expect(getAgentWorkerHealth(new Date(started.getTime() + 15_000))).toEqual({
+      status: "online",
+      lastSeenAt: started.toISOString()
+    });
+    expect(getAgentWorkerHealth(new Date(started.getTime() + 15_001))).toEqual({
+      status: "offline",
+      lastSeenAt: null
+    });
+  });
+
+  it("returns the newest worker and unregisters only its owner", () => {
+    registerAgentWorker("worker-a", new Date("2026-07-10T20:00:00.000Z"));
+    registerAgentWorker("worker-b", new Date("2026-07-10T20:00:04.000Z"));
+    heartbeatAgentWorker("worker-a", new Date("2026-07-10T20:00:08.000Z"));
+    expect(getAgentWorkerHealth(new Date("2026-07-10T20:00:10.000Z"))).toEqual({
+      status: "online",
+      lastSeenAt: "2026-07-10T20:00:08.000Z"
+    });
+    unregisterAgentWorker("worker-a");
+    expect(getAgentWorkerHealth(new Date("2026-07-10T20:00:10.000Z"))).toEqual({
+      status: "online",
+      lastSeenAt: "2026-07-10T20:00:04.000Z"
+    });
+  });
+
+  it("does not change run leases while cleaning stale health rows", () => {
+    const run = createQueuedRun("health-isolation");
+    expect(claimNextPreview("lease-owner", 60_000)?.id).toBe(run.id);
+    registerAgentWorker("stale-health", new Date("2026-07-10T19:00:00.000Z"));
+    expect(getAgentWorkerHealth(new Date("2026-07-10T20:00:00.000Z"))).toEqual({
+      status: "offline",
+      lastSeenAt: null
+    });
+    expect(getAgentRun(run.id)).toMatchObject({ state: "previewing", workerId: "lease-owner" });
   });
 });

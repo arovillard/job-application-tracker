@@ -15,6 +15,7 @@ import {
   type AgentRunEventKind,
   type AgentRunState,
   type AgentUsage,
+  type AgentWorkerHealth,
   type ArtifactManifestEntry,
   type PublicAgentRun
 } from "./types";
@@ -111,6 +112,9 @@ const LEGAL_TRANSITIONS: Readonly<Record<AgentRunState, ReadonlySet<AgentRunStat
 };
 const EXECUTION_LEASE_NAME = "mutating_execution";
 
+export const WORKER_HEARTBEAT_INTERVAL_MS = 5_000;
+export const WORKER_OFFLINE_AFTER_MS = 15_000;
+
 let cachedDatabase: CachedDatabase | null = null;
 let lastTimestampMs = 0;
 
@@ -182,6 +186,15 @@ function ensureSchema(db: SqliteDatabase) {
       updated_at TEXT NOT NULL,
       FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS agent_worker_health (
+      worker_id TEXT PRIMARY KEY,
+      started_at TEXT NOT NULL,
+      heartbeat_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS agent_worker_health_heartbeat_idx
+      ON agent_worker_health(heartbeat_at);
   `);
 }
 
@@ -309,6 +322,56 @@ function requireNonEmpty(value: string, name: string) {
 
 function requireWorkerId(workerId: string) {
   return requireNonEmpty(workerId, "Worker id");
+}
+
+function workerTimestamp(at: Date): string {
+  if (Number.isNaN(at.getTime())) throw new Error("Worker timestamp is invalid");
+  return at.toISOString();
+}
+
+export function registerAgentWorker(workerId: string, at = new Date()): void {
+  const owner = requireWorkerId(workerId);
+  const timestamp = workerTimestamp(at);
+  getDatabase().prepare(`
+    INSERT INTO agent_worker_health (worker_id, started_at, heartbeat_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(worker_id) DO UPDATE SET
+      started_at = excluded.started_at,
+      heartbeat_at = excluded.heartbeat_at
+  `).run(owner, timestamp, timestamp);
+}
+
+export function heartbeatAgentWorker(workerId: string, at = new Date()): void {
+  const owner = requireWorkerId(workerId);
+  const timestamp = workerTimestamp(at);
+  getDatabase().prepare(`
+    INSERT INTO agent_worker_health (worker_id, started_at, heartbeat_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(worker_id) DO UPDATE SET heartbeat_at = excluded.heartbeat_at
+  `).run(owner, timestamp, timestamp);
+}
+
+export function unregisterAgentWorker(workerId: string): void {
+  getDatabase().prepare("DELETE FROM agent_worker_health WHERE worker_id = ?")
+    .run(requireWorkerId(workerId));
+}
+
+export function getAgentWorkerHealth(at = new Date()): AgentWorkerHealth {
+  const db = getDatabase();
+  const cutoff = new Date(at.getTime() - WORKER_OFFLINE_AFTER_MS).toISOString();
+  return db.transaction(() => {
+    db.prepare("DELETE FROM agent_worker_health WHERE heartbeat_at < ?").run(cutoff);
+    const row = db.prepare(`
+      SELECT heartbeat_at AS heartbeatAt
+      FROM agent_worker_health
+      WHERE heartbeat_at >= ?
+      ORDER BY heartbeat_at DESC
+      LIMIT 1
+    `).get(cutoff) as { heartbeatAt: string } | undefined;
+    return row
+      ? { status: "online" as const, lastSeenAt: row.heartbeatAt }
+      : { status: "offline" as const, lastSeenAt: null };
+  }).immediate();
 }
 
 function serializeValidated<T>(
