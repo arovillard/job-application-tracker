@@ -52,8 +52,12 @@ async function main() {
     profileContext,
     resumeContext,
     baseResumePath,
-    signal: controller.signal
+    signal: controller.signal,
+    onReady: () => console.log("Agent worker ready."),
   });
 }
 
-void main();
+void main().catch(() => {
+  console.error("Agent worker failed.");
+  process.exitCode = 1;
+});

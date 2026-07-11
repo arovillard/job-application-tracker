@@ -14,11 +14,16 @@ import {
   appendAgentRunEvent,
   claimNextExecution,
   claimNextPreview,
+  getAgentWorkerHealth,
   getAgentRun,
+  heartbeatAgentWorker,
   interruptOwnedAgentRun,
+  registerAgentWorker,
   recoverAbandonedAgentRuns,
   renewAgentRunLease,
-  transitionOwnedAgentRun
+  transitionOwnedAgentRun,
+  unregisterAgentWorker,
+  WORKER_HEARTBEAT_INTERVAL_MS
 } from "./storage";
 import type {
   AgentPreview,
@@ -51,6 +56,8 @@ export type AgentOrchestratorDependencies = {
 
 export type AgentWorkerOptions = AgentOrchestratorDependencies & {
   pollIntervalMs?: number;
+  workerHealthIntervalMs?: number;
+  onReady?: () => void;
 };
 
 type PhaseStop = "cancelled" | "lost_lease";
@@ -86,16 +93,33 @@ export async function processNextAgentRun(
 
 export async function runAgentWorker(options: AgentWorkerOptions): Promise<void> {
   recoverAbandonedAgentRuns(options.workerId);
+  registerAgentWorker(options.workerId);
+  getAgentWorkerHealth(); // removes stale health rows before readiness
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_MS;
-  while (!options.signal?.aborted) {
-    let worked = true;
+  const healthIntervalMs = options.workerHealthIntervalMs ?? WORKER_HEARTBEAT_INTERVAL_MS;
+  const healthTimer = setInterval(() => {
     try {
-      worked = await processNextAgentRun(options);
+      heartbeatAgentWorker(options.workerId);
     } catch {
-      // A single corrupt run must not terminate the local worker loop.
-      worked = false;
+      // A failed heartbeat makes health expire safely; run leases remain authoritative.
     }
-    if (!worked) await abortableDelay(pollIntervalMs, options.signal);
+  }, healthIntervalMs);
+  healthTimer.unref?.();
+
+  try {
+    options.onReady?.();
+    while (!options.signal?.aborted) {
+      let worked = true;
+      try {
+        worked = await processNextAgentRun(options);
+      } catch {
+        worked = false;
+      }
+      if (!worked) await abortableDelay(pollIntervalMs, options.signal);
+    }
+  } finally {
+    clearInterval(healthTimer);
+    try { unregisterAgentWorker(options.workerId); } catch { /* health cleanup is best-effort */ }
   }
 }
 

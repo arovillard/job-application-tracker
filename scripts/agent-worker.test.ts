@@ -45,9 +45,11 @@ describe("agent worker executable", () => {
     child.stdout?.on("data", (chunk: Buffer) => output.push(chunk));
     child.stderr?.on("data", (chunk: Buffer) => output.push(chunk));
 
-    const startup = await waitForStartup(child, dbPath, 10_000);
+    const startup = await waitForStartup(child, dbPath, () => Buffer.concat(output).toString("utf8"), 10_000);
+    const text = Buffer.concat(output).toString("utf8");
 
-    expect(startup, Buffer.concat(output).toString("utf8")).toBe("running");
+    expect(startup, text).toBe("running");
+    expect(text).toContain("Agent worker ready.");
     expect(child.exitCode).toBeNull();
   }, 15_000);
 });
@@ -55,15 +57,13 @@ describe("agent worker executable", () => {
 async function waitForStartup(
   child: ChildProcess,
   dbPath: string,
+  output: () => string,
   timeoutMs: number
 ): Promise<"running" | "exited" | "timed-out"> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) return "exited";
-    if (existsSync(dbPath)) {
-      await delay(300);
-      return child.exitCode === null ? "running" : "exited";
-    }
+    if (child.exitCode !== null || child.signalCode !== null) return "exited";
+    if (existsSync(dbPath) && output().includes("Agent worker ready.")) return "running";
     await delay(50);
   }
   return "timed-out";

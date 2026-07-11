@@ -15,6 +15,7 @@ import {
   approveAgentRun,
   claimNextPreview,
   createAgentRun,
+  getAgentWorkerHealth,
   getAgentRun,
   getPublicAgentRun,
   interruptOwnedAgentRun,
@@ -1373,6 +1374,36 @@ describe("agent workflow orchestration", () => {
 
     expect(getAgentRun(run.id)?.state).toBe("interrupted");
     expect(getAgentRun(run.id)?.preview).toBeNull();
+  });
+
+  it("registers health before readiness, heartbeats, and unregisters on abort", async () => {
+    const controller = new AbortController();
+    const readyStates: Array<ReturnType<typeof getAgentWorkerHealth>> = [];
+    const worker = runAgentWorker({
+      ...dependencies(),
+      workerId: "health-worker",
+      pollIntervalMs: 5,
+      workerHealthIntervalMs: 10,
+      signal: controller.signal,
+      onReady: () => readyStates.push(getAgentWorkerHealth())
+    });
+    await waitFor(() => readyStates.length === 1);
+    expect(readyStates[0].status).toBe("online");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(getAgentWorkerHealth().status).toBe("online");
+    controller.abort();
+    await worker;
+    expect(getAgentWorkerHealth()).toEqual({ status: "offline", lastSeenAt: null });
+  });
+
+  it("does not signal readiness when initial health registration fails", async () => {
+    const onReady = vi.fn();
+    await expect(runAgentWorker({
+      ...dependencies(),
+      workerId: "   ",
+      onReady
+    })).rejects.toThrow("Worker id is required");
+    expect(onReady).not.toHaveBeenCalled();
   });
 
   it("contains compensation errors and continues to a later queued run", async () => {
