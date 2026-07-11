@@ -102,11 +102,18 @@ export async function runAgentWorker(options: AgentWorkerOptions): Promise<void>
 async function processPreview(run: AgentRun, deps: AgentOrchestratorDependencies) {
   appendAgentRunEvent(run.id, { kind: "status", message: "Validating public job URL." });
   try {
-    appendAgentRunEvent(run.id, { kind: "status", message: "Retrieving public job posting." });
     let posting: RetrievedPosting;
+    let retrievalStageEmitted = false;
     try {
-      posting = await activePhase(run.id, deps, () =>
-        (deps.retrievePosting ?? retrievePublicPosting)(run.canonicalJobUrl)
+      posting = await activePhase(run.id, deps, (signal) =>
+        (deps.retrievePosting ?? retrievePublicPosting)(run.canonicalJobUrl, {
+          signal,
+          onInitialValidated: () => {
+            if (retrievalStageEmitted) return;
+            retrievalStageEmitted = true;
+            appendAgentRunEvent(run.id, { kind: "status", message: "Retrieving public job posting." });
+          }
+        })
       );
     } catch (error) {
       if (error instanceof PostingRetrievalError) {
@@ -184,9 +191,21 @@ export function isUsablePreview(preview: AgentPreview): boolean {
   return Boolean(company && role && summary) &&
     !UNUSABLE_PREVIEW_VALUES.has(company) &&
     !UNUSABLE_PREVIEW_VALUES.has(role) &&
-    !summary.includes("could not be retrieved") &&
-    !summary.includes("could not retrieve") &&
-    !summary.includes("unable to retrieve");
+    !isRetrievalFallbackSummary(summary);
+}
+
+function isRetrievalFallbackSummary(summary: string): boolean {
+  const normalized = summary
+    .normalize("NFKC")
+    .replace(/[’']/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  const failureThenAction = /\b(?:failed|unable|could not|couldn t|cannot|can t)(?:\s+to)?\s+(?:retriev(?:e|ing)|access|load|open|view|reach)\b.{0,48}\b(?:job\s+)?(?:posting|page|listing)\b/;
+  const objectThenFailure = /\b(?:job\s+)?(?:posting|page|listing)\s+(?:retrieval|access|loading|load)\s+(?:has\s+)?failed\b/;
+  const passiveFailure = /\b(?:job\s+)?(?:posting|page|listing)\b.{0,40}\b(?:could not|couldn t|unable|failed)\b.{0,24}\b(?:retrieve|retrieved|access|load|loaded|open|view)\b/;
+  const unavailableObject = /\b(?:job\s+)?(?:posting|page|listing)\b.{0,16}\b(?:unavailable|inaccessible)\b/;
+  return failureThenAction.test(normalized) || objectThenFailure.test(normalized) ||
+    passiveFailure.test(normalized) || unavailableObject.test(normalized);
 }
 
 async function processExecution(run: AgentRun, deps: AgentOrchestratorDependencies) {

@@ -36,6 +36,8 @@ Keep the base resume under the ignored applications directory or outside the rep
 
 ## Run locally
 
+JobTracker requires Node.js 20.18.1 or newer.
+
 Run the worker in one terminal:
 
 ```bash

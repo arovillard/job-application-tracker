@@ -18,6 +18,8 @@ export type RetrievedPosting = {
 export type PostingRetrievalOptions = {
   fetchImpl?: typeof fetch;
   validateUrl?: (url: string) => Promise<string>;
+  signal?: AbortSignal;
+  onInitialValidated?: () => void;
   timeoutMs?: number;
   maximumBytes?: number;
   maximumCharacters?: number;
@@ -43,20 +45,26 @@ export async function retrievePublicPosting(
   const maximumCharacters = options.maximumCharacters ?? DEFAULT_MAXIMUM_CHARACTERS;
   const maximumRedirects = options.maximumRedirects ?? DEFAULT_MAXIMUM_REDIRECTS;
   const controller = new AbortController();
-  let rejectDeadline!: (error: PostingRetrievalError) => void;
-  const deadline = new Promise<never>((_resolve, reject) => { rejectDeadline = reject; });
-  const timeout = setTimeout(() => {
+  let rejectBoundary!: (error: PostingRetrievalError) => void;
+  const boundary = new Promise<never>((_resolve, reject) => { rejectBoundary = reject; });
+  const stop = () => {
     controller.abort();
-    rejectDeadline(new PostingRetrievalError());
+    rejectBoundary(new PostingRetrievalError());
+  };
+  const timeout = setTimeout(() => {
+    stop();
   }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   timeout.unref?.();
+  options.signal?.addEventListener("abort", stop, { once: true });
   let currentResponse: Response | null = null;
 
   try {
+    if (options.signal?.aborted) stop();
     const requestedUrl = await beforeDeadline(
       Promise.resolve().then(() => validateUrl(canonicalUrl)),
-      deadline
+      boundary
     );
+    options.onInitialValidated?.();
     let currentUrl = requestedUrl;
     const visited = new Set<string>([currentUrl]);
 
@@ -72,7 +80,7 @@ export async function retrievePublicPosting(
         if (controller.signal.aborted) cancelResponseBody(response);
         return response;
       });
-      const response = await beforeDeadline(fetchOperation, deadline);
+      const response = await beforeDeadline(fetchOperation, boundary);
       currentResponse = response;
 
       if (isRedirect(response.status)) {
@@ -83,7 +91,7 @@ export async function retrievePublicPosting(
         currentResponse = null;
         const validatedDestination = await beforeDeadline(
           Promise.resolve().then(() => validateUrl(destination)),
-          deadline
+          boundary
         );
         if (visited.has(validatedDestination)) throw new PostingRetrievalError();
         visited.add(validatedDestination);
@@ -94,7 +102,7 @@ export async function retrievePublicPosting(
       if (!response.ok) throw new PostingRetrievalError();
       const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
       if (!contentType || !ACCEPTED_CONTENT_TYPES.has(contentType)) throw new PostingRetrievalError();
-      const bytes = await readBoundedBody(response, maximumBytes, deadline);
+      const bytes = await readBoundedBody(response, maximumBytes, boundary);
       currentResponse = null;
       const text = new TextDecoder().decode(bytes);
       const context = contentType === "text/plain"
@@ -110,6 +118,7 @@ export async function retrievePublicPosting(
     throw new PostingRetrievalError();
   } finally {
     clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", stop);
   }
 }
 

@@ -21,7 +21,7 @@ import {
   requestAgentRunCancellation,
   resetAgentRunStorageForTests
 } from "./storage";
-import { processNextAgentRun, runAgentWorker } from "./orchestrator";
+import { isUsablePreview, processNextAgentRun, runAgentWorker } from "./orchestrator";
 import { PostingRetrievalError } from "./retrieval";
 
 let root: string;
@@ -81,7 +81,10 @@ function dependencies(fakeProvider = provider()) {
     dbPath,
     applicationsDir,
     providers: { codex: fakeProvider, claude: fakeProvider },
-    retrievePosting: async (url: string) => ({ requestedUrl: url, finalUrl: url, context: "Acme Platform Engineer public posting" }),
+    retrievePosting: async (url: string, options?: { onInitialValidated?(): void }) => {
+      options?.onInitialValidated?.();
+      return { requestedUrl: url, finalUrl: url, context: "Acme Platform Engineer public posting" };
+    },
     leaseDurationMs: 5_000,
     heartbeatIntervalMs: 25,
     commandTimeoutMs: 10_000
@@ -187,6 +190,105 @@ async function waitFor(predicate: () => boolean) {
 }
 
 describe("agent workflow orchestration", () => {
+  it("emits retrieval only after mandatory initial validation resolves", async () => {
+    let releaseValidation!: () => void;
+    const validation = new Promise<void>((resolve) => { releaseValidation = resolve; });
+    let retrievalStarted = false;
+    const run = createAgentRun({ provider: "codex", model: "model", canonicalJobUrl: "https://jobs.example.com/delayed" });
+    const retrievePosting = vi.fn(async (url: string, options?: { onInitialValidated?(): void }) => {
+      retrievalStarted = true;
+      await validation;
+      options?.onInitialValidated?.();
+      return { requestedUrl: url, finalUrl: url, context: "Acme Platform Engineer" };
+    });
+    const processing = processNextAgentRun({ ...dependencies(), retrievePosting });
+    await waitFor(() => retrievalStarted);
+
+    expect(getPublicAgentRun(run.id)?.events.map(({ message }) => message)).toEqual([
+      "Validating public job URL."
+    ]);
+
+    releaseValidation();
+    await processing;
+    expect(getPublicAgentRun(run.id)?.events.map(({ message }) => message)).toEqual([
+      "Validating public job URL.",
+      "Retrieving public job posting.",
+      "Analyzing job posting.",
+      "Preview ready for approval."
+    ]);
+  });
+
+  it.each([
+    "Failed to retrieve the job posting.",
+    "Posting retrieval failed after several attempts.",
+    "I couldn't access the posting, so fit is unclear.",
+    "Unable to load the job page right now.",
+    "Could not access this job listing.",
+    "Failed retrieving the job posting.",
+    "The job posting was unavailable."
+  ])("rejects retrieval fallback summary: %s", (summary) => {
+    expect(isUsablePreview({ ...preview, summary })).toBe(false);
+  });
+
+  it.each([
+    "Build retrieval systems for public job postings.",
+    "Improve page load performance for the careers site.",
+    "Own accessible posting workflows and data quality.",
+    "Design handling for unavailable job posting states."
+  ])("keeps legitimate summary usable: %s", (summary) => {
+    expect(isUsablePreview({ ...preview, summary })).toBe(true);
+  });
+
+  it("promptly cancels retrieval without invoking the provider", async () => {
+    const fake = provider();
+    fake.preview = vi.fn(fake.preview);
+    const run = createAgentRun({ provider: "codex", model: "model", canonicalJobUrl: "https://jobs.example.com/cancel-retrieval" });
+    const retrievePosting = vi.fn(async (_url: string, options?: { signal?: AbortSignal }) =>
+      new Promise<never>((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new PostingRetrievalError()), { once: true });
+        setTimeout(() => reject(new Error("slow retrieval fallback")), 150);
+      })
+    );
+    const processing = processNextAgentRun({ ...dependencies(fake), retrievePosting, heartbeatIntervalMs: 5 });
+    await waitFor(() => retrievePosting.mock.calls.length === 1);
+    requestAgentRunCancellation(run.id);
+    const prompt = await Promise.race([
+      processing.then(() => "completed"),
+      new Promise<"slow">((resolve) => setTimeout(() => resolve("slow"), 75))
+    ]);
+    await processing;
+
+    expect(prompt).toBe("completed");
+    expect(getAgentRun(run.id)).toMatchObject({ state: "cancelled", cancellationRequested: true });
+    expect(fake.preview).not.toHaveBeenCalled();
+  });
+
+  it("promptly interrupts retrieval after lease loss without invoking the provider", async () => {
+    const fake = provider();
+    fake.preview = vi.fn(fake.preview);
+    const run = createAgentRun({ provider: "codex", model: "model", canonicalJobUrl: "https://jobs.example.com/lease-retrieval" });
+    const retrievePosting = vi.fn(async (_url: string, options?: { signal?: AbortSignal }) =>
+      new Promise<never>((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new PostingRetrievalError()), { once: true });
+        setTimeout(() => reject(new Error("slow retrieval fallback")), 150);
+      })
+    );
+    const processing = processNextAgentRun({ ...dependencies(fake), retrievePosting, heartbeatIntervalMs: 5 });
+    await waitFor(() => retrievePosting.mock.calls.length === 1);
+    const db = new Database(dbPath);
+    db.prepare("UPDATE agent_runs SET lease_expires_at = ? WHERE id = ?").run("2000-01-01T00:00:00.000Z", run.id);
+    db.close();
+    const prompt = await Promise.race([
+      processing.then(() => "completed"),
+      new Promise<"slow">((resolve) => setTimeout(() => resolve("slow"), 75))
+    ]);
+    await processing;
+
+    expect(prompt).toBe("completed");
+    expect(getAgentRun(run.id)?.state).toBe("interrupted");
+    expect(fake.preview).not.toHaveBeenCalled();
+  });
+
   it("retrieves before provider preview and passes only bounded context", async () => {
     const order: string[] = [];
     const fake = provider();
@@ -199,8 +301,9 @@ describe("agent workflow orchestration", () => {
       return { preview, usage: null };
     });
     const run = createAgentRun({ provider: "codex", model: "model", canonicalJobUrl: "https://jobs.example.com/role" });
-    const retrievePosting = vi.fn(async () => {
+    const retrievePosting = vi.fn(async (_url: string, options?: { onInitialValidated?(): void }) => {
       order.push("retrieve");
+      options?.onInitialValidated?.();
       return {
         requestedUrl: run.canonicalJobUrl,
         finalUrl: "https://public.example/final",
@@ -246,7 +349,10 @@ describe("agent workflow orchestration", () => {
 
     await processNextAgentRun({
       ...dependencies(fake),
-      retrievePosting: async () => { throw new PostingRetrievalError(); }
+      retrievePosting: async (_url, options) => {
+        options?.onInitialValidated?.();
+        throw new PostingRetrievalError();
+      }
     });
 
     expect(fake.preview).not.toHaveBeenCalled();

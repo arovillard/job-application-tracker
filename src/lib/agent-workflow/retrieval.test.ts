@@ -72,6 +72,35 @@ describe("retrievePublicPosting", () => {
     expect(result.context).toBe("Senior E");
   });
 
+  it("announces initial validation before fetch without exposing URL data", async () => {
+    const order: string[] = [];
+    const callback = vi.fn(() => order.push("validated"));
+    await retrievePublicPosting("https://jobs.example/role", {
+      validateUrl: async () => { order.push("validate"); return "https://jobs.example/role"; },
+      onInitialValidated: callback,
+      fetchImpl: async () => {
+        order.push("fetch");
+        return response("Public role", { headers: { "content-type": "text/plain" } });
+      }
+    });
+    expect(order).toEqual(["validate", "validated", "fetch"]);
+    expect(callback).toHaveBeenCalledWith();
+  });
+
+  it("removes its external abort listener after success", async () => {
+    const controller = new AbortController();
+    const add = vi.spyOn(controller.signal, "addEventListener");
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    await retrievePublicPosting("https://jobs.example/role", {
+      signal: controller.signal,
+      validateUrl: async (url) => url,
+      fetchImpl: async () => response("Public role", { headers: { "content-type": "text/plain" } })
+    });
+    expect(add).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledOnce();
+    expect(remove.mock.calls[0][1]).toBe(add.mock.calls[0][1]);
+  });
+
   it("revalidates and follows a valid relative redirect", async () => {
     const validateUrl = vi.fn(async (url: string) => url);
     const fetchImpl = vi.fn(async (url: string | URL | Request) =>
@@ -165,6 +194,46 @@ describe("retrievePublicPosting", () => {
     expect(outcome).toBeInstanceOf(PostingRetrievalError);
     expect(cancellations).toBe(1);
   });
+
+  it.each(["initial validation", "redirect validation", "fetch", "stream read"])(
+    "promptly cancels hanging %s through the external signal",
+    async (boundary) => {
+      const controller = new AbortController();
+      let cancellations = 0;
+      const validateUrl = vi.fn(async (url: string) => {
+        if (boundary === "initial validation" ||
+            (boundary === "redirect validation" && validateUrl.mock.calls.length === 2)) {
+          return new Promise<string>(() => {});
+        }
+        return url;
+      });
+      const fetchImpl = vi.fn(async () => {
+        if (boundary === "fetch") return new Promise<Response>(() => {});
+        if (boundary === "redirect validation") {
+          return new Response(trackedStream(() => { cancellations += 1; }), {
+            status: 302,
+            headers: { location: "/final" }
+          });
+        }
+        return new Response(trackedStream(() => { cancellations += 1; }, boundary === "stream read"), {
+          headers: { "content-type": "text/plain" }
+        });
+      });
+      setTimeout(() => controller.abort(), 5);
+
+      const outcome = await settleWithin(retrievePublicPosting("https://jobs.example/role", {
+        fetchImpl,
+        validateUrl,
+        signal: controller.signal,
+        timeoutMs: 5_000
+      }), 100);
+
+      expect(outcome).toBeInstanceOf(PostingRetrievalError);
+      if (boundary === "redirect validation" || boundary === "stream read") {
+        expect(cancellations).toBe(1);
+      }
+    }
+  );
 
   it.each([
     ["redirect", 302, { location: "/final" }],

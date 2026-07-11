@@ -116,11 +116,14 @@ function workerDependencies(provider: AgentProvider) {
     baseResumePath,
     resumeContext: `Base resume path: ${baseResumePath}`,
     providers: { codex: provider, claude: provider },
-    retrievePosting: async (url: string) => ({
-      requestedUrl: url,
-      finalUrl: url,
-      context: "Integration Company Platform Engineer public posting"
-    }),
+    retrievePosting: async (url: string, options?: { onInitialValidated?(): void }) => {
+      options?.onInitialValidated?.();
+      return {
+        requestedUrl: url,
+        finalUrl: url,
+        context: "Integration Company Platform Engineer public posting"
+      };
+    },
     leaseDurationMs: 5_000,
     heartbeatIntervalMs: 25,
     commandTimeoutMs: 10_000

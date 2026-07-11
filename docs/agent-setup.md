@@ -19,7 +19,7 @@ Do not ask the human to paste API keys or credentials into this repository. If t
 
 When the human asks the agent to own installation end to end, complete the setup in this order:
 
-1. Check for `git`, `node`, and `npm`.
+1. Check for `git`, Node.js 20.18.1 or newer, and `npm`.
 2. Install missing prerequisites with the system package manager, or ask before using administrator privileges.
 3. Clone `https://github.com/arovillard/job-application-tracker` into the requested project folder, or update the existing local copy.
 4. Install dependencies with `npm install`.
@@ -35,6 +35,8 @@ When the human asks the agent to own installation end to end, complete the setup
 ## Setup Steps
 
 1. Confirm prerequisites:
+
+JobTracker requires **Node.js 20.18.1 or newer**.
 
 ```bash
 node --version
