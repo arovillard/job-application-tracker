@@ -8,7 +8,8 @@
   "license": "PolyForm-Noncommercial-1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/run-local.mjs",
+    "dev:web": "next dev",
     "build": "next build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
