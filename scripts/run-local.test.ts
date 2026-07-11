@@ -108,20 +108,25 @@ it("spawns exact shell-free children and waits for both readiness signals", asyn
   expect(worker.kill).toHaveBeenCalledWith("SIGINT");
 });
 
-it("stops the sibling and exits nonzero after an unexpected child failure", async () => {
+it("reports a silent web close once and stops the sibling with a nonzero exit", async () => {
   const web = new FakeChild();
   const worker = new FakeChild();
+  const output = new PassThrough();
+  let rendered = "";
+  output.on("data", (chunk) => { rendered += chunk.toString(); });
   const runtime = startLocalSupervisor({
     projectRoot: "/project",
     webArgs: [],
     spawnImpl: vi.fn().mockReturnValueOnce(web).mockReturnValueOnce(worker),
-    stdout: new PassThrough(), stderr: new PassThrough(), shutdownTimeoutMs: 20
+    stdout: output, stderr: output, shutdownTimeoutMs: 20
   });
   void runtime.ready.catch(() => {});
   web.exitCode = 1;
   web.emit("close", 1, null);
   await expect(runtime.done).resolves.toBe(1);
   expect(worker.kill).toHaveBeenCalledWith("SIGTERM");
+  expect(rendered.match(/\[web\] Web process failed before readiness\./g) ?? []).toHaveLength(1);
+  expect(rendered).not.toContain("Local runtime failed before readiness");
 });
 
 it("prefixes output and does not resolve readiness before both children", async () => {
@@ -146,26 +151,38 @@ it("prefixes output and does not resolve readiness before both children", async 
   expect(rendered).toContain("[worker] Agent worker ready.");
   await runtime.stop("SIGINT");
   await expect(runtime.done).resolves.toBe(0);
+  expect(rendered).not.toContain("failed before readiness");
 });
 
-it("handles spawn errors and escalates children that ignore graceful shutdown", async () => {
+it("reports a worker spawn error once without leaking it and escalates ignored shutdown", async () => {
   vi.useFakeTimers();
-  const web = new FakeChild();
-  const worker = new FakeChild();
-  worker.kill.mockImplementation(() => true);
-  const runtime = startLocalSupervisor({
-    projectRoot: "/project", webArgs: [],
-    spawnImpl: vi.fn().mockReturnValueOnce(web).mockReturnValueOnce(worker),
-    stdout: new PassThrough(), stderr: new PassThrough(), shutdownTimeoutMs: 20
-  });
-  void runtime.ready.catch(() => {});
-  web.emit("error", new Error("spawn failed"));
-  await vi.advanceTimersByTimeAsync(21);
-  expect(worker.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
-  expect(worker.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
-  worker.emit("close", null, "SIGKILL");
-  await expect(runtime.done).resolves.toBe(1);
-  vi.useRealTimers();
+  try {
+    const web = new FakeChild();
+    const worker = new FakeChild();
+    const output = new PassThrough();
+    let rendered = "";
+    output.on("data", (chunk) => { rendered += chunk.toString(); });
+    web.kill.mockImplementation(() => true);
+    const runtime = startLocalSupervisor({
+      projectRoot: "/project", webArgs: [],
+      spawnImpl: vi.fn().mockReturnValueOnce(web).mockReturnValueOnce(worker),
+      stdout: output, stderr: output, shutdownTimeoutMs: 20
+    });
+    void runtime.ready.catch(() => {});
+    worker.emit("error", new Error("spawn failed at /private/database with secret-token"));
+    worker.emit("close", 1, null);
+    await vi.advanceTimersByTimeAsync(21);
+    expect(web.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+    expect(web.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    web.emit("close", null, "SIGKILL");
+    await expect(runtime.done).resolves.toBe(1);
+    expect(rendered.match(/\[worker\] Agent worker failed before readiness\./g) ?? []).toHaveLength(1);
+    expect(rendered).not.toContain("spawn failed");
+    expect(rendered).not.toContain("/private/database");
+    expect(rendered).not.toContain("secret-token");
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("runs through npm and shuts down both real children cleanly on SIGINT", async () => {

@@ -51,10 +51,14 @@ export function startLocalSupervisor({
   pipeLines(worker.stderr, "worker", stderr, () => {});
 
   const closeChild = (child, code) => {
+    if (closed.has(child)) return;
     closed.add(child);
     if (!stopping && !expectedShutdown) {
       finalCode = 1;
       if (!readySettled) {
+        stderr.write(child === web
+          ? "[web] Web process failed before readiness.\n"
+          : "[worker] Agent worker failed before readiness.\n");
         readySettled = true;
         readyDeferred.reject(new Error("Local runtime failed before readiness"));
       }
