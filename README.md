@@ -133,19 +133,6 @@ npm run verify
 npm run build
 ```
 
-### Native Codex implementation agents
-
-This repository includes project-scoped Codex agents for controlled implementation:
-
-- `terra-worker` uses `gpt-5.6-terra` for scoped code and test changes.
-- `sol-reviewer` uses `gpt-5.6-sol` for requirements and code review.
-
-Start the controller task with `gpt-5.6-sol`, then delegate by these agent names.
-The model settings live in `.codex/agents/`, so orchestration does not depend on a
-per-dispatch model override. See
-[`docs/goals/in-app-agent-workflow.md`](./docs/goals/in-app-agent-workflow.md) for
-the complete persistent goal prompt.
-
 Useful local state:
 
 - `data/` stores the local SQLite database.
