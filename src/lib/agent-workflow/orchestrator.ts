@@ -183,7 +183,18 @@ async function processPreview(run: AgentRun, deps: AgentOrchestratorDependencies
 }
 
 const UNUSABLE_PREVIEW_VALUES = new Set(["unknown", "unavailable", "not found", "n/a", "null"]);
-const UNUSABLE_ROLE_VALUES = new Set(["sign in", "login", "log in", "access denied", "page not found"]);
+const NON_JOB_ROLE_TITLE_PATTERNS = [
+  /\b(?:login|log in)\b/,
+  /\bsign in\b/,
+  /\bauthentication required\b/,
+  /\bwelcome to\b/,
+  /^(?:[\p{L}\p{N}]+ )?(?:access (?:your )?account|(?:your )?account access)(?: page)?$/u,
+  /\baccess denied\b/,
+  /\bpage not found\b/,
+  /\bjust a moment\b/,
+  /\bverify you are human\b/,
+  /\bsecurity (?:check|challenge)\b/
+] as const;
 const SUMMARY_STOPWORDS = new Set([
   "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "into", "is",
   "it", "of", "on", "or", "that", "the", "their", "this", "to", "with", "you", "your"
@@ -200,10 +211,14 @@ export function isUsablePreview(preview: AgentPreview, postingContext: string): 
     Boolean(context) &&
     !UNUSABLE_PREVIEW_VALUES.has(company) &&
     !UNUSABLE_PREVIEW_VALUES.has(role) &&
-    !UNUSABLE_ROLE_VALUES.has(role) &&
+    !isNonJobRoleTitle(role) &&
     containsNormalizedPhrase(context, company) &&
     containsNormalizedPhrase(context, role) &&
     hasGroundedSummary(summary, context);
+}
+
+function isNonJobRoleTitle(role: string): boolean {
+  return NON_JOB_ROLE_TITLE_PATTERNS.some((pattern) => pattern.test(role));
 }
 
 function normalizeGroundingText(value: string): string {

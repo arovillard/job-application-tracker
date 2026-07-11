@@ -286,6 +286,27 @@ describe("agent workflow orchestration", () => {
   );
 
   it.each([
+    ["LinkedIn", "LinkedIn Login", "Sign in to access LinkedIn account."],
+    ["LinkedIn", "Welcome to LinkedIn", "Access your LinkedIn account securely."],
+    ["Indeed", "Authentication Required", "Access your Indeed account securely."]
+  ])("rejects fully grounded branded non-job title: %s / %s", (company, role, summary) => {
+    const candidate = { ...preview, company, role, summary };
+    const context = `${company} ${role} ${summary}`;
+    expect(evaluatePreview(candidate, context)).toBe(false);
+  });
+
+  it.each([
+    ["Identity and Access Management Engineer", "Design identity access management systems."],
+    ["Authentication Engineer", "Build secure authentication services."],
+    ["Account Executive", "Lead strategic account growth."],
+    ["Security Engineer", "Implement reliable security controls."]
+  ])("keeps grounded real title usable: %s", (role, summary) => {
+    const candidate = { ...preview, role, summary };
+    const context = `Acme ${role} ${summary}`;
+    expect(evaluatePreview(candidate, context)).toBe(true);
+  });
+
+  it.each([
     ["empty context", preview, ""],
     ["missing role description", preview, "Acme careers page with no useful role content."],
     ["hallucinated company", { ...preview, company: "Globex" }, NORMAL_POSTING_CONTEXT],

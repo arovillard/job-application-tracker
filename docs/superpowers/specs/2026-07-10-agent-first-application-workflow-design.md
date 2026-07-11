@@ -65,7 +65,7 @@ After schema parsing, a preview is usable only when:
 
 - `company.trim()` and `role.trim()` are nonempty;
 - neither normalized value is `unknown`, `unavailable`, `not found`, `n/a`, or `null`;
-- the normalized role is not a common non-job page title: `sign in`, `login`, `log in`, `access denied`, or `page not found`;
+- the normalized role does not match a common non-job page-title shape: titles containing `login`/`log in`, `sign in`, `authentication required`, `welcome to`, `access denied`, `page not found`, `just a moment`, `verify you are human`, or `security check`/`security challenge`, plus anchored access/account page composites;
 - the host retrieval produced nonempty bounded context;
 - NFKC-normalized, lowercased company and role phrases, with non-alphanumeric runs collapsed to spaces, each occur as whole normalized phrases in the retrieved context;
 - `summary.trim()` is nonempty and contains at least 3 unique meaningful normalized terms of at least 3 characters after excluding the explicit stopword set `a, an, and, are, as, at, be, by, for, from, in, into, is, it, of, on, or, that, the, their, this, to, with, you, your`;
