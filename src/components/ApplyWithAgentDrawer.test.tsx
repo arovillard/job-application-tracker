@@ -150,6 +150,7 @@ describe("ApplyWithAgentDrawer", () => {
     expect(container.textContent).toContain(stage);
     expect(container.textContent).toContain(timerLabel);
     expect(container.textContent).not.toContain("Validating public job URL");
+    expect(container.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("Agent run queued");
   });
 
   it("shows offline reconnect status for an existing queued run", async () => {
@@ -159,6 +160,7 @@ describe("ApplyWithAgentDrawer", () => {
     expect(container.textContent).toContain("Agent worker is offline");
     expect(container.textContent).toContain("Waiting to reconnect");
     expect(button("Cancel")).toBeTruthy();
+    expect(container.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("Agent run queued");
   });
 
   it("shows validation only after the worker owns previewing", async () => {
@@ -173,6 +175,7 @@ describe("ApplyWithAgentDrawer", () => {
     await render(); await act(async () => {}); await submitRun();
     expect(container.textContent).toContain("Validating public job URL.");
     expect(container.textContent).toContain("Working…");
+    expect(container.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("Agent work in progress");
   });
 
   it("shows connection loss without rewriting an active run", async () => {
@@ -181,6 +184,66 @@ describe("ApplyWithAgentDrawer", () => {
     await act(async () => vi.advanceTimersByTimeAsync(5_000));
     expect(container.textContent).toContain("Agent worker connection lost");
     expect(container.textContent).not.toContain("interrupted");
+    expect(container.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("Agent worker connection lost");
+  });
+
+  it.each(["resolve", "reject"])("keeps one exact health poll chain after a stale request %ss", async (settlement) => {
+    const staleHealth = deferred<Response>();
+    let healthCalls = 0;
+    fetchMock.mockImplementation((url) => {
+      if (url === "/api/agent-providers") return jsonReply({ body: diagnostics });
+      if (url === "/api/agent-worker-health") {
+        healthCalls += 1;
+        return healthCalls === 1 ? staleHealth.promise : jsonReply({ body: onlineHealth });
+      }
+      throw new Error(`Unexpected test URL: ${url}`);
+    });
+
+    await render(); await act(async () => {});
+    expect(healthCalls).toBe(1);
+    await render(false);
+    await render(true); await act(async () => {});
+    expect(healthCalls).toBe(2);
+    if (settlement === "resolve") {
+      await act(async () => staleHealth.resolve(await jsonReply({ body: onlineHealth })));
+    } else {
+      await act(async () => staleHealth.reject(new DOMException("Aborted", "AbortError")));
+    }
+
+    await act(async () => vi.advanceTimersByTimeAsync(4_999));
+    expect(healthCalls).toBe(2);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(healthCalls).toBe(3);
+    await act(async () => vi.advanceTimersByTimeAsync(4_999));
+    expect(healthCalls).toBe(3);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(healthCalls).toBe(4);
+  });
+
+  it("requires fresh health after close before enabling preview on reopen", async () => {
+    const reopenedHealth = deferred<Response>();
+    let healthCalls = 0;
+    fetchMock.mockImplementation((url) => {
+      if (url === "/api/agent-providers") return jsonReply({ body: diagnostics });
+      if (url === "/api/agent-worker-health") {
+        healthCalls += 1;
+        return healthCalls === 1 ? jsonReply({ body: onlineHealth }) : reopenedHealth.promise;
+      }
+      throw new Error(`Unexpected test URL: ${url}`);
+    });
+
+    await render(); await act(async () => {});
+    expect(button("Start preview").disabled).toBe(false);
+    await render(false);
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(healthCalls).toBe(1);
+    await render(true); await act(async () => {});
+    expect(healthCalls).toBe(2);
+    expect(button("Start preview").disabled).toBe(true);
+    expect(container.textContent).not.toContain("Agent worker is offline.");
+    await act(async () => reopenedHealth.resolve(await jsonReply({ body: offlineHealth })));
+    expect(button("Start preview").disabled).toBe(true);
+    expect(container.textContent).toContain("Agent worker is offline. Start JobTracker with npm run dev.");
   });
 
   it("enables previews after worker health changes from offline to online", async () => {

@@ -166,11 +166,17 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
         setWorkerHealth(next);
       }
     } catch (caught) {
-      if (!(caught instanceof DOMException && caught.name === "AbortError") && mountedRef.current && openRef.current) {
+      if (
+        !(caught instanceof DOMException && caught.name === "AbortError") &&
+        mountedRef.current &&
+        openRef.current &&
+        healthControllerRef.current === controller
+      ) {
         setWorkerHealth({ status: "offline", lastSeenAt: null });
       }
     } finally {
-      if (healthControllerRef.current === controller) healthControllerRef.current = null;
+      if (healthControllerRef.current !== controller) return;
+      healthControllerRef.current = null;
       if (mountedRef.current && openRef.current) {
         healthTimerRef.current = setTimeout(() => { void load(); }, WORKER_HEALTH_POLL_MS);
       }
@@ -245,6 +251,7 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
     if (!open) {
       if (run && TERMINAL.has(run.state)) terminalResetOnOpen.current = true;
       clearHealthPoll();
+      setWorkerHealth(null);
       invalidateRequests();
       diagnosticsInFlight.current = false;
       setDiagnosticsLoading(false);
@@ -354,6 +361,9 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
   const activityTimerLabel = runIsQueued
     ? activityIsOffline ? "Waiting to reconnect" : "Queue time"
     : activityIsOffline ? "Waiting for recovery" : "Working…";
+  const activityAriaLabel = runIsQueued
+    ? "Agent run queued"
+    : activityIsOffline ? "Agent worker connection lost" : "Agent work in progress";
   const usage = formatUsage(run?.usage ?? null);
   const safeFailureMessage = run?.failureCode ? SAFE_FAILURE_MESSAGES[run.failureCode] : undefined;
   const submittedHostname = (() => {
@@ -383,7 +393,7 @@ export function ApplyWithAgentDrawer({ open, onClose }: Props) {
             {(diagnosticsFailed || unavailable) ? <button className="button" type="button" disabled={diagnosticsLoading} onClick={() => void loadDiagnostics()}>{diagnosticsLoading ? "Checking providers…" : "Retry provider check"}</button> : null}
             <button className="button button--primary" type="submit" disabled={Boolean(pending) || workerHealth?.status !== "online" || !chosen?.available}>{pending === "start" ? "Starting…" : "Start preview"}</button>
           </form> : <div className="agent-thread">
-            {showActivity ? <div className={`agent-activity${activityIsOffline ? " agent-activity--offline" : ""}`} role="status" aria-label="Agent work in progress">
+            {showActivity ? <div className={`agent-activity${activityIsOffline ? " agent-activity--offline" : ""}`} role="status" aria-label={activityAriaLabel}>
               {!activityIsOffline ? <span className="agent-activity__spinner" aria-hidden="true" /> : null}
               <div><strong>{currentStage}</strong><span>{activityTimerLabel} · {formatElapsed(elapsedSeconds)}</span></div>
             </div> : null}
