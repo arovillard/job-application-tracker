@@ -158,6 +158,7 @@ export function buildCodexInvocation(input: CodexInvocationInput): ProviderInvoc
     "exec",
     "--ephemeral",
     ...(input.operation === "preview" ? ["--ignore-user-config"] : []),
+    ...(input.operation === "preview" ? ["--skip-git-repo-check"] : []),
     "--json",
     "--sandbox",
     input.operation === "preview" ? "read-only" : "workspace-write",

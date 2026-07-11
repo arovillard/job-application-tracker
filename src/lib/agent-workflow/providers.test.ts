@@ -54,6 +54,7 @@ describe("fixed invocation construction", () => {
         "exec",
         "--ephemeral",
         "--ignore-user-config",
+        "--skip-git-repo-check",
         "--json",
         "--sandbox",
         "read-only",
@@ -93,6 +94,7 @@ describe("fixed invocation construction", () => {
       "--model", "gpt-5.6-terra", "--cd", "/project",
       "--add-dir", "/project/private applications", "-"
     ]);
+    expect(invocation.args).not.toContain("--skip-git-repo-check");
     expect(invocation.shell).toBe(false);
   });
 

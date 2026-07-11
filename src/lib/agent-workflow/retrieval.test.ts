@@ -68,6 +68,39 @@ describe("retrievePublicPosting", () => {
     });
   });
 
+  it("derives complete evidence from a LinkedIn guest job page without JSON-LD", async () => {
+    const html = `<!doctype html><html><head>
+      <title>lululemon hiring Principal AI/ML Applied Scientist in Example City, British Columbia, Example Country | LinkedIn</title>
+      <link rel="canonical" href="https://ca.linkedin.com/jobs/view/principal-ai-ml-applied-scientist-at-lululemon-4427875246">
+    </head><body><main>
+      Define enterprise AI strategy and solution vision. Lead research and design of AI approaches
+      for highly complex business problems. Partner with executive stakeholders to identify
+      high-impact opportunities and ensure measurable business value.
+    </main></body></html>`;
+    const result = await retrievePublicPosting("https://www.linkedin.com/jobs/view/4427875246", {
+      fetchImpl: async () => response(html),
+      validateUrl: async (url) => url
+    });
+
+    expect(result.structuredJobPosting).toEqual({
+      title: "Principal AI/ML Applied Scientist",
+      company: "lululemon",
+      description: expect.stringContaining("Define enterprise AI strategy")
+    });
+  });
+
+  it("does not apply the LinkedIn title fallback to another host", async () => {
+    const html = `<html><head>
+      <title>Acme hiring Platform Engineer in Remote | LinkedIn</title>
+    </head><body><main>Build reliable platform systems.</main></body></html>`;
+    const result = await retrievePublicPosting("https://jobs.example/role", {
+      fetchImpl: async () => response(html),
+      validateUrl: async (url) => url
+    });
+
+    expect(result.structuredJobPosting).toBeNull();
+  });
+
   it("retrieves bounded plain text", async () => {
     const result = await retrievePublicPosting("https://jobs.example/role", {
       fetchImpl: async () => response("Senior Engineer at Acme", { headers: { "content-type": "text/plain" } }),

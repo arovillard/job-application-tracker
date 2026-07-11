@@ -117,7 +117,7 @@ export async function retrievePublicPosting(
             context: truncateByCodePoint(collapseWhitespace(text), maximumCharacters),
             structuredJobPosting: null
           }
-        : extractHtmlContext(text, maximumCharacters);
+        : extractHtmlContext(text, maximumCharacters, currentUrl);
       const { context, structuredJobPosting } = extracted;
       if (!context) throw new PostingRetrievalError();
       return { requestedUrl, finalUrl: currentUrl, context, structuredJobPosting };
@@ -190,11 +190,13 @@ function cancelResponseBody(response: Response) {
 
 function extractHtmlContext(
   html: string,
-  maximumCharacters: number
+  maximumCharacters: number,
+  finalUrl: string
 ): Pick<RetrievedPosting, "context" | "structuredJobPosting"> {
   const $ = load(html);
   const sections: Array<{ label: string; value: string }> = [];
   let structuredJobPosting: StructuredJobPosting | null = null;
+  const documentTitle = $("title").first().text();
   addSection(sections, "Canonical URL", $("link[rel='canonical']").first().attr("href"));
   addSection(sections, "Title", $("title").first().text());
   addSection(sections, "Open Graph title", $("meta[property='og:title']").first().attr("content"));
@@ -237,7 +239,9 @@ function extractHtmlContext(
   });
 
   $("script, style, nav, form, noscript, [hidden], [aria-hidden='true']").remove();
-  addSection(sections, "Page text", $("body").text());
+  const pageText = collapseWhitespace($("body").text());
+  structuredJobPosting ??= extractLinkedInJobPosting(finalUrl, documentTitle, pageText);
+  addSection(sections, "Page text", pageText);
 
   const seen = new Set<string>();
   const output: string[] = [];
@@ -252,6 +256,31 @@ function extractHtmlContext(
     context: truncateByCodePoint(output.join("\n"), maximumCharacters),
     structuredJobPosting
   };
+}
+
+function extractLinkedInJobPosting(
+  finalUrl: string,
+  documentTitle: string,
+  pageText: string
+): StructuredJobPosting | null {
+  let url: URL;
+  try {
+    url = new URL(finalUrl);
+  } catch {
+    return null;
+  }
+  const hostname = url.hostname.toLowerCase();
+  if (hostname !== "linkedin.com" && !hostname.endsWith(".linkedin.com")) return null;
+  if (!url.pathname.startsWith("/jobs/view/")) return null;
+
+  const title = normalizedValue(documentTitle);
+  const match = title?.match(/^(.+?) hiring (.+?) in .+ \| LinkedIn$/u);
+  if (!match) return null;
+  return completeStructuredPosting(
+    normalizedValue(match[2]),
+    normalizedValue(match[1]),
+    normalizedValue(pageText)
+  );
 }
 
 function completeStructuredPosting(
