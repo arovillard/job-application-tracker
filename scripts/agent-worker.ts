@@ -27,9 +27,11 @@ const profileContext = profileUrl ? `Public profile URL: ${profileUrl}` : undefi
 const resumeContext = baseResumePath ? `Base resume path: ${baseResumePath}` : undefined;
 const workerId = `${os.hostname()}:${process.pid}:${randomUUID()}`;
 const controller = new AbortController();
+const shutdownSignals = ["SIGINT", "SIGTERM"] as const;
+const abort = () => controller.abort();
 
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.once(signal, () => controller.abort());
+for (const signal of shutdownSignals) {
+  process.on(signal, abort);
 }
 
 const providerOptions = {
@@ -40,21 +42,25 @@ const providerOptions = {
 };
 
 async function main() {
-  await runAgentWorker({
-    workerId,
-    projectRoot,
-    dbPath,
-    applicationsDir,
-    providers: {
-      codex: createCodexProvider(providerOptions),
-      claude: createClaudeProvider(providerOptions)
-    },
-    profileContext,
-    resumeContext,
-    baseResumePath,
-    signal: controller.signal,
-    onReady: () => console.log("Agent worker ready."),
-  });
+  try {
+    await runAgentWorker({
+      workerId,
+      projectRoot,
+      dbPath,
+      applicationsDir,
+      providers: {
+        codex: createCodexProvider(providerOptions),
+        claude: createClaudeProvider(providerOptions)
+      },
+      profileContext,
+      resumeContext,
+      baseResumePath,
+      signal: controller.signal,
+      onReady: () => console.log("Agent worker ready."),
+    });
+  } finally {
+    for (const signal of shutdownSignals) process.off(signal, abort);
+  }
 }
 
 void main().catch(() => {

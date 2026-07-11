@@ -1,7 +1,12 @@
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, createConnection } from "node:net";
+import { tmpdir } from "node:os";
 import { PassThrough } from "node:stream";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import Database from "better-sqlite3";
+import { expect, it, vi } from "vitest";
 
 // @ts-expect-error The production supervisor is intentionally plain ESM.
 import { startLocalSupervisor } from "./lib/local-supervisor.mjs";
@@ -16,6 +21,61 @@ class FakeChild extends EventEmitter {
     queueMicrotask(() => this.emit("close", null, signal));
     return true;
   });
+}
+
+async function availablePort() {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Test port is unavailable");
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  return address.port;
+}
+
+function portIsOpen(port: number) {
+  return new Promise<boolean>((resolve) => {
+    const socket = createConnection({ host: "127.0.0.1", port });
+    const finish = (open: boolean) => {
+      socket.destroy();
+      resolve(open);
+    };
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+    socket.setTimeout(250, () => finish(false));
+  });
+}
+
+function processGroupIsAlive(pid: number) {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+async function waitForCondition(check: () => boolean | Promise<boolean>, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await check())) {
+    if (Date.now() >= deadline) throw new Error("Timed out waiting for local runtime condition");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+function waitForOutput(read: () => string, expected: string, timeoutMs: number) {
+  return waitForCondition(() => read().includes(expected), timeoutMs);
+}
+
+function stopProcessGroup(pid: number) {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
 }
 
 it("spawns exact shell-free children and waits for both readiness signals", async () => {
@@ -107,3 +167,60 @@ it("handles spawn errors and escalates children that ignore graceful shutdown", 
   await expect(runtime.done).resolves.toBe(1);
   vi.useRealTimers();
 });
+
+it("runs through npm and shuts down both real children cleanly on SIGINT", async () => {
+  const projectRoot = path.resolve(import.meta.dirname, "..");
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "jobtracker-local-supervisor-"));
+  const databasePath = path.join(tempRoot, "jobtracker.sqlite");
+  const port = await availablePort();
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  const child = spawn(npm, ["run", "dev", "--", "--port", String(port)], {
+    cwd: projectRoot,
+    detached: process.platform !== "win32",
+    env: {
+      ...process.env,
+      JOBTRACKER_DB_PATH: databasePath,
+      JOBTRACKER_APPLICATIONS_DIR: path.join(tempRoot, "applications")
+    },
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  let output = "";
+  child.stdout.on("data", (chunk) => { output += chunk.toString(); });
+  child.stderr.on("data", (chunk) => { output += chunk.toString(); });
+  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+
+  try {
+    await waitForOutput(
+      () => output,
+      `JobTracker ready: http://localhost:${port} (web and agent worker online)`,
+      15_000
+    );
+    expect(child.kill("SIGINT")).toBe(true);
+    const result = await Promise.race([
+      closed,
+      new Promise<never>((_, reject) => setTimeout(
+        () => reject(new Error("Timed out waiting for npm run dev to stop")),
+        10_000
+      ))
+    ]);
+    expect(result).toEqual({ code: 0, signal: null });
+    await waitForCondition(
+      async () => !(await portIsOpen(port)) && !processGroupIsAlive(child.pid!),
+      5_000
+    );
+    expect(output).toContain("[worker] Agent worker ready.");
+    expect(output).not.toContain("Local runtime failed before readiness");
+
+    const database = new Database(databasePath, { readonly: true });
+    const healthRows = database.prepare("SELECT COUNT(*) AS count FROM agent_worker_health").get() as { count: number };
+    database.close();
+    expect(healthRows.count).toBe(0);
+  } finally {
+    if (child.pid && process.platform !== "win32") stopProcessGroup(child.pid);
+    else if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    rmSync(tempRoot, { force: true, recursive: true });
+  }
+}, 35_000);
