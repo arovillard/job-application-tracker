@@ -183,15 +183,15 @@ async function processPreview(run: AgentRun, deps: AgentOrchestratorDependencies
 }
 
 const UNUSABLE_PREVIEW_VALUES = new Set(["unknown", "unavailable", "not found", "n/a", "null"]);
-const OCCUPATIONAL_ROLE_NOUNS = /\b(?:engineer|manager|developer|architect|specialist|analyst|lead|director|executive|designer|administrator|consultant|scientist|researcher)\b/;
+const OCCUPATIONAL_ROLE_HEAD = /\b(?:engineer|manager|developer|architect|specialist|analyst|lead|director|executive|designer|administrator|consultant|scientist|researcher)$/;
 const NON_JOB_ROLE_TITLE_PATTERNS = [
-  /^(?:(?:login|log in|sign in|sign up|join|welcome to)(?: [\p{L}\p{N}]+)+|(?:[\p{L}\p{N}]+ )+(?:login|log in|sign in|sign up|join|welcome))$/u,
-  /^(?:[\p{L}\p{N}]+ )?(?:login|log in|sign in|sign up)$/u,
-  /^(?:[\p{L}\p{N}]+ )?authentication required$/u,
-  /^(?:[\p{L}\p{N}]+ )?(?:access (?:your )?account|(?:your )?account access)(?: page)?$/u,
-  /^(?:http )?(?:400|401|403|404|429|500|502|503)(?: (?:error|forbidden|unauthorized|not found|bad request|too many requests|service unavailable|bad gateway|gateway timeout))?$/,
-  /^(?:forbidden|unauthorized|not found|bad request|service unavailable|too many requests|page not found)$/,
-  /^(?:[\p{L}\p{N}]+ )?(?:access denied|robot check|are you a robot|checking your browser|enable javascript|request blocked|temporarily unavailable|just a moment|verify you are human|security check|security challenge)$/u
+  /\b(?:login|log in|sign in|sign up)\b/,
+  /\b(?:join|welcome to)\b/,
+  /\b(?:create (?:an? )?account|authentication required|attention required)\b/,
+  /\b(?:access (?:your )?account|(?:your )?account access)\b/,
+  /\b(?:400|401|403|404|429|500|502|503)(?: (?:error|forbidden|unauthorized|not found|bad request|too many requests|service unavailable|bad gateway|gateway timeout))?\b/,
+  /\b(?:forbidden|unauthorized|not found|bad request|service unavailable|too many requests|page not found)\b/,
+  /\b(?:access denied|robot check|are you a robot|checking your browser|enable javascript|request blocked|temporarily unavailable|just a moment|verify you are human|security check|security challenge)\b/
 ] as const;
 const SUMMARY_STOPWORDS = new Set([
   "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "into", "is",
@@ -216,7 +216,7 @@ export function isUsablePreview(preview: AgentPreview, postingContext: string): 
 }
 
 function isNonJobRoleTitle(role: string): boolean {
-  if (OCCUPATIONAL_ROLE_NOUNS.test(role)) return false;
+  if (OCCUPATIONAL_ROLE_HEAD.test(role)) return false;
   return NON_JOB_ROLE_TITLE_PATTERNS.some((pattern) => pattern.test(role));
 }
 

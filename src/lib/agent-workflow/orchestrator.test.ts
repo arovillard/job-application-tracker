@@ -297,7 +297,12 @@ describe("agent workflow orchestration", () => {
     ["Acme", "Checking Your Browser", "Acme is checking your browser securely."],
     ["Acme", "Enable JavaScript", "Enable JavaScript for the Acme page."],
     ["Acme", "Request Blocked", "The Acme request was blocked securely."],
-    ["Acme", "Temporarily Unavailable", "The Acme service is temporarily unavailable."]
+    ["Acme", "Temporarily Unavailable", "The Acme service is temporarily unavailable."],
+    ["Acme", "Access Denied Acme", "Access to the Acme account was denied."],
+    ["Acme", "403 Forbidden Acme", "Access to the Acme service is forbidden."],
+    ["Acme", "Create an Account", "Create an Acme account securely."],
+    ["Cloudflare", "Attention Required Cloudflare", "Cloudflare attention is required securely."],
+    ["Acme", "Password Manager Login", "Access the Acme password manager login securely."]
   ])("rejects fully grounded branded non-job title: %s / %s", (company, role, summary) => {
     const candidate = { ...preview, company, role, summary };
     const context = `${company} ${role} ${summary}`;
@@ -312,7 +317,8 @@ describe("agent workflow orchestration", () => {
     ["Login Platform Engineer", "Build reliable login platform services."],
     ["Authentication Product Manager", "Lead authentication product strategy."],
     ["Access Control Architect", "Design scalable access control systems."],
-    ["Account Executive", "Own strategic account relationships."]
+    ["Account Executive", "Own strategic account relationships."],
+    ["Password Manager", "Manage secure password services."]
   ])("keeps grounded real title usable: %s", (role, summary) => {
     const candidate = { ...preview, role, summary };
     const context = `Acme ${role} ${summary}`;
