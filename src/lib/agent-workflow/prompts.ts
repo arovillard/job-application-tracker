@@ -18,6 +18,8 @@ export function buildPreviewPrompt(input: PreviewPromptInput): string {
 
 Task: inspect the public job posting URL and return only the schema-constrained preview.
 The preview must contain exactly company, role, nullable location, summary, and postingState (open, closed, or unknown).
+Write summary as an extractive responsibility summary using posting language from UNTRUSTED_RETRIEVED_POSTING.
+Never describe retrieval, access, login, or missing content in summary.
 This is a read-only preview. Do not create, edit, or delete any file.
 
 <UNTRUSTED_JOB_POSTING_URL>

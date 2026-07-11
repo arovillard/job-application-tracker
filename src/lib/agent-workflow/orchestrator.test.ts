@@ -35,6 +35,11 @@ const preview = {
   summary: "Build reliable infrastructure.",
   postingState: "open" as const
 };
+const NORMAL_POSTING_CONTEXT = "Acme Platform Engineer Build reliable infrastructure for scalable services.";
+const evaluatePreview = isUsablePreview as unknown as (
+  candidate: typeof preview,
+  postingContext: string
+) => boolean;
 
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), "jobtracker-orchestrator-"));
@@ -83,7 +88,7 @@ function dependencies(fakeProvider = provider()) {
     providers: { codex: fakeProvider, claude: fakeProvider },
     retrievePosting: async (url: string, options?: { onInitialValidated?(): void }) => {
       options?.onInitialValidated?.();
-      return { requestedUrl: url, finalUrl: url, context: "Acme Platform Engineer public posting" };
+      return { requestedUrl: url, finalUrl: url, context: NORMAL_POSTING_CONTEXT };
     },
     leaseDurationMs: 5_000,
     heartbeatIntervalMs: 25,
@@ -199,7 +204,7 @@ describe("agent workflow orchestration", () => {
       retrievalStarted = true;
       await validation;
       options?.onInitialValidated?.();
-      return { requestedUrl: url, finalUrl: url, context: "Acme Platform Engineer" };
+      return { requestedUrl: url, finalUrl: url, context: NORMAL_POSTING_CONTEXT };
     });
     const processing = processNextAgentRun({ ...dependencies(), retrievePosting });
     await waitFor(() => retrievalStarted);
@@ -243,7 +248,7 @@ describe("agent workflow orchestration", () => {
     "The careers site blocked access to the listing.",
     "Investigate another URL because this posting is unavailable."
   ])("rejects retrieval fallback summary: %s", (summary) => {
-    expect(isUsablePreview({ ...preview, summary })).toBe(false);
+    expect(evaluatePreview({ ...preview, summary }, NORMAL_POSTING_CONTEXT)).toBe(false);
   });
 
   it.each([
@@ -262,7 +267,63 @@ describe("agent workflow orchestration", () => {
     "The engineer will monitor job listing access failures and lead remediation.",
     "Responsible for diagnosing job page access failures."
   ])("keeps legitimate summary usable: %s", (summary) => {
-    expect(isUsablePreview({ ...preview, summary })).toBe(true);
+    const context = `Acme Platform Engineer Responsibilities ${summary}`;
+    expect(evaluatePreview({ ...preview, summary }, context)).toBe(true);
+  });
+
+  it.each(["Sign in", "Sign-In", "Login", "Log in", "Access denied", "Page not found"])(
+    "rejects a fully grounded non-job page title: %s",
+    (role) => {
+      const candidate = {
+        ...preview,
+        company: "LinkedIn",
+        role,
+        summary: "Access LinkedIn account login securely."
+      };
+      const context = `LinkedIn ${role} Access LinkedIn account login securely.`;
+      expect(evaluatePreview(candidate, context)).toBe(false);
+    }
+  );
+
+  it.each([
+    ["empty context", preview, ""],
+    ["missing role description", preview, "Acme careers page with no useful role content."],
+    ["hallucinated company", { ...preview, company: "Globex" }, NORMAL_POSTING_CONTEXT],
+    ["hallucinated role", { ...preview, role: "Product Designer" }, NORMAL_POSTING_CONTEXT],
+    [
+      "insufficiently grounded paraphrase",
+      { ...preview, role: "Engineer", summary: "Build reliable systems architect distributed platforms." },
+      "Acme Engineer Build reliable systems."
+    ],
+    [
+      "fewer than three meaningful summary terms",
+      { ...preview, role: "Engineer", summary: "Build reliable." },
+      "Acme Engineer Build reliable."
+    ]
+  ])("rejects %s", (_label, candidate, context) => {
+    expect(evaluatePreview(candidate as typeof preview, context as string)).toBe(false);
+  });
+
+  it("accepts the exact three-token and sixty-percent grounding boundary", () => {
+    const candidate = {
+      ...preview,
+      role: "Engineer",
+      summary: "Build reliable systems with cloud delivery."
+    };
+    const context = "Acme Engineer Build reliable systems for customer operations.";
+    expect(evaluatePreview(candidate, context)).toBe(true);
+  });
+
+  it("normalizes NFKC punctuation while requiring whole company and role phrases", () => {
+    const candidate = {
+      ...preview,
+      company: "ＡＣＭＥ, Inc.",
+      role: "Platform-Engineer",
+      summary: "Build reliable infrastructure."
+    };
+    const context = "Acme Inc seeks a Platform Engineer to build reliable infrastructure.";
+    expect(evaluatePreview(candidate, context)).toBe(true);
+    expect(evaluatePreview({ ...candidate, company: "Acme Incorporated" }, context)).toBe(false);
   });
 
   it("promptly cancels retrieval without invoking the provider", async () => {
@@ -321,10 +382,19 @@ describe("agent workflow orchestration", () => {
     fake.preview = vi.fn(async (request) => {
       order.push("preview");
       expect(request).toMatchObject({
-        postingContext: "Technical Director at Thrillworks",
+        postingContext: "Technical Director at Thrillworks Lead technical strategy and delivery.",
         postingFinalUrl: "https://public.example/final"
       });
-      return { preview, usage: null };
+      return {
+        preview: {
+          company: "Thrillworks",
+          role: "Technical Director",
+          location: "Remote",
+          summary: "Lead technical strategy and delivery.",
+          postingState: "open" as const
+        },
+        usage: null
+      };
     });
     const run = createAgentRun({ provider: "codex", model: "model", canonicalJobUrl: "https://jobs.example.com/role" });
     const retrievePosting = vi.fn(async (_url: string, options?: { onInitialValidated?(): void }) => {
@@ -333,7 +403,7 @@ describe("agent workflow orchestration", () => {
       return {
         requestedUrl: run.canonicalJobUrl,
         finalUrl: "https://public.example/final",
-        context: "Technical Director at Thrillworks"
+        context: "Technical Director at Thrillworks Lead technical strategy and delivery."
       };
     });
 

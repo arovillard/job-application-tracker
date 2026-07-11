@@ -68,7 +68,7 @@ function fakeProvider(): AgentProvider {
     preview: async (request, hooks) => {
       expect(request).toMatchObject({
         jobUrl,
-        postingContext: "Integration Company Platform Engineer public posting",
+        postingContext: "Integration Company Platform Engineer Build reliable developer infrastructure.",
         postingFinalUrl: jobUrl,
         model: "integration-model",
         resumeContext: `Base resume path: ${baseResumePath}`
@@ -121,7 +121,7 @@ function workerDependencies(provider: AgentProvider) {
       return {
         requestedUrl: url,
         finalUrl: url,
-        context: "Integration Company Platform Engineer public posting"
+        context: "Integration Company Platform Engineer Build reliable developer infrastructure."
       };
     },
     leaseDurationMs: 5_000,

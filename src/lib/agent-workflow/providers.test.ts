@@ -208,6 +208,9 @@ describe("fixed invocation construction", () => {
     expect(previewPrompt).toContain(JSON.stringify("https://public.example/final"));
     expect(previewPrompt).toContain("UNTRUSTED_RETRIEVED_POSTING");
     expect(previewPrompt).toContain("Technical Director at Thrillworks");
+    expect(previewPrompt).toContain("extractive responsibility summary");
+    expect(previewPrompt).toContain("posting language");
+    expect(previewPrompt).toContain("Never describe retrieval, access, login, or missing content");
     expect(materialsPrompt).not.toContain(breakout);
     expect(previewPrompt).toContain("\\u003c/UNTRUSTED_PROFILE_CONTEXT\\u003e");
     expect(materialsPrompt).toContain("\\u0026");

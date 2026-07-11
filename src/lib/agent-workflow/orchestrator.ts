@@ -154,7 +154,7 @@ async function processPreview(run: AgentRun, deps: AgentOrchestratorDependencies
         }
       )
     );
-    if (!isUsablePreview(result.preview)) {
+    if (!isUsablePreview(result.preview, posting.context)) {
       throw new SafeWorkflowError(
         "preview_unusable",
         "The job posting could not be identified reliably. Try another public posting URL."
@@ -183,79 +183,53 @@ async function processPreview(run: AgentRun, deps: AgentOrchestratorDependencies
 }
 
 const UNUSABLE_PREVIEW_VALUES = new Set(["unknown", "unavailable", "not found", "n/a", "null"]);
-const ROLE_WORK_ACTIONS = [
-  "build", "own", "investigate", "lead", "design", "improve", "develop", "create",
-  "implement", "operate", "maintain", "monitor", "diagnose"
-] as const;
-const ROLE_WORK_START = new RegExp(`^(?:${ROLE_WORK_ACTIONS.join("|")})\\b`);
-const ROLE_WORK_SUBJECT = new RegExp(
-  String.raw`^(?:(?:the|this)\s+)?(?:engineer|candidate|person|role|position)\b.{0,48}\b` +
-  String.raw`(?:will|responsible|accountable|${ROLE_WORK_ACTIONS.join("|")})\b`
-);
-const RESPONSIBILITY_START = /^(?:responsible|accountable)\s+for\b/;
-const RETRIEVAL_FAILURE_SIGNALS = [
-  /\b(?:unable|not able|cannot|can t|could not|couldn t|failed|failure|failures|unavailable|inaccessible)\b/,
-  /\bdid not contain\b/,
-  /\bno\b.{0,48}\b(?:available|found|extracted|retrieved|loaded|accessible|usable)\b/,
-  /\b(?:empty response|blocked access)\b/
-] as const;
-const POSTING_SOURCE_OBJECTS = [
-  /\b(?:posting|page|listing|link|url|site)\b/,
-  /\b(?:job|role)\s+(?:details|information|info|data)\b/,
-  /\b(?:details|information|data)\b.{0,32}\b(?:link|url)\b/
-] as const;
-const FIRST_PERSON_ACCESS_FAILURE = /\b(?:i|we)\s+(?:(?:was|were|am|are)\s+)?(?:not able|unable|could not|couldn t|cannot|can t)\b/;
-const DEICTIC_SOURCE = /\b(?:this|provided)\s+(?:url|link|posting|page|listing)\b/;
-const NO_CURRENT_ROLE_DETAILS = /\bno\s+(?:job|role)\s+(?:details|information|info|data)\b/;
-const EMPTY_SOURCE_RESPONSE = /\b(?:page|site)\b.{0,32}\bempty response\b/;
-const BLOCKED_SOURCE_ACCESS = /\b(?:page|site)\b.{0,32}\bblocked access\b|\bblocked access\b.{0,32}\b(?:listing|posting|page|site)\b/;
+const UNUSABLE_ROLE_VALUES = new Set(["sign in", "login", "log in", "access denied", "page not found"]);
+const SUMMARY_STOPWORDS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "into", "is",
+  "it", "of", "on", "or", "that", "the", "their", "this", "to", "with", "you", "your"
+]);
+const MINIMUM_SUMMARY_TERMS = 3;
+const MINIMUM_SUMMARY_OVERLAP = 0.6;
 
-export function isUsablePreview(preview: AgentPreview): boolean {
-  const company = preview.company.trim().toLocaleLowerCase();
-  const role = preview.role.trim().toLocaleLowerCase();
-  const summary = preview.summary.trim().toLocaleLowerCase();
+export function isUsablePreview(preview: AgentPreview, postingContext: string): boolean {
+  const company = normalizeGroundingText(preview.company);
+  const role = normalizeGroundingText(preview.role);
+  const summary = normalizeGroundingText(preview.summary);
+  const context = normalizeGroundingText(postingContext);
   return Boolean(company && role && summary) &&
+    Boolean(context) &&
     !UNUSABLE_PREVIEW_VALUES.has(company) &&
     !UNUSABLE_PREVIEW_VALUES.has(role) &&
-    !isRetrievalFallbackSummary(summary);
+    !UNUSABLE_ROLE_VALUES.has(role) &&
+    containsNormalizedPhrase(context, company) &&
+    containsNormalizedPhrase(context, role) &&
+    hasGroundedSummary(summary, context);
 }
 
-function isRetrievalFallbackSummary(summary: string): boolean {
-  const normalized = normalizeSummaryText(summary);
-  if (isExplicitRetrievalDiagnostic(normalized)) return true;
-  if (hasRoleWorkFraming(summary)) return false;
-  return hasAmbiguousRetrievalFailure(normalized);
-}
-
-function isExplicitRetrievalDiagnostic(normalized: string): boolean {
-  if (NO_CURRENT_ROLE_DETAILS.test(normalized) || EMPTY_SOURCE_RESPONSE.test(normalized) ||
-      BLOCKED_SOURCE_ACCESS.test(normalized)) return true;
-  const deicticFraming = normalized.startsWith("unfortunately ") ||
-    FIRST_PERSON_ACCESS_FAILURE.test(normalized) || DEICTIC_SOURCE.test(normalized);
-  return deicticFraming && hasAmbiguousRetrievalFailure(normalized);
-}
-
-function hasRoleWorkFraming(summary: string): boolean {
-  const clauses = summary.split(";").map(normalizeSummaryText);
-  return isRoleWorkClause(clauses[0]) || clauses.slice(1).some(isRoleWorkClause);
-}
-
-function isRoleWorkClause(clause: string): boolean {
-  return ROLE_WORK_START.test(clause) || ROLE_WORK_SUBJECT.test(clause) || RESPONSIBILITY_START.test(clause);
-}
-
-function hasAmbiguousRetrievalFailure(normalized: string): boolean {
-  return RETRIEVAL_FAILURE_SIGNALS.some((pattern) => pattern.test(normalized)) &&
-    POSTING_SOURCE_OBJECTS.some((pattern) => pattern.test(normalized));
-}
-
-function normalizeSummaryText(summary: string): string {
-  return summary
+function normalizeGroundingText(value: string): string {
+  return value
     .normalize("NFKC")
     .toLocaleLowerCase()
-    .replace(/[’']/g, " ")
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
+}
+
+function containsNormalizedPhrase(context: string, phrase: string): boolean {
+  return ` ${context} `.includes(` ${phrase} `);
+}
+
+function hasGroundedSummary(summary: string, context: string): boolean {
+  const meaningfulTerms = [...new Set(
+    summary.split(" ").filter((term) => term.length >= 3 && !SUMMARY_STOPWORDS.has(term))
+  )];
+  if (meaningfulTerms.length < MINIMUM_SUMMARY_TERMS) return false;
+  const contextTerms = new Set(context.split(" "));
+  const matchedTerms = meaningfulTerms.filter((term) => contextTerms.has(term)).length;
+  const requiredMatches = Math.max(
+    MINIMUM_SUMMARY_TERMS,
+    Math.ceil(MINIMUM_SUMMARY_OVERLAP * meaningfulTerms.length)
+  );
+  return matchedTerms >= requiredMatches;
 }
 
 async function processExecution(run: AgentRun, deps: AgentOrchestratorDependencies) {

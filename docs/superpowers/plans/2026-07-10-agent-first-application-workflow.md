@@ -78,7 +78,7 @@ export async function retrievePublicPosting(
 
 - Extend `AgentProviderRequest` with `postingContext?: string` and `postingFinalUrl?: string`.
 - Extend `AgentOrchestratorDependencies` with `retrievePosting?: typeof retrievePublicPosting` for deterministic tests.
-- Add `export function isUsablePreview(preview: AgentPreview): boolean` in `orchestrator.ts` or a focused schema helper imported by it.
+- Add `export function isUsablePreview(preview: AgentPreview, postingContext: string): boolean` in `orchestrator.ts` or a focused schema helper imported by it.
 - Preserve all existing API response types and SQLite columns.
 
 - [ ] **Step 1: Install the parser dependency**
@@ -224,6 +224,10 @@ it.each([
 });
 ```
 
+The final quality-gate contract is deterministic context grounding, not fallback-phrase classification. Normalize preview labels, summary, and retrieved context with NFKC, lowercase, and collapsed non-alphanumeric runs. Require whole normalized company and role phrase evidence, reject common non-job page titles (`sign in`, `login`, `log in`, `access denied`, `page not found`), and require at least 3 unique meaningful summary terms of at least 3 characters with context matches of at least `max(3, ceil(0.60 * meaningful terms))`. The explicit stopword set is `a, an, and, are, as, at, be, by, for, from, in, into, is, it, of, on, or, that, the, their, this, to, with, you, your`.
+
+Provider prompt tests must require an extractive responsibility summary using posting language and prohibit retrieval/access/login/missing-content commentary. Orchestration tests must cover grounded legitimate retrieval-systems work, error/login pages, missing useful role content, hallucinated company/role, exact overlap boundaries, and insufficiently grounded paraphrases.
+
 Add retrieval rejection asserting provider preview is never called, final state is `failed`, failure code is `posting_retrieval_failed`, safe failure message is exact, and events contain only the four approved stage strings as applicable. Update all existing fake providers/dependencies to supply deterministic retrieval so tests never access the network.
 
 Run:
@@ -245,7 +249,7 @@ In `processPreview`:
 5. map `PostingRetrievalError` to `posting_retrieval_failed` and the exact safe message;
 6. append `Analyzing job posting.`;
 7. pass transient context/final URL to the provider inside `activePhase`;
-8. reject an unusable preview with `SafeWorkflowError("preview_unusable", exactMessage)`;
+8. apply deterministic label and summary grounding against the transient retrieved context, then reject an unusable preview with `SafeWorkflowError("preview_unusable", exactMessage)`;
 9. transition to approval and append `Preview ready for approval.` only on success.
 
 Make failure classification preserve these two safe workflow codes instead of replacing them with `preview_failed`. Keep lease ownership, cancellation, and cleanup semantics unchanged.

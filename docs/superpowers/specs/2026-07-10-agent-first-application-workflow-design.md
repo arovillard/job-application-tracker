@@ -65,8 +65,13 @@ After schema parsing, a preview is usable only when:
 
 - `company.trim()` and `role.trim()` are nonempty;
 - neither normalized value is `unknown`, `unavailable`, `not found`, `n/a`, or `null`;
-- `summary.trim()` is nonempty and is not a retrieval-failure fallback;
-- the host retrieval produced nonempty bounded context.
+- the normalized role is not a common non-job page title: `sign in`, `login`, `log in`, `access denied`, or `page not found`;
+- the host retrieval produced nonempty bounded context;
+- NFKC-normalized, lowercased company and role phrases, with non-alphanumeric runs collapsed to spaces, each occur as whole normalized phrases in the retrieved context;
+- `summary.trim()` is nonempty and contains at least 3 unique meaningful normalized terms of at least 3 characters after excluding the explicit stopword set `a, an, and, are, as, at, be, by, for, from, in, into, is, it, of, on, or, that, the, their, this, to, with, you, your`;
+- retrieved context contains at least `max(3, ceil(0.60 * meaningful summary terms))` of those unique meaningful terms.
+
+The provider prompt must request an extractive responsibility summary using posting language and must prohibit retrieval, access, login, or missing-content commentary. This deterministic grounding contract replaces natural-language retrieval-fallback heuristics: legitimate retrieval-systems roles pass when their labels and responsibility language are evidenced in context, while login pages, error pages, hallucinated labels, and ungrounded paraphrases fail.
 
 An unusable preview must transition from `previewing` to `failed` with failure code `preview_unusable` and safe message **The job posting could not be identified reliably. Try another public posting URL.** It must never enter `awaiting_approval` and must never expose the approval action.
 
