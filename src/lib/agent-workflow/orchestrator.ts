@@ -183,6 +183,21 @@ async function processPreview(run: AgentRun, deps: AgentOrchestratorDependencies
 }
 
 const UNUSABLE_PREVIEW_VALUES = new Set(["unknown", "unavailable", "not found", "n/a", "null"]);
+const ROLE_WORK_ACTIONS = [
+  "build", "own", "investigate", "lead", "design", "improve", "develop", "create",
+  "implement", "operate", "maintain", "monitor", "diagnose"
+] as const;
+const ROLE_WORK_START = new RegExp(`^(?:${ROLE_WORK_ACTIONS.join("|")})\\b`);
+const RETRIEVAL_FAILURE_SIGNALS = [
+  /\b(?:unable|cannot|can t|could not|couldn t|failed|failure|failures|unavailable|inaccessible)\b/,
+  /\bdid not contain\b/,
+  /\bno\b.{0,48}\b(?:available|found|extracted|retrieved|loaded|accessible|usable)\b/
+] as const;
+const POSTING_SOURCE_OBJECTS = [
+  /\b(?:posting|page|listing|link|url)\b/,
+  /\b(?:job|role)\s+(?:details|information|data)\b/,
+  /\b(?:details|information|data)\b.{0,32}\b(?:link|url)\b/
+] as const;
 
 export function isUsablePreview(preview: AgentPreview): boolean {
   const company = preview.company.trim().toLocaleLowerCase();
@@ -195,26 +210,24 @@ export function isUsablePreview(preview: AgentPreview): boolean {
 }
 
 function isRetrievalFallbackSummary(summary: string): boolean {
-  const normalized = summary
+  if (hasRoleWorkFraming(summary)) return false;
+  const normalized = normalizeSummaryText(summary);
+  return RETRIEVAL_FAILURE_SIGNALS.some((pattern) => pattern.test(normalized)) &&
+    POSTING_SOURCE_OBJECTS.some((pattern) => pattern.test(normalized));
+}
+
+function hasRoleWorkFraming(summary: string): boolean {
+  const clauses = summary.split(";").map(normalizeSummaryText);
+  return ROLE_WORK_START.test(clauses[0]) || clauses.slice(1).some((clause) => ROLE_WORK_START.test(clause));
+}
+
+function normalizeSummaryText(summary: string): string {
+  return summary
     .normalize("NFKC")
+    .toLocaleLowerCase()
     .replace(/[’']/g, " ")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
-  const target = String.raw`(?:details|information|(?:job\s+)?(?:posting|page|listing)|link|url)`;
-  const diagnosticAction = new RegExp(
-    String.raw`^(?:(?:i|we)\s+)?(?:failed|unable|could not|couldn t|cannot|can t)(?:\s+to)?\s+` +
-    String.raw`(?:retriev(?:e|ing)|access|load|open|view|reach|extract)\b.{0,80}\b${target}\b`
-  );
-  const diagnosticObject = new RegExp(
-    String.raw`^(?:the\s+)?(?:public\s+|provided\s+)?${target}\b.{0,64}\b` +
-    String.raw`(?:could not|couldn t|cannot|can t|unable|unavailable|inaccessible|failed)\b`
-  );
-  const noInformation = new RegExp(
-    String.raw`^no\s+(?:job\s+)?(?:information|details|posting data)\b.{0,48}\b` +
-    String.raw`(?:extract|extracted|retrieve|retrieved|access|load|loaded)\b`
-  );
-  return diagnosticAction.test(normalized) || diagnosticObject.test(normalized) ||
-    noInformation.test(normalized);
 }
 
 async function processExecution(run: AgentRun, deps: AgentOrchestratorDependencies) {
