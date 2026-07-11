@@ -146,6 +146,21 @@ describe("ApplyWithAgentDrawer", () => {
   });
 
   it.each([
+    ["executing", "Creating application materials."],
+    ["verifying", "Verifying application artifacts."]
+  ])("uses the %s state label even when preview stage events remain in history", async (state, expectedStage) => {
+    const active = run(state, {
+      events: [{
+        id: "e1", runId: "run-1", sequence: 1, kind: "status",
+        message: "Analyzing job posting.", metadata: null, createdAt: "2026-01-01T12:34:56Z"
+      }]
+    });
+    fetchMock.mockImplementation((url) => jsonReply({ body: url === "/api/agent-providers" ? diagnostics : active }));
+    await render(); await act(async () => {}); await submitRun();
+    expect(container.querySelector(".agent-activity strong")?.textContent).toBe(expectedStage);
+  });
+
+  it.each([
     ["preview_unusable", "The job posting could not be identified reliably. Try another public posting URL."],
     ["posting_retrieval_failed", "The public job posting could not be retrieved safely. Check the link or try another public posting URL."]
   ])("shows safe %s recovery without approval", async (failureCode, failureMessage) => {

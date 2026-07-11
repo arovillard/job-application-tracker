@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { act } from "react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -37,6 +39,16 @@ describe("Dashboard", () => {
     expect(markup.indexOf("Apply with Agent")).toBeLessThan(markup.indexOf("Add existing application"));
     expect(markup).toContain("button button--primary agent-drawer-trigger");
     expect(markup).toContain('class="button dashboard-new-application"');
+  });
+
+  it("defines a narrow mobile header layout without reversing the action hierarchy", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    expect(css).toMatch(/@media \(max-width: 375px\)/);
+    expect(css).toMatch(/\.dashboard-header\s*\{[^}]*flex-direction:\s*column[^}]*width:\s*100%/s);
+    expect(css).toMatch(/\.dashboard-header__actions\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*1fr[^}]*width:\s*100%/s);
+    expect(css).toMatch(/\.dashboard-header__actions \.agent-drawer-trigger\s*\{[^}]*order:\s*1[^}]*width:\s*100%/s);
+    expect(css).toMatch(/\.dashboard-header__actions \.dashboard-new-application\s*\{[^}]*order:\s*2[^}]*width:\s*100%/s);
+    expect(css).toMatch(/\.dashboard-header__actions \.icon-button\s*\{[^}]*justify-self:\s*end[^}]*order:\s*3/s);
   });
 
   it("opens the agent drawer from the agent-first empty state and keeps manual entry secondary", async () => {

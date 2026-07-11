@@ -19,6 +19,25 @@ async function expectSafeFailure(promise: Promise<unknown>) {
   return error as Error;
 }
 
+async function settleWithin(promise: Promise<unknown>, maximumMs = 100) {
+  return Promise.race([
+    promise.catch((error) => error),
+    new Promise<"test-timeout">((resolve) => setTimeout(() => resolve("test-timeout"), maximumMs))
+  ]);
+}
+
+function trackedStream(onCancel: () => void, uncooperative = false) {
+  return new ReadableStream<Uint8Array>({
+    pull() {
+      if (uncooperative) return new Promise<void>(() => {});
+    },
+    cancel() {
+      onCancel();
+      return uncooperative ? new Promise<void>(() => {}) : undefined;
+    }
+  });
+}
+
 describe("retrievePublicPosting", () => {
   it("extracts bounded context from a LinkedIn-like guest posting", async () => {
     const html = `<!doctype html><html><head>
@@ -107,6 +126,62 @@ describe("retrievePublicPosting", () => {
       validateUrl: async (url) => url,
       timeoutMs: 1
     }));
+  });
+
+  it("applies the deadline to a hanging initial validator", async () => {
+    const outcome = await settleWithin(retrievePublicPosting("https://jobs.example/role", {
+      fetchImpl: vi.fn(),
+      validateUrl: async () => new Promise<string>(() => {}),
+      timeoutMs: 5
+    }));
+    expect(outcome).toBeInstanceOf(PostingRetrievalError);
+  });
+
+  it("applies the same deadline to a hanging redirect validator and cancels its body", async () => {
+    let cancellations = 0;
+    const outcome = await settleWithin(retrievePublicPosting("https://jobs.example/start", {
+      fetchImpl: async () => new Response(trackedStream(() => { cancellations += 1; }), {
+        status: 302,
+        headers: { location: "/final" }
+      }),
+      validateUrl: vi.fn()
+        .mockResolvedValueOnce("https://jobs.example/start")
+        .mockImplementationOnce(async () => new Promise<string>(() => {})),
+      timeoutMs: 5
+    }));
+    expect(outcome).toBeInstanceOf(PostingRetrievalError);
+    expect(cancellations).toBe(1);
+  });
+
+  it("fails safely when a response body never produces data and ignores cancellation", async () => {
+    let cancellations = 0;
+    const outcome = await settleWithin(retrievePublicPosting("https://jobs.example/role", {
+      fetchImpl: async () => new Response(trackedStream(() => { cancellations += 1; }, true), {
+        headers: { "content-type": "text/plain" }
+      }),
+      validateUrl: async (url) => url,
+      timeoutMs: 5
+    }));
+    expect(outcome).toBeInstanceOf(PostingRetrievalError);
+    expect(cancellations).toBe(1);
+  });
+
+  it.each([
+    ["redirect", 302, { location: "/final" }],
+    ["non-2xx", 503, { "content-type": "text/plain" }],
+    ["unsupported", 200, { "content-type": "application/pdf" }]
+  ])("cancels the %s response body on early exit", async (_label, status, headers) => {
+    let cancellations = 0;
+    let requests = 0;
+    await expectSafeFailure(retrievePublicPosting("https://jobs.example/start", {
+      fetchImpl: async () => {
+        requests += 1;
+        if (status === 302 && requests > 1) throw new Error("stop after redirect");
+        return new Response(trackedStream(() => { cancellations += 1; }), { status, headers });
+      },
+      validateUrl: async (url) => url
+    }));
+    expect(cancellations).toBe(1);
   });
 
   it("rejects non-2xx responses", async () => {

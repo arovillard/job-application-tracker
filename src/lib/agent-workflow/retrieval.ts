@@ -43,29 +43,48 @@ export async function retrievePublicPosting(
   const maximumCharacters = options.maximumCharacters ?? DEFAULT_MAXIMUM_CHARACTERS;
   const maximumRedirects = options.maximumRedirects ?? DEFAULT_MAXIMUM_REDIRECTS;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  let rejectDeadline!: (error: PostingRetrievalError) => void;
+  const deadline = new Promise<never>((_resolve, reject) => { rejectDeadline = reject; });
+  const timeout = setTimeout(() => {
+    controller.abort();
+    rejectDeadline(new PostingRetrievalError());
+  }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   timeout.unref?.();
+  let currentResponse: Response | null = null;
 
   try {
-    const requestedUrl = await validateUrl(canonicalUrl);
+    const requestedUrl = await beforeDeadline(
+      Promise.resolve().then(() => validateUrl(canonicalUrl)),
+      deadline
+    );
     let currentUrl = requestedUrl;
     const visited = new Set<string>([currentUrl]);
 
     for (let redirects = 0; ; redirects += 1) {
-      const response = await fetchImpl(currentUrl, {
+      const fetchOperation = Promise.resolve().then(() => fetchImpl(currentUrl, {
         redirect: "manual",
         signal: controller.signal,
         headers: {
           "user-agent": USER_AGENT,
           accept: "text/html, application/xhtml+xml, text/plain"
         }
+      })).then((response) => {
+        if (controller.signal.aborted) cancelResponseBody(response);
+        return response;
       });
+      const response = await beforeDeadline(fetchOperation, deadline);
+      currentResponse = response;
 
       if (isRedirect(response.status)) {
         const location = response.headers.get("location");
         if (!location || redirects >= maximumRedirects) throw new PostingRetrievalError();
         const destination = new URL(location, currentUrl).toString();
-        const validatedDestination = await validateUrl(destination);
+        cancelResponseBody(response);
+        currentResponse = null;
+        const validatedDestination = await beforeDeadline(
+          Promise.resolve().then(() => validateUrl(destination)),
+          deadline
+        );
         if (visited.has(validatedDestination)) throw new PostingRetrievalError();
         visited.add(validatedDestination);
         currentUrl = validatedDestination;
@@ -75,7 +94,8 @@ export async function retrievePublicPosting(
       if (!response.ok) throw new PostingRetrievalError();
       const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
       if (!contentType || !ACCEPTED_CONTENT_TYPES.has(contentType)) throw new PostingRetrievalError();
-      const bytes = await readBoundedBody(response, maximumBytes);
+      const bytes = await readBoundedBody(response, maximumBytes, deadline);
+      currentResponse = null;
       const text = new TextDecoder().decode(bytes);
       const context = contentType === "text/plain"
         ? truncateByCodePoint(collapseWhitespace(text), maximumCharacters)
@@ -84,6 +104,8 @@ export async function retrievePublicPosting(
       return { requestedUrl, finalUrl: currentUrl, context };
     }
   } catch (error) {
+    controller.abort();
+    if (currentResponse) cancelResponseBody(currentResponse);
     if (error instanceof PostingRetrievalError) throw error;
     throw new PostingRetrievalError();
   } finally {
@@ -91,24 +113,30 @@ export async function retrievePublicPosting(
   }
 }
 
-async function readBoundedBody(response: Response, maximumBytes: number): Promise<Uint8Array> {
+async function readBoundedBody(
+  response: Response,
+  maximumBytes: number,
+  deadline: Promise<never>
+): Promise<Uint8Array> {
   if (!response.body) throw new PostingRetrievalError();
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await beforeDeadline(reader.read(), deadline);
       if (done) break;
       total += value.byteLength;
       if (total > maximumBytes) {
-        await reader.cancel();
         throw new PostingRetrievalError();
       }
       chunks.push(value);
     }
+  } catch (error) {
+    cancelReader(reader);
+    throw error;
   } finally {
-    reader.releaseLock();
+    try { reader.releaseLock(); } catch { /* A pending uncooperative read may retain the lock. */ }
   }
   const result = new Uint8Array(total);
   let offset = 0;
@@ -117,6 +145,27 @@ async function readBoundedBody(response: Response, maximumBytes: number): Promis
     offset += chunk.byteLength;
   }
   return result;
+}
+
+function beforeDeadline<T>(operation: Promise<T>, deadline: Promise<never>): Promise<T> {
+  return Promise.race([operation, deadline]);
+}
+
+function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  try {
+    void reader.cancel().catch(() => {});
+  } catch {
+    // Cancellation is best-effort after the host deadline has already failed safely.
+  }
+}
+
+function cancelResponseBody(response: Response) {
+  if (!response.body) return;
+  try {
+    void response.body.cancel().catch(() => {});
+  } catch {
+    // A locked body is cancelled by its reader instead.
+  }
 }
 
 function extractHtmlContext(html: string, maximumCharacters: number): string {

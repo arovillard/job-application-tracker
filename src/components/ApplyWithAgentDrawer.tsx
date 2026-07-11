@@ -38,11 +38,13 @@ function formatEventTime(value: string) {
 }
 
 function stageFor(run: PublicAgentRun) {
-  const latest = [...run.events]
-    .sort((left, right) => left.sequence - right.sequence)
-    .filter((event) => HOST_PREVIEW_STAGES.has(event.message))
-    .at(-1)?.message;
-  if (latest) return latest;
+  if (run.state === "queued_preview" || run.state === "previewing") {
+    const latest = [...run.events]
+      .sort((left, right) => left.sequence - right.sequence)
+      .filter((event) => HOST_PREVIEW_STAGES.has(event.message))
+      .at(-1)?.message;
+    if (latest) return latest;
+  }
   const stages: Partial<Record<AgentRunState, string>> = {
     queued_preview: "Validating public job URL.",
     previewing: "Analyzing job posting.",
