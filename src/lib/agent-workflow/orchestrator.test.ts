@@ -36,12 +36,22 @@ const preview = {
   postingState: "open" as const
 };
 const NORMAL_POSTING_CONTEXT = "Acme Platform Engineer Build reliable infrastructure for scalable services.";
-function retrievedPosting(context: string, hasStructuredJobPosting = true) {
+function structuredJobPosting(
+  title = "Platform Engineer",
+  company = "Acme",
+  description = "Build reliable infrastructure for scalable services."
+) {
+  return { title, company, description };
+}
+function retrievedPosting(
+  context: string,
+  evidence: ReturnType<typeof structuredJobPosting> | null = structuredJobPosting()
+) {
   return {
     requestedUrl: "https://jobs.example/role",
     finalUrl: "https://jobs.example/role",
     context,
-    hasStructuredJobPosting
+    structuredJobPosting: evidence
   };
 }
 const evaluatePreview = isUsablePreview as unknown as (
@@ -276,7 +286,10 @@ describe("agent workflow orchestration", () => {
     "Responsible for diagnosing job page access failures."
   ])("keeps legitimate summary usable: %s", (summary) => {
     const context = `Acme Platform Engineer Responsibilities ${summary}`;
-    expect(evaluatePreview({ ...preview, summary }, retrievedPosting(context))).toBe(true);
+    expect(evaluatePreview(
+      { ...preview, summary },
+      retrievedPosting(context, structuredJobPosting("Platform Engineer", "Acme", summary))
+    )).toBe(true);
   });
 
   it.each(["Sign in", "Sign-In", "Login", "Log in", "Access denied", "Page not found"])(
@@ -289,8 +302,11 @@ describe("agent workflow orchestration", () => {
         summary: "Access LinkedIn account login securely."
       };
       const context = `LinkedIn ${role} Access LinkedIn account login securely.`;
-      expect(evaluatePreview(candidate, retrievedPosting(context, false))).toBe(false);
-      expect(evaluatePreview(candidate, retrievedPosting(context, true))).toBe(true);
+      expect(evaluatePreview(candidate, retrievedPosting(context, null))).toBe(false);
+      expect(evaluatePreview(
+        candidate,
+        retrievedPosting(context, structuredJobPosting(role, "LinkedIn", candidate.summary))
+      )).toBe(true);
     }
   );
 
@@ -315,8 +331,11 @@ describe("agent workflow orchestration", () => {
   ])("rejects fully grounded branded non-job title: %s / %s", (company, role, summary) => {
     const candidate = { ...preview, company, role, summary };
     const context = `${company} ${role} ${summary}`;
-    expect(evaluatePreview(candidate, retrievedPosting(context, false))).toBe(false);
-    expect(evaluatePreview(candidate, retrievedPosting(context, true))).toBe(true);
+    expect(evaluatePreview(candidate, retrievedPosting(context, null))).toBe(false);
+    expect(evaluatePreview(
+      candidate,
+      retrievedPosting(context, structuredJobPosting(role, company, summary))
+    )).toBe(true);
   });
 
   it.each([
@@ -336,26 +355,70 @@ describe("agent workflow orchestration", () => {
   ])("keeps grounded real title usable: %s", (role, summary) => {
     const candidate = { ...preview, role, summary };
     const context = `Acme ${role} ${summary}`;
-    expect(evaluatePreview(candidate, retrievedPosting(context))).toBe(true);
+    expect(evaluatePreview(
+      candidate,
+      retrievedPosting(context, structuredJobPosting(role, "Acme", summary))
+    )).toBe(true);
   });
 
   it.each([
-    ["empty context", preview, ""],
-    ["missing role description", preview, "Acme careers page with no useful role content."],
-    ["hallucinated company", { ...preview, company: "Globex" }, NORMAL_POSTING_CONTEXT],
-    ["hallucinated role", { ...preview, role: "Product Designer" }, NORMAL_POSTING_CONTEXT],
+    ["missing structured evidence", preview, null],
+    ["hallucinated company", { ...preview, company: "Globex" }, structuredJobPosting()],
+    ["hallucinated role", { ...preview, role: "Product Designer" }, structuredJobPosting()],
     [
       "insufficiently grounded paraphrase",
       { ...preview, role: "Engineer", summary: "Build reliable systems architect distributed platforms." },
-      "Acme Engineer Build reliable systems."
+      structuredJobPosting("Engineer", "Acme", "Build reliable systems.")
     ],
     [
       "fewer than three meaningful summary terms",
       { ...preview, role: "Engineer", summary: "Build reliable." },
-      "Acme Engineer Build reliable."
+      structuredJobPosting("Engineer", "Acme", "Build reliable.")
     ]
-  ])("rejects %s", (_label, candidate, context) => {
-    expect(evaluatePreview(candidate as typeof preview, retrievedPosting(context as string))).toBe(false);
+  ])("rejects %s", (_label, candidate, evidence) => {
+    expect(evaluatePreview(
+      candidate as typeof preview,
+      retrievedPosting(NORMAL_POSTING_CONTEXT, evidence)
+    )).toBe(false);
+  });
+
+  it("does not ground preview fields against unrelated visible page context", () => {
+    const context = "LinkedIn Login Access LinkedIn account login securely.";
+    const evidence = structuredJobPosting(
+      "Platform Engineer",
+      "Acme",
+      "Build reliable infrastructure for scalable services."
+    );
+    expect(evaluatePreview({
+      ...preview,
+      company: "LinkedIn",
+      role: "Login",
+      summary: "Access LinkedIn account login securely."
+    }, retrievedPosting(context, evidence))).toBe(false);
+  });
+
+  it.each([
+    [
+      "company",
+      { ...preview, company: "LinkedIn" },
+      structuredJobPosting("Platform Engineer", "Acme", preview.summary)
+    ],
+    [
+      "role",
+      { ...preview, role: "Login" },
+      structuredJobPosting("Platform Engineer", "Acme", preview.summary)
+    ],
+    [
+      "summary",
+      { ...preview, summary: "Access LinkedIn account login securely." },
+      structuredJobPosting("Platform Engineer", "Acme", "Build reliable infrastructure.")
+    ]
+  ])("does not ground %s from visible context outside its structured field", (_field, candidate, evidence) => {
+    const context = [
+      NORMAL_POSTING_CONTEXT,
+      "LinkedIn Login Access LinkedIn account login securely."
+    ].join(" ");
+    expect(evaluatePreview(candidate, retrievedPosting(context, evidence))).toBe(false);
   });
 
   it("accepts the exact three-token and sixty-percent grounding boundary", () => {
@@ -364,8 +427,12 @@ describe("agent workflow orchestration", () => {
       role: "Engineer",
       summary: "Build reliable systems with cloud delivery."
     };
-    const context = "Acme Engineer Build reliable systems for customer operations.";
-    expect(evaluatePreview(candidate, retrievedPosting(context))).toBe(true);
+    const description = "Build reliable systems for customer operations.";
+    const context = `Acme Engineer ${description}`;
+    expect(evaluatePreview(
+      candidate,
+      retrievedPosting(context, structuredJobPosting("Engineer", "Acme", description))
+    )).toBe(true);
   });
 
   it("normalizes NFKC punctuation while requiring whole company and role phrases", () => {
@@ -376,8 +443,9 @@ describe("agent workflow orchestration", () => {
       summary: "Build reliable infrastructure."
     };
     const context = "Acme Inc seeks a Platform Engineer to build reliable infrastructure.";
-    expect(evaluatePreview(candidate, retrievedPosting(context))).toBe(true);
-    expect(evaluatePreview({ ...candidate, company: "Acme Incorporated" }, retrievedPosting(context))).toBe(false);
+    const evidence = structuredJobPosting("Platform Engineer", "Acme Inc", "Build reliable infrastructure.");
+    expect(evaluatePreview(candidate, retrievedPosting(context, evidence))).toBe(true);
+    expect(evaluatePreview({ ...candidate, company: "Acme Incorporated" }, retrievedPosting(context, evidence))).toBe(false);
   });
 
   it("promptly cancels retrieval without invoking the provider", async () => {
@@ -458,7 +526,11 @@ describe("agent workflow orchestration", () => {
         requestedUrl: run.canonicalJobUrl,
         finalUrl: "https://public.example/final",
         context: "Technical Director at Thrillworks Lead technical strategy and delivery.",
-        hasStructuredJobPosting: true
+        structuredJobPosting: {
+          title: "Technical Director",
+          company: "Thrillworks",
+          description: "Lead technical strategy and delivery."
+        }
       };
     });
 

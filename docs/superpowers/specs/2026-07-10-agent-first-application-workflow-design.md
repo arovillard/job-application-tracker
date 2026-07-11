@@ -50,7 +50,8 @@ Create a focused server/worker module with an injectable fetch dependency. It mu
 - reject non-2xx responses, invalid redirects, unsupported content, empty content, timeout, and size overflow with stable safe error codes;
 - parse HTML with a direct production dependency on `cheerio`;
 - extract document title, description and Open Graph metadata, canonical URL, `JobPosting` JSON-LD fields, schema.org `JobPosting` microdata, and readable body text after removing script, style, navigation, form, and hidden content;
-- record structured posting evidence only for JSON-LD whose `@type` is `JobPosting` (including string or array values, schema.org HTTP(S) URL forms, and nested `@graph` entries) or explicit schema.org `JobPosting` microdata `itemtype`; plain text, generic/login/error HTML, and malformed JSON-LD do not provide this evidence;
+- record structured posting evidence only when one JSON-LD object whose `@type` is `JobPosting` (including string or array values, bare or schema.org HTTP(S) URL forms, and nested `@graph` entries) contains a nonempty `title`, `hiringOrganization.name`, and HTML-to-text `description`, or when one explicit schema.org `JobPosting` microdata scope contains nonempty `title`, nested `hiringOrganization`/`name`, and `description` properties; use the first complete object and never combine fields across objects or scopes;
+- return null structured evidence for plain text, generic/login/error HTML, malformed or bare declarations, empty microdata, and any posting missing a required structured field while preserving normal successful retrieval and prompt context;
 - collapse whitespace, deduplicate repeated sections, and produce at most 32,000 UTF-8 characters of untrusted plain-text context;
 - never persist raw HTML, response headers, cookies, resolved addresses, private paths, or unsanitized network errors.
 
@@ -66,13 +67,13 @@ After schema parsing, a preview is usable only when:
 
 - `company.trim()` and `role.trim()` are nonempty;
 - neither normalized value is `unknown`, `unavailable`, `not found`, `n/a`, or `null`;
-- host retrieval found structured schema.org `JobPosting` evidence as defined above;
+- host retrieval found a complete structured `JobPosting` object as defined above;
 - the host retrieval produced nonempty bounded context;
-- NFKC-normalized, lowercased company and role phrases, with non-alphanumeric runs collapsed to spaces, each occur as whole normalized phrases in the retrieved context;
+- the NFKC-normalized, lowercased preview company occurs as a whole normalized phrase only in the structured company, and the preview role occurs as a whole normalized phrase only in the structured title;
 - `summary.trim()` is nonempty and contains at least 3 unique meaningful normalized terms of at least 3 characters after excluding the explicit stopword set `a, an, and, are, as, at, be, by, for, from, in, into, is, it, of, on, or, that, the, their, this, to, with, you, your`;
-- retrieved context contains at least `max(3, ceil(0.60 * meaningful summary terms))` of those unique meaningful terms.
+- the structured description contains at least `max(3, ceil(0.60 * meaningful summary terms))` of those unique meaningful terms.
 
-The provider prompt must request an extractive responsibility summary using posting language and must prohibit retrieval, access, login, or missing-content commentary. The deterministic gate does not classify titles or occupations: any title can pass when the page supplies structured `JobPosting` evidence and its labels and responsibility language are grounded in context. Unsupported public pages, including fully grounded login or error pages without that evidence, fail safe.
+The provider prompt must request an extractive responsibility summary using posting language and must prohibit retrieval, access, login, or missing-content commentary. Full extracted page context remains transient prompt input but is never approval evidence. The deterministic gate does not classify titles or occupations: any title can pass when one complete structured `JobPosting` supplies matching title, company, and responsibility language. Unsupported public pages, partial declarations, and labels or summaries found only in unrelated visible/login content fail safe.
 
 An unusable preview must transition from `previewing` to `failed` with failure code `preview_unusable` and safe message **The job posting could not be identified reliably. Try another public posting URL.** It must never enter `awaiting_approval` and must never expose the approval action.
 

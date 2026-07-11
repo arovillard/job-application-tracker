@@ -61,7 +61,11 @@ describe("retrievePublicPosting", () => {
     expect(result.context).toContain("Thrillworks");
     expect(result.context).not.toContain("<script");
     expect(result.context.length).toBeLessThanOrEqual(32_000);
-    expect(result.hasStructuredJobPosting).toBe(true);
+    expect(result.structuredJobPosting).toEqual({
+      title: "Technical Director",
+      company: "Thrillworks",
+      description: "Lead architecture and engineering delivery."
+    });
   });
 
   it("retrieves bounded plain text", async () => {
@@ -71,36 +75,111 @@ describe("retrievePublicPosting", () => {
       maximumCharacters: 8
     });
     expect(result.context).toBe("Senior E");
-    expect(result.hasStructuredJobPosting).toBe(false);
+    expect(result.structuredJobPosting).toBeNull();
   });
 
   it.each([
     ["nested schema URL JSON-LD", `<script type="application/ld+json">${JSON.stringify({
-      "@graph": [{ "@type": "https://schema.org/JobPosting", title: "Engineer" }]
+      "@graph": [{
+        "@type": "https://schema.org/JobPosting",
+        title: "Platform Engineer",
+        hiringOrganization: { name: "Acme" },
+        description: "<p>Build reliable systems.</p>"
+      }]
     })}</script><main>Acme Engineer builds reliable systems.</main>`],
     ["array schema URL JSON-LD", `<script type="application/ld+json">${JSON.stringify({
-      "@type": ["Thing", "http://schema.org/JobPosting"], title: "Engineer"
+      "@type": ["Thing", "http://schema.org/JobPosting"],
+      title: "Platform Engineer",
+      hiringOrganization: { name: "Acme" },
+      description: "<p>Build reliable systems.</p>"
     })}</script><main>Acme Engineer builds reliable systems.</main>`],
-    ["schema.org JobPosting microdata", `<main itemscope itemtype="https://schema.org/JobPosting">Acme Engineer builds reliable systems.</main>`]
+    ["schema.org JobPosting microdata", `<main itemscope itemtype="https://schema.org/JobPosting">
+      <meta itemprop="title" content="Platform Engineer">
+      <section itemprop="hiringOrganization" itemscope itemtype="https://schema.org/Organization">
+        <meta itemprop="name" content="Acme">
+      </section>
+      <div itemprop="description"><p>Build reliable systems.</p></div>
+    </main>`]
   ])("detects structured evidence from %s", async (_label, html) => {
     const result = await retrievePublicPosting("https://jobs.example/role", {
       fetchImpl: async () => response(`<html><body>${html}</body></html>`),
       validateUrl: async (url) => url
     });
-    expect(result.hasStructuredJobPosting).toBe(true);
+    expect(result.structuredJobPosting).toEqual({
+      title: "Platform Engineer",
+      company: "Acme",
+      description: "Build reliable systems."
+    });
   });
 
   it.each([
     ["login HTML", "<html><body><h1>Sign in</h1><p>Access your account securely.</p></body></html>"],
     ["error HTML", "<html><body><h1>403 Forbidden</h1><p>Access denied.</p></body></html>"],
     ["generic HTML", "<html><body><main>Acme Engineer builds reliable systems.</main></body></html>"],
+    ["bare JSON-LD declaration on a login page", `<html><body><script type="application/ld+json">${JSON.stringify({ "@type": "JobPosting" })}</script><h1>Sign in</h1><p>Access Acme securely.</p></body></html>`],
+    ["empty schema.org microdata", '<html><body><main itemscope itemtype="https://schema.org/JobPosting">Acme Engineer builds reliable systems.</main></body></html>'],
     ["non-schema microdata", '<html><body><main itemscope itemtype="JobPosting">Acme Engineer builds reliable systems.</main></body></html>']
   ])("does not infer structured evidence from %s", async (_label, html) => {
     const result = await retrievePublicPosting("https://jobs.example/role", {
       fetchImpl: async () => response(html),
       validateUrl: async (url) => url
     });
-    expect(result.hasStructuredJobPosting).toBe(false);
+    expect(result.structuredJobPosting).toBeNull();
+  });
+
+  it.each([
+    ["title", { hiringOrganization: { name: "Acme" }, description: "Build reliable systems." }],
+    ["company", { title: "Platform Engineer", description: "Build reliable systems." }],
+    ["description", { title: "Platform Engineer", hiringOrganization: { name: "Acme" } }]
+  ])("rejects a JobPosting missing %s", async (_field, fields) => {
+    const html = `<script type="application/ld+json">${JSON.stringify({
+      "@type": "JobPosting",
+      ...fields
+    })}</script><main>Acme Platform Engineer builds reliable systems.</main>`;
+    const result = await retrievePublicPosting("https://jobs.example/role", {
+      fetchImpl: async () => response(`<html><body>${html}</body></html>`),
+      validateUrl: async (url) => url
+    });
+    expect(result.structuredJobPosting).toBeNull();
+  });
+
+  it("does not combine fields across different JobPosting objects", async () => {
+    const html = `<script type="application/ld+json">${JSON.stringify([
+      { "@type": "JobPosting", title: "Platform Engineer", description: "Build reliable systems." },
+      { "@type": "JobPosting", hiringOrganization: { name: "Acme" } }
+    ])}</script><main>Acme Platform Engineer builds reliable systems.</main>`;
+    const result = await retrievePublicPosting("https://jobs.example/role", {
+      fetchImpl: async () => response(`<html><body>${html}</body></html>`),
+      validateUrl: async (url) => url
+    });
+    expect(result.structuredJobPosting).toBeNull();
+  });
+
+  it("selects the first complete JobPosting without merging an earlier partial object", async () => {
+    const html = `<script type="application/ld+json">${JSON.stringify([
+      { "@type": "JobPosting", title: "Partial Role", hiringOrganization: { name: "Partial Co" } },
+      {
+        "@type": "JobPosting",
+        title: "First Complete Role",
+        hiringOrganization: { name: "First Complete Co" },
+        description: "<p>Lead reliable delivery.</p>"
+      },
+      {
+        "@type": "JobPosting",
+        title: "Second Complete Role",
+        hiringOrganization: { name: "Second Complete Co" },
+        description: "Build scalable services."
+      }
+    ])}</script><main>Public jobs</main>`;
+    const result = await retrievePublicPosting("https://jobs.example/role", {
+      fetchImpl: async () => response(`<html><body>${html}</body></html>`),
+      validateUrl: async (url) => url
+    });
+    expect(result.structuredJobPosting).toEqual({
+      title: "First Complete Role",
+      company: "First Complete Co",
+      description: "Lead reliable delivery."
+    });
   });
 
   it("announces initial validation before fetch without exposing URL data", async () => {
@@ -327,7 +406,7 @@ describe("retrievePublicPosting", () => {
       validateUrl: async (url) => url
     });
     expect(result.context).toContain("Platform Engineer at Acme");
-    expect(result.hasStructuredJobPosting).toBe(false);
+    expect(result.structuredJobPosting).toBeNull();
   });
 
   it("removes duplicate normalized sections", async () => {

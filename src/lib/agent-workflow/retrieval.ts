@@ -9,11 +9,17 @@ const DEFAULT_MAXIMUM_REDIRECTS = 5;
 const USER_AGENT = "JobTracker/0.1 local-agent-preview";
 const ACCEPTED_CONTENT_TYPES = new Set(["text/html", "application/xhtml+xml", "text/plain"]);
 
+export type StructuredJobPosting = {
+  title: string;
+  company: string;
+  description: string;
+};
+
 export type RetrievedPosting = {
   requestedUrl: string;
   finalUrl: string;
   context: string;
-  hasStructuredJobPosting: boolean;
+  structuredJobPosting: StructuredJobPosting | null;
 };
 
 export type PostingRetrievalOptions = {
@@ -109,12 +115,12 @@ export async function retrievePublicPosting(
       const extracted = contentType === "text/plain"
         ? {
             context: truncateByCodePoint(collapseWhitespace(text), maximumCharacters),
-            hasStructuredJobPosting: false
+            structuredJobPosting: null
           }
         : extractHtmlContext(text, maximumCharacters);
-      const { context, hasStructuredJobPosting } = extracted;
+      const { context, structuredJobPosting } = extracted;
       if (!context) throw new PostingRetrievalError();
-      return { requestedUrl, finalUrl: currentUrl, context, hasStructuredJobPosting };
+      return { requestedUrl, finalUrl: currentUrl, context, structuredJobPosting };
     }
   } catch (error) {
     controller.abort();
@@ -185,34 +191,50 @@ function cancelResponseBody(response: Response) {
 function extractHtmlContext(
   html: string,
   maximumCharacters: number
-): Pick<RetrievedPosting, "context" | "hasStructuredJobPosting"> {
+): Pick<RetrievedPosting, "context" | "structuredJobPosting"> {
   const $ = load(html);
   const sections: Array<{ label: string; value: string }> = [];
-  let hasStructuredJobPosting = false;
+  let structuredJobPosting: StructuredJobPosting | null = null;
   addSection(sections, "Canonical URL", $("link[rel='canonical']").first().attr("href"));
   addSection(sections, "Title", $("title").first().text());
   addSection(sections, "Open Graph title", $("meta[property='og:title']").first().attr("content"));
   addSection(sections, "Description", $("meta[name='description']").first().attr("content"));
   addSection(sections, "Open Graph description", $("meta[property='og:description']").first().attr("content"));
 
-  $("script[type='application/ld+json']").each((_index, element) => {
-    try {
-      collectJobPostings(JSON.parse($(element).text()), (posting) => {
-        hasStructuredJobPosting = true;
-        addSection(sections, "Job title", stringValue(posting.title));
-        const organization = recordValue(posting.hiringOrganization);
-        addSection(sections, "Company", stringValue(organization?.name));
-        addSection(sections, "Location", extractLocation(posting));
-        addSection(sections, "Job description", htmlToText(stringValue(posting.description)));
-      });
-    } catch {
-      // Malformed untrusted JSON-LD is ignored while other readable content remains usable.
+  $("script[type='application/ld+json'], [itemscope][itemtype]").each((_index, element) => {
+    if ($(element).is("script[type='application/ld+json']")) {
+      try {
+        collectJobPostings(JSON.parse($(element).text()), (posting) => {
+          const title = normalizedValue(stringValue(posting.title));
+          const organization = recordValue(posting.hiringOrganization);
+          const company = normalizedValue(stringValue(organization?.name));
+          const description = normalizedValue(htmlToText(stringValue(posting.description)));
+          structuredJobPosting ??= completeStructuredPosting(title, company, description);
+          addSection(sections, "Job title", title);
+          addSection(sections, "Company", company);
+          addSection(sections, "Location", extractLocation(posting));
+          addSection(sections, "Job description", description);
+        });
+      } catch {
+        // Malformed untrusted JSON-LD is ignored while other readable content remains usable.
+      }
+      return;
+    }
+    if (!structuredJobPosting) {
+      const itemTypes = ($(element).attr("itemtype") ?? "").split(/\s+/u);
+      if (!itemTypes.some(isSchemaJobPostingUrl)) return;
+      const title = readScopedMicrodataProperty($, element, "title");
+      const description = readScopedMicrodataProperty($, element, "description");
+      const organization = $(element)
+        .find("[itemscope][itemprop~='hiringOrganization']")
+        .toArray()
+        .find((candidate) => $(candidate).parents("[itemscope]").first().get(0) === element);
+      const company = organization
+        ? readScopedMicrodataProperty($, organization, "name")
+        : undefined;
+      structuredJobPosting = completeStructuredPosting(title, company, description);
     }
   });
-
-  hasStructuredJobPosting ||= $("[itemscope][itemtype]").toArray().some((element) =>
-    ($(element).attr("itemtype") ?? "").split(/\s+/u).some(isSchemaJobPostingUrl)
-  );
 
   $("script, style, nav, form, noscript, [hidden], [aria-hidden='true']").remove();
   addSection(sections, "Page text", $("body").text());
@@ -228,8 +250,34 @@ function extractHtmlContext(
   }
   return {
     context: truncateByCodePoint(output.join("\n"), maximumCharacters),
-    hasStructuredJobPosting
+    structuredJobPosting
   };
+}
+
+function completeStructuredPosting(
+  title: string | undefined,
+  company: string | undefined,
+  description: string | undefined
+): StructuredJobPosting | null {
+  return title && company && description ? { title, company, description } : null;
+}
+
+function readScopedMicrodataProperty(
+  $: ReturnType<typeof load>,
+  scope: Parameters<ReturnType<typeof load>>[0],
+  property: string
+): string | undefined {
+  const element = $(scope)
+    .find(`[itemprop~='${property}']`)
+    .toArray()
+    .find((candidate) => $(candidate).parents("[itemscope]").first().get(0) === scope);
+  if (!element) return undefined;
+  return normalizedValue($(element).attr("content")) ?? normalizedValue($(element).text());
+}
+
+function normalizedValue(value: string | undefined): string | undefined {
+  const normalized = value ? collapseWhitespace(value) : "";
+  return normalized || undefined;
 }
 
 function collectJobPostings(value: unknown, visit: (posting: Record<string, unknown>) => void) {

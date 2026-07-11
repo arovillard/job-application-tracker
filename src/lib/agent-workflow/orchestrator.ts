@@ -191,18 +191,20 @@ const MINIMUM_SUMMARY_TERMS = 3;
 const MINIMUM_SUMMARY_OVERLAP = 0.6;
 
 export function isUsablePreview(preview: AgentPreview, posting: RetrievedPosting): boolean {
+  const evidence = posting.structuredJobPosting;
+  if (!evidence) return false;
   const company = normalizeGroundingText(preview.company);
   const role = normalizeGroundingText(preview.role);
   const summary = normalizeGroundingText(preview.summary);
-  const context = normalizeGroundingText(posting.context);
+  const structuredCompany = normalizeGroundingText(evidence.company);
+  const structuredTitle = normalizeGroundingText(evidence.title);
+  const structuredDescription = normalizeGroundingText(evidence.description);
   return Boolean(company && role && summary) &&
-    posting.hasStructuredJobPosting &&
-    Boolean(context) &&
     !UNUSABLE_PREVIEW_VALUES.has(company) &&
     !UNUSABLE_PREVIEW_VALUES.has(role) &&
-    containsNormalizedPhrase(context, company) &&
-    containsNormalizedPhrase(context, role) &&
-    hasGroundedSummary(summary, context);
+    containsNormalizedPhrase(structuredCompany, company) &&
+    containsNormalizedPhrase(structuredTitle, role) &&
+    hasGroundedSummary(summary, structuredDescription);
 }
 
 function normalizeGroundingText(value: string): string {
