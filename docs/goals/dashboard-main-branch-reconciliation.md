@@ -19,7 +19,7 @@ Reconcile the opportunities dashboard with the visual quality and information hi
 - [x] Focused checks and risk reviews
 - [x] Full non-browser verification
 - [x] Final whole-branch review
-- [ ] User-owned localhost visual acceptance handoff
+- [x] User-owned localhost visual acceptance handoff
 
 ## Verification boundary
 
@@ -35,3 +35,4 @@ Codex will use component tests, static DOM/CSS assertions, type checks, and prod
 - DMR-4 review: approved; mobile CSS contract strengthened afterward
 - Final whole-branch review: approved after loading-status accessibility fix
 - Browser automation: not run by user request
+- Manual visual acceptance URL: `http://localhost:3001`
