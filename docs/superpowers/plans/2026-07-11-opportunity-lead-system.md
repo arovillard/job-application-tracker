@@ -181,6 +181,7 @@ expect(detail?.activities.map((activity) => activity.type)).toEqual([
   "opportunity_created",
   "status_change",
   "note",
+  "note",
   "status_change"
 ]);
 expect(detail?.tasks).toEqual(expect.arrayContaining([
@@ -189,6 +190,8 @@ expect(detail?.tasks).toEqual(expect.arrayContaining([
 ]));
 expect(detail?.artifacts[0]).toMatchObject({ id: "legacy-artifact", type: "resume" });
 ```
+
+The two `note` activities preserve both the ordinary legacy note and the typed follow-up note. The follow-up also creates an open task, so migration retains historical context and future work.
 
 Run migration initialization twice and assert the second pass creates no duplicate opportunities, activities, tasks, or artifacts.
 
