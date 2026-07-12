@@ -18,6 +18,8 @@ describe("Dashboard", () => {
     expect(markup).toContain("Needs attention");
     expect(markup).toContain("Closed");
     expect(markup).toContain("Archived");
+    expect(markup).toContain("New opportunity");
+    expect(markup).not.toContain('href="/opportunities/new"');
     expect(markup).not.toContain("New application");
   });
 });

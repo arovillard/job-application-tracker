@@ -1,7 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { getDashboardInsights } from "../lib/dashboard";
@@ -10,6 +8,7 @@ import { CONNECTION_STATUSES, JOB_STATUSES, type OpportunityDetail, type Opportu
 import { AttentionQueue } from "./AttentionQueue";
 import { CONNECTION_STATUS_LABELS, JOB_STATUS_LABELS, OpportunityTable, statusLabel } from "./OpportunityTable";
 import { OpportunityTypeFilter, type OpportunityTypeFilterValue } from "./OpportunityTypeFilter";
+import { NewOpportunityMenu } from "./NewOpportunityMenu";
 import { StatusFilter, type StatusFilterOption } from "./StatusFilter";
 import { useTheme } from "./ThemeProvider";
 import { Toast } from "./Toast";
@@ -46,12 +45,7 @@ function sortOpportunities(opportunities: OpportunitySummary[], sort: SortValue)
   });
 }
 
-function shouldIgnoreShortcut(target: EventTarget | null) {
-  return target instanceof HTMLElement && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
-}
-
 export function Dashboard() {
-  const router = useRouter();
   const [opportunities, setOpportunities] = useState<OpportunitySummary[]>([]);
   const [typeFilter, setTypeFilter] = useState<OpportunityTypeFilterValue>("all");
   const [statusFilter, setStatusFilter] = useState<string>("active");
@@ -77,16 +71,13 @@ export function Dashboard() {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (shouldIgnoreShortcut(event.target)) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" || event.key === "/") {
         event.preventDefault(); searchRef.current?.focus();
-      } else if (event.key.toLowerCase() === "n") {
-        event.preventDefault(); router.push("/opportunities/new");
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [router]);
+  }, []);
 
   const insights = useMemo(() => getDashboardInsights(opportunities), [opportunities]);
   const attentionIds = useMemo(() => new Set(insights.attention.map((item) => item.opportunityId)), [insights]);
@@ -129,7 +120,7 @@ export function Dashboard() {
     <header className="dashboard-header"><div className="dashboard-header__brand"><span className="brand-mark" aria-hidden="true">O</span><span>Opportunity Tracker</span></div>
       <div className="dashboard-header__actions"><span className="shortcut-hint"><kbd>⌘</kbd><kbd>K</kbd> Search</span>
         <button className="icon-button" type="button" aria-label="Toggle theme" onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}>{theme === "light" ? "◐" : "☼"}</button>
-        <Link className="button button--primary" href="/opportunities/new"><span aria-hidden="true">+</span> New opportunity <kbd>N</kbd></Link>
+        <NewOpportunityMenu />
       </div></header>
     {error ? <div className="notice notice--error" role="alert">{error}</div> : null}
     <section className="pipeline-workspace" aria-labelledby="pipeline-title">
