@@ -5,6 +5,7 @@ import { useEffect, useId, useRef } from "react";
 type ModalProps = {
   children: React.ReactNode;
   onClose: () => void;
+  size?: "compact" | "wide";
   title: string;
 };
 
@@ -17,13 +18,16 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])"
 ].join(",");
 
-export function Modal({ children, onClose, title }: ModalProps) {
+export function Modal({ children, onClose, size = "compact", title }: ModalProps) {
   const dialogRef = useRef<HTMLElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
+  const previousOverflow = useRef("");
   const titleId = useId();
 
   useEffect(() => {
     previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    previousOverflow.current = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const frame = window.requestAnimationFrame(() => {
       const focusable = dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
       (focusable ?? dialogRef.current)?.focus();
@@ -62,6 +66,7 @@ export function Modal({ children, onClose, title }: ModalProps) {
     return () => {
       window.cancelAnimationFrame(frame);
       document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow.current;
       previousFocus.current?.focus();
     };
   }, [onClose]);
@@ -72,7 +77,7 @@ export function Modal({ children, onClose, title }: ModalProps) {
         onClose();
       }
     }}>
-      <section aria-labelledby={titleId} aria-modal="true" className="modal" ref={dialogRef} role="dialog" tabIndex={-1}>
+      <section aria-labelledby={titleId} aria-modal="true" className={`modal modal--${size}`} ref={dialogRef} role="dialog" tabIndex={-1}>
         <header className="modal__header">
           <h2 className="modal__title" id={titleId}>{title}</h2>
           <button className="modal__close" type="button" onClick={onClose}>
