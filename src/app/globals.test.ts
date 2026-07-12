@@ -26,4 +26,9 @@ describe("opportunity interface stylesheet", () => {
     expect(css).toContain("@media (max-width: 1050px)");
     expect(css).toContain("@media (max-width: 760px)");
   });
+
+  it("keeps task lists in a vertical layout inside next-action cards", () => {
+    expect(css).not.toContain(".next-action-card > div");
+    expect(css).toContain(".next-action-card > .task-list");
+  });
 });

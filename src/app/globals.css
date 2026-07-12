@@ -387,7 +387,7 @@ kbd {
 .detail-main, .detail-side { display: grid; gap: 18px; }
 .next-action-card { background: linear-gradient(145deg, var(--surface) 20%, color-mix(in srgb, var(--accent-soft) 55%, var(--surface)) 100%); padding: 21px; }
 .next-action-card h2 { font-size: 1.16rem; letter-spacing: -0.035em; line-height: 1.25; margin: 0; }
-.next-action-card > div { align-items: center; color: var(--ink-muted); display: flex; font-size: 0.8rem; gap: 9px; margin-top: 16px; }
+.next-action-card > .task-list { color: var(--ink-muted); display: grid; font-size: 0.8rem; gap: 0.75rem; margin-top: 16px; }
 .next-action-card .text-button { margin-top: 18px; }
 .tracker-panel { overflow: hidden; }
 .tracker-panel__header { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 12px; justify-content: space-between; padding: 16px 19px; }
