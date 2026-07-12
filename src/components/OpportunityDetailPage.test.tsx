@@ -135,10 +135,24 @@ describe("OpportunityDetailContent", () => {
     expect(markup.indexOf('class="next-action-card"')).toBeLessThan(markup.indexOf('class="detail-list"'));
   });
 
-  it("keeps long job artifacts outside the two-column detail grid", () => {
-    const markup = renderToStaticMarkup(<OpportunityDetailContent detail={{ ...job, artifacts: [{ ...job.artifacts[0], title: "A very long application artifact title that must not widen the task sidebar" }] }} onTaskAction={vi.fn()} />);
+  it("keeps activity and materials as detail-main siblings while dialogs stay outside the grid", async () => {
+    const longArtifact = { ...job.artifacts[0], title: "A very long application artifact title that must not widen the task sidebar" };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...job, artifacts: [longArtifact] }));
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Add task")!.click());
 
-    expect(markup.indexOf("Application materials")).toBeGreaterThan(markup.indexOf('class="detail-side"'));
+    const main = container.querySelector(".detail-main")!;
+    const mainPanels = [...main.children];
+    expect(mainPanels).toHaveLength(2);
+    expect(mainPanels.map((panel) => panel.querySelector(".tracker-panel__title")?.textContent)).toEqual(["Activity history", "Application materials"]);
+    expect(mainPanels[0].nextElementSibling).toBe(mainPanels[1]);
+
+    const grid = container.querySelector(".detail-grid")!;
+    const dialog = container.querySelector('[role="dialog"]')!;
+    expect(dialog.closest(".modal-backdrop")?.parentElement).toBe(grid.parentElement);
+    expect(grid.contains(dialog)).toBe(false);
+    act(() => root.unmount());
   });
 
   it("renders interaction and task composers with application form hooks", () => {
@@ -262,7 +276,8 @@ describe("OpportunityDetailContent", () => {
 
     await act(async () => { resolveTask(jsonResponse({ ...connection, label: "Task update applied" })); });
 
-    expect(container.textContent).toContain("Task update applied");
+    expect(container.textContent).toContain("Maya Chen");
+    expect(container.textContent).not.toContain("Task update applied");
     expect(container.querySelector('[role="dialog"]')).not.toBeNull();
     expect([...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Complete")?.disabled).toBe(false);
     act(() => root.unmount());
@@ -284,8 +299,41 @@ describe("OpportunityDetailContent", () => {
     await act(async () => { resolveSecond(jsonResponse({ ...connection, label: "Latest status" })); });
     await act(async () => { resolveFirst(jsonResponse({ ...connection, label: "Stale status" })); });
 
-    expect(container.textContent).toContain("Latest status");
+    expect(container.textContent).toContain("Maya Chen");
+    expect(container.textContent).not.toContain("Latest status");
     expect(container.textContent).not.toContain("Stale status");
+    act(() => root.unmount());
+  });
+
+  it.each(["task-first", "status-first"] as const)("merges divergent task and status responses when %s resolves first", async (resolutionOrder) => {
+    let resolveTask!: (value: Response) => void;
+    let resolveStatus!: (value: Response) => void;
+    const taskResponse = new Promise<Response>((resolve) => { resolveTask = resolve; });
+    const statusResponse = new Promise<Response>((resolve) => { resolveStatus = resolve; });
+    const completedTask = { ...connection.tasks[0], state: "completed" as const, completedAt: "2026-07-12T12:00:00.000Z", updatedAt: "2026-07-12T12:00:00.000Z" };
+    const taskActivity = { ...connection.activities[0], id: "activity-task", body: "Portfolio sent", occurredAt: "2026-07-12T12:00:00.000Z" };
+    const taskSnapshot = { ...connection, label: "Task response identity", status: "in_conversation" as const, tasks: [completedTask], activities: [taskActivity], updatedAt: "2026-07-12T12:00:00.000Z" };
+    const statusSnapshot = { ...connection, label: "Status response identity", status: "waiting" as const, tasks: [connection.tasks[0]], activities: [connection.activities[0]], updatedAt: "2026-07-12T13:00:00.000Z" };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(taskResponse).mockReturnValueOnce(statusResponse);
+    const { container, root } = mountDetail();
+    await flush();
+
+    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Complete")!.click());
+    act(() => change(container.querySelector<HTMLSelectElement>(".stage-select select")!, "waiting"));
+    if (resolutionOrder === "task-first") {
+      await act(async () => { resolveTask(jsonResponse(taskSnapshot)); });
+      await act(async () => { resolveStatus(jsonResponse(statusSnapshot)); });
+    } else {
+      await act(async () => { resolveStatus(jsonResponse(statusSnapshot)); });
+      await act(async () => { resolveTask(jsonResponse(taskSnapshot)); });
+    }
+
+    expect(container.querySelector<HTMLSelectElement>(".stage-select select")?.value).toBe("waiting");
+    expect(container.textContent).toContain("Maya Chen");
+    expect(container.textContent).not.toContain("Task response identity");
+    expect(container.textContent).not.toContain("Status response identity");
+    expect(container.textContent).toContain("Portfolio sent");
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((button) => button.textContent === "Complete")).toBe(false);
     act(() => root.unmount());
   });
 
