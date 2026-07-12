@@ -23,8 +23,8 @@ Execute `docs/specs/world-class-opportunity-experience.md` through `docs/plans/w
 | WCE-6 Task hierarchy | WCE-5 | complete | `bf33483..f55269f`; 31 tests; Sol approved |
 | WCE-7 Destructive safety | WCE-5 | complete | `0beeea8..c0b1086`; 43 tests; High-risk Sol approved |
 | WCE-8 Form/detail visuals | WCE-5, WCE-6, WCE-7 | complete | `615c33f`, `bd87930`, `b7c6962`, `71285bd`; 58 focused tests; lint/typecheck; Sol approved |
-| WCE-9 Dashboard visuals | WCE-4, WCE-8 | in progress | task brief prepared; CSS-only integration |
-| WCE-10 Acceptance | WCE-1..9 | pending | pending |
+| WCE-9 Dashboard visuals | WCE-4, WCE-8 | complete | `5c561dd..0f74b5c`; 52 focused tests; typecheck; Sol approved |
+| WCE-10 Acceptance | WCE-1..9 | in progress | full deterministic acceptance pending |
 
 ## Decisions
 
@@ -34,6 +34,7 @@ Execute `docs/specs/world-class-opportunity-experience.md` through `docs/plans/w
 - Destructive workflows remain a separate High-risk reviewed task.
 - Residual Low: Pipeline pulse duplicates the terminal-status set; final review will reassess.
 - WCE-8 separates sticky mobile page actions from stable modal footers and keeps dialog errors inside scrollable form bodies.
+- WCE-9 uses blue/teal/amber semantic accents, 44px retry targets, and live status hooks on table and detail views.
 
 ## Verification
 
