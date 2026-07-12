@@ -34,6 +34,6 @@ export function NewOpportunityPage() {
   };
   return <main className="app-shell app-shell--narrow"><header className="app-header"><div><p className="app-header__eyebrow">New opportunity</p><h1 className="app-header__title">{type === "job" ? "Add a job" : "Add a connection"}</h1></div><Link className="button" href="/">Back to opportunities</Link></header>
     {error ? <div ref={errorRef} className="notice notice--error" role="alert" tabIndex={-1}>{error}</div> : null}
-    <section className="tracker-panel">{type === "job" ? <JobOpportunityForm isSubmitting={saving} onSubmit={(payload: JobCreationPayload) => create(payload)} /> : <ConnectionOpportunityForm isSubmitting={saving} onSubmit={(payload: ConnectionCreationPayload) => create(payload)} />}</section>
+    <section className="tracker-panel">{type === "job" ? <JobOpportunityForm mode="create" isSubmitting={saving} onSubmit={(payload: JobCreationPayload) => create(payload)} /> : <ConnectionOpportunityForm mode="create" isSubmitting={saving} onSubmit={(payload: ConnectionCreationPayload) => create(payload)} />}</section>
   </main>;
 }

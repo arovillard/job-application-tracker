@@ -1,30 +1,40 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type JSX } from "react";
 
 import { JOB_STATUSES, OPPORTUNITY_PRIORITIES, type JobOpportunity, type JobOpportunityInput, type OpportunityTaskInput } from "../types";
 import { JOB_STATUS_LABELS } from "./OpportunityTable";
 
 export type JobCreationPayload = { opportunity: JobOpportunityInput; initialTask: OpportunityTaskInput | null };
 export type JobOpportunityFormMode = "create" | "edit" | "linked";
+type JobOpportunityFormCommonProps = {
+  initialValue?: JobOpportunity | JobOpportunityInput | null;
+  originOpportunityId?: string | null;
+  isSubmitting?: boolean;
+  submitLabel?: string;
+  onCancel?: () => void;
+};
+type ExplicitJobOpportunityFormProps = JobOpportunityFormCommonProps & {
+  mode: JobOpportunityFormMode;
+  onSubmit: (payload: JobCreationPayload) => void | Promise<void>;
+};
+type LegacyJobOpportunityFormProps = JobOpportunityFormCommonProps & {
+  mode?: undefined;
+  onSubmit: (input: JobOpportunityInput) => void | Promise<void>;
+};
 
 const emptyJob: JobOpportunityInput = { type: "job", label: "", organization: "", status: "wishlist", priority: "medium", summary: null, url: null, source: null, location: null, contact: null, appliedDate: null, originOpportunityId: null };
 const appliedStatuses = new Set(["applied", "interviewing", "offer", "rejected"]);
 
-export function JobOpportunityForm({ initialValue, originOpportunityId, onSubmit, isSubmitting = false, submitLabel = "Create job opportunity", mode = "create", onCancel }: {
-  initialValue?: JobOpportunity | JobOpportunityInput | null;
-  originOpportunityId?: string | null;
-  onSubmit: (payload: JobCreationPayload) => void | Promise<void>;
-  isSubmitting?: boolean;
-  submitLabel?: string;
-  mode?: JobOpportunityFormMode;
-  onCancel?: () => void;
-}) {
+export function JobOpportunityForm(props: ExplicitJobOpportunityFormProps): JSX.Element;
+export function JobOpportunityForm(props: LegacyJobOpportunityFormProps): JSX.Element;
+export function JobOpportunityForm({ initialValue, originOpportunityId, onSubmit, isSubmitting = false, submitLabel = "Create job opportunity", mode, onCancel }: ExplicitJobOpportunityFormProps | LegacyJobOpportunityFormProps) {
+  const resolvedMode = mode ?? (originOpportunityId ? "linked" : initialValue ? "edit" : "create");
   const [value, setValue] = useState<JobOpportunityInput>(() => ({ ...emptyJob, ...initialValue, originOpportunityId: originOpportunityId ?? initialValue?.originOpportunityId ?? null, type: "job" }));
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDueDate, setTaskDueDate] = useState("");
   const optionalPopulated = Boolean(initialValue?.url || initialValue?.source || initialValue?.location || initialValue?.contact || initialValue?.summary || initialValue?.appliedDate);
-  const [detailsOpen, setDetailsOpen] = useState(mode !== "create" && optionalPopulated);
+  const [detailsOpen, setDetailsOpen] = useState(resolvedMode !== "create" && optionalPopulated);
   const urlRef = useRef<HTMLInputElement>(null);
   const set = <K extends keyof JobOpportunityInput>(key: K, next: JobOpportunityInput[K]) => setValue((current) => ({ ...current, [key]: next }));
   const optional = (key: keyof JobOpportunityInput, label: string, type = "text") => {
@@ -34,7 +44,10 @@ export function JobOpportunityForm({ initialValue, originOpportunityId, onSubmit
   const showAppliedDate = appliedStatuses.has(value.status);
   const submit = () => {
     const opportunity = { ...value, label: value.label.trim(), organization: value.organization?.trim() || null, appliedDate: showAppliedDate ? value.appliedDate : null };
-    onSubmit({ opportunity, initialTask: mode === "create" && taskTitle.trim() ? { title: taskTitle.trim(), dueDate: taskDueDate || null } : null });
+    if (mode === undefined) {
+      return onSubmit(opportunity);
+    }
+    return onSubmit({ opportunity, initialTask: resolvedMode === "create" && taskTitle.trim() ? { title: taskTitle.trim(), dueDate: taskDueDate || null } : null });
   };
   return <form className="application-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
     <div className="application-form__grid">
@@ -44,7 +57,7 @@ export function JobOpportunityForm({ initialValue, originOpportunityId, onSubmit
     <fieldset className="application-form__fieldset"><legend>Plan your next move</legend><div className="application-form__grid">
       <label className="application-form__field"><span className="application-form__label">Stage</span><select className="application-form__select" value={value.status} onChange={(event) => set("status", event.target.value as JobOpportunityInput["status"])}>{JOB_STATUSES.map((status) => <option key={status} value={status}>{JOB_STATUS_LABELS[status]}</option>)}</select></label>
       <label className="application-form__field"><span className="application-form__label">Priority</span><select className="application-form__select" value={value.priority} onChange={(event) => set("priority", event.target.value as JobOpportunityInput["priority"])}>{OPPORTUNITY_PRIORITIES.map((priority) => <option key={priority}>{priority}</option>)}</select></label>
-      {mode === "create" ? <><label className="application-form__field"><span className="application-form__label">First task</span><input className="application-form__input" value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} /></label><label className="application-form__field"><span className="application-form__label">Due date</span><input className="application-form__input" type="date" value={taskDueDate} onChange={(event) => setTaskDueDate(event.target.value)} /></label></> : null}
+      {resolvedMode === "create" ? <><label className="application-form__field"><span className="application-form__label">First task</span><input className="application-form__input" value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} /></label><label className="application-form__field"><span className="application-form__label">Due date</span><input className="application-form__input" type="date" value={taskDueDate} onChange={(event) => setTaskDueDate(event.target.value)} /></label></> : null}
     </div></fieldset>
     <details open={detailsOpen} onToggle={(event) => setDetailsOpen(event.currentTarget.open)}><summary>Optional details</summary><div className="application-form__grid">
       {optional("url", "Posting URL", "url")}{optional("source", "Source")}{optional("location", "Location")}{optional("contact", "Contact")}

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ConnectionOpportunityForm } from "./ConnectionOpportunityForm";
 import { JobOpportunityForm } from "./JobOpportunityForm";
+import type { JobOpportunityInput } from "../types";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -28,18 +29,26 @@ function change(control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElem
 }
 
 describe("opportunity creation forms", () => {
-  it("keeps job optional details closed on create, retains collapsed values, and opens populated edit details", () => {
+  it("keeps job optional details closed on explicit create, retains values through toggle events, and opens inferred edit details", () => {
     const onSubmit = vi.fn();
-    const container = render(<JobOpportunityForm onSubmit={onSubmit} />);
+    const container = render(<JobOpportunityForm mode="create" onSubmit={onSubmit} />);
     const disclosure = container.querySelector("details");
     expect(disclosure?.hasAttribute("open")).toBe(false);
 
-    act(() => { field(container, "Posting URL").value = "https://example.com/job"; field(container, "Posting URL").dispatchEvent(new Event("input", { bubbles: true })); });
-    act(() => disclosure?.removeAttribute("open"));
+    act(() => {
+      disclosure!.open = true;
+      disclosure!.dispatchEvent(new Event("toggle"));
+      change(field(container, "Posting URL"), "https://example.com/job");
+      disclosure!.open = false;
+      disclosure!.dispatchEvent(new Event("toggle"));
+      disclosure!.open = true;
+      disclosure!.dispatchEvent(new Event("toggle"));
+    });
     expect(field(container, "Posting URL").value).toBe("https://example.com/job");
 
-    const edit = render(<JobOpportunityForm mode="edit" initialValue={{ type: "job", label: "Engineer", status: "applied", url: "https://example.com/job" }} onSubmit={onSubmit} />);
+    const edit = render(<JobOpportunityForm initialValue={{ type: "job", label: "Engineer", status: "applied", url: "https://example.com/job" }} onSubmit={(input: JobOpportunityInput) => undefined} />);
     expect(edit.querySelector("details")?.hasAttribute("open")).toBe(true);
+    expect(field(edit, "First task")).toBeUndefined();
   });
 
   it("uses native required URL semantics and opens hidden invalid optional details before focus", async () => {
@@ -58,7 +67,7 @@ describe("opportunity creation forms", () => {
 
   it("shows applied date only for applied stages and clears it for Wishlist", () => {
     const onSubmit = vi.fn();
-    const container = render(<JobOpportunityForm initialValue={{ type: "job", label: "Engineer", status: "applied", appliedDate: "2026-07-10" }} onSubmit={onSubmit} />);
+    const container = render(<JobOpportunityForm mode="edit" initialValue={{ type: "job", label: "Engineer", status: "applied", appliedDate: "2026-07-10" }} onSubmit={onSubmit} />);
     expect(field(container, "Applied date")).not.toBeUndefined();
     act(() => change(field(container, "Stage"), "wishlist"));
     expect(field(container, "Applied date")).toBeUndefined();
@@ -66,9 +75,9 @@ describe("opportunity creation forms", () => {
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ opportunity: expect.objectContaining({ appliedDate: null }) }));
   });
 
-  it("emits a job creation wrapper with an optional first task and omits first-task controls in edit and linked modes", () => {
+  it("emits the wrapper only for explicit job modes and keeps omitted-mode callers on the raw input contract", () => {
     const onSubmit = vi.fn();
-    const container = render(<JobOpportunityForm initialValue={{ type: "job", label: "Engineer", status: "wishlist" }} onSubmit={onSubmit} />);
+    const container = render(<JobOpportunityForm mode="create" initialValue={{ type: "job", label: "Engineer", status: "wishlist" }} onSubmit={onSubmit} />);
     expect(field(container, "First task")).not.toBeUndefined();
     act(() => { change(field(container, "First task"), "Send portfolio"); container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ initialTask: { title: "Send portfolio", dueDate: null } }));
@@ -79,6 +88,17 @@ describe("opportunity creation forms", () => {
       act(() => modeContainer.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
       expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ opportunity: expect.any(Object), initialTask: null }));
     }
+
+    const legacySubmit = vi.fn<(input: JobOpportunityInput) => void>();
+    const legacyEdit = render(<JobOpportunityForm initialValue={{ type: "job", label: "Engineer", status: "wishlist" }} onSubmit={legacySubmit} />);
+    act(() => legacyEdit.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(legacySubmit).toHaveBeenLastCalledWith(expect.objectContaining({ type: "job", label: "Engineer" }));
+    expect(legacySubmit.mock.calls.at(-1)?.[0]).not.toHaveProperty("opportunity");
+
+    const legacyLinked = render(<JobOpportunityForm originOpportunityId="connection-1" onSubmit={legacySubmit} />);
+    expect(field(legacyLinked, "First task")).toBeUndefined();
+    act(() => legacyLinked.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(legacySubmit).toHaveBeenLastCalledWith(expect.objectContaining({ originOpportunityId: "connection-1" }));
   });
 
   it("keeps connection activity and task ISO payloads in create mode and omits creation-only groups in edit mode", () => {
@@ -97,5 +117,13 @@ describe("opportunity creation forms", () => {
     const edit = render(<ConnectionOpportunityForm mode="edit" initialValue={{ type: "connection", label: "Maya", status: "new" }} onSubmit={onSubmit} />);
     expect(edit.textContent).not.toContain("Initial interaction");
     expect(field(edit, "First task")).toBeUndefined();
+
+    const legacyEdit = render(<ConnectionOpportunityForm initialValue={{ type: "connection", label: "Maya", status: "new" }} onSubmit={onSubmit} />);
+    expect(legacyEdit.textContent).not.toContain("Initial interaction");
+    expect(field(legacyEdit, "First task")).toBeUndefined();
+    const identity = field(legacyEdit, "Person's name");
+    expect(identity.required).toBe(true);
+    expect(identity.getAttribute("aria-describedby")).toBe("connection-label-helper");
+    expect(document.getElementById("connection-label-helper")?.textContent).toContain("required");
   });
 });

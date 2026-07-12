@@ -25,7 +25,11 @@ describe("NewOpportunityPage", () => {
     await act(async () => { root.render(<NewOpportunityPage />); });
     const form = container.querySelector("form")!;
     await act(async () => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
-    expect(fetch).toHaveBeenCalledWith("/api/opportunities", expect.objectContaining({ method: "POST", body: expect.stringContaining("initialTask") }));
+    const [, request] = vi.mocked(fetch).mock.calls[0];
+    expect(JSON.parse(request!.body as string)).toEqual({
+      opportunity: expect.objectContaining({ type: "job", label: "", organization: null }),
+      initialTask: null
+    });
     const alert = container.querySelector('[role="alert"]') as HTMLElement;
     expect(alert).not.toBeNull();
     expect(alert.getAttribute("tabindex")).toBe("-1");
