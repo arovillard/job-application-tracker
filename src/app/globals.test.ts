@@ -79,10 +79,24 @@ describe("opportunity interface stylesheet", () => {
     expect(cssWithoutFinePointerTransforms).not.toMatch(/:[^,{]*(?:hover|active)[^{]*\{[^}]*transform:/s);
   });
 
+  it("keeps modal form headers, bodies, and footers in independently-sized regions", () => {
+    expect(css).toMatch(/\.modal\s*\{[^}]*display:\s*grid;[^}]*grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\);[^}]*overflow:\s*hidden;[^}]*\}/s);
+    expect(css).toMatch(/\.modal__header\s*\{[^}]*flex:\s*0\s+0\s+auto;[^}]*\}/s);
+    expect(css).toMatch(/\.modal\s*>\s*\.application-form\s*\{[^}]*min-height:\s*0;[^}]*\}/s);
+    expect(css).toMatch(/\.modal\s+\.application-form__body\s*\{[^}]*overflow-y:\s*auto;[^}]*\}/s);
+    expect(css).toMatch(/\.modal\s+\.application-form__actions\s*\{[^}]*flex:\s*0\s+0\s+auto;[^}]*\}/s);
+  });
+
+  it("derives modal and mobile-footer colors from the active theme tokens", () => {
+    expect(css).toMatch(/:root\[data-theme="dark"\]\s*\{[^}]*--surface:[^;]+;[^}]*--line:[^;]+;[^}]*\}/s);
+    expect(css).toMatch(/\.modal\s*\{[^}]*background:\s*var\(--surface\);[^}]*border:\s*1px\s+solid\s+var\(--line\);[^}]*\}/s);
+    expect(css).toMatch(/\.application-form__actions\s*\{[^}]*background:\s*var\(--surface\);[^}]*border-top:\s*1px\s+solid\s+var\(--line\);[^}]*\}/s);
+  });
+
   it("aligns the creation form, detail workspace, menus, and dialogs with the WCE-8 visual baseline", () => {
     for (const contract of [
       ".app-shell--narrow { max-width: 1080px; }",
-      ".application-form { display: grid; gap: 24px; padding: 34px 44px 40px; }",
+      ".application-form { display: grid;",
       ".application-form__planning { background: color-mix(in srgb, var(--accent-soft) 58%, var(--surface));",
       ".form-disclosure summary { align-items: center;",
       ".detail-grid { align-items: start; display: grid; gap: 24px; grid-template-columns: minmax(0, 2fr) minmax(280px, 0.72fr); }",
@@ -91,7 +105,7 @@ describe("opportunity interface stylesheet", () => {
       ".detail-actions-menu [role=\"menu\"] {",
       ".modal--compact { max-width: 560px; }",
       ".modal--wide { max-width: 960px; }",
-      "overflow-y: auto;"
+      ".form-disclosure[open] > :not(summary) {"
     ]) {
       expect(css).toContain(contract);
     }
@@ -100,7 +114,7 @@ describe("opportunity interface stylesheet", () => {
     const nextMediaStart = css.indexOf("@media", mobileStart + 1);
     const mobileCss = css.slice(mobileStart, nextMediaStart === -1 ? undefined : nextMediaStart);
 
-    expect(mobileCss).toContain(".modal--wide { border-radius: var(--radius) var(--radius) 0 0; max-height: calc(100dvh - 16px); width: 100%; }");
-    expect(mobileCss).toMatch(/\.application-form__actions\s*\{[^}]*background:\s*var\(--surface\);[^}]*bottom:\s*0;[^}]*position:\s*sticky;[^}]*\}/s);
+    expect(mobileCss).toMatch(/\.modal\s*\{[^}]*max-height:\s*calc\(100dvh\s*-\s*16px\);[^}]*width:\s*100%;[^}]*\}/s);
+    expect(mobileCss).toMatch(/\.application-form__actions\s*\{[^}]*background:\s*var\(--surface\);[^}]*border-top:\s*1px\s+solid\s+var\(--line\);[^}]*position:\s*static;[^}]*\}/s);
   });
 });

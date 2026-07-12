@@ -47,9 +47,19 @@ describe("NewOpportunityPage", () => {
   it("renders the job form by default without an intermediate chooser", () => {
     const markup = renderToStaticMarkup(<NewOpportunityPage />);
     expect(markup).toContain("Add a job");
+    expect(markup).toContain('<section class="tracker-panel"><header class="tracker-panel__header"><h2 class="tracker-panel__title">Job details</h2></header>');
     expect(markup).toContain("Role");
     expect(markup).toContain("Organization");
     expect(markup).not.toContain("What kind of opportunity are you adding?");
+  });
+
+  it("uses a type-specific tracker panel header for connection details", () => {
+    navigation.useSearchParams.mockReturnValue(new URLSearchParams("type=connection"));
+    const markup = renderToStaticMarkup(<NewOpportunityPage />);
+
+    expect(markup).toContain('<section class="tracker-panel"><header class="tracker-panel__header"><h2 class="tracker-panel__title">Connection details</h2></header>');
+    expect(markup).toContain("Connection opportunity");
+    navigation.useSearchParams.mockReset();
   });
 
   it("builds a connection envelope without job-only fields", () => {

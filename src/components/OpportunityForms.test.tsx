@@ -133,10 +133,20 @@ describe("opportunity creation forms", () => {
       [ConnectionOpportunityForm, "Connection opportunity"],
     ] as const) {
       const container = render(<Form onSubmit={vi.fn()} />);
+      const form = container.querySelector("form.application-form");
       const intro = container.querySelector(".application-form__intro");
       const planning = container.querySelector("fieldset.application-form__planning");
       const disclosure = container.querySelector("details.form-disclosure");
+      const body = container.querySelector(".application-form__body");
+      const actions = container.querySelector(".application-form__actions");
 
+      expect(body).not.toBeNull();
+      expect(body?.parentElement).toBe(form);
+      expect(actions?.parentElement).toBe(form);
+      expect(body?.nextElementSibling).toBe(actions);
+      expect(body?.contains(intro)).toBe(true);
+      expect(body?.contains(planning)).toBe(true);
+      expect(body?.contains(disclosure)).toBe(true);
       expect(intro?.querySelector("strong")?.textContent).toBe(expectedIntro);
       expect(intro?.textContent).toContain("next move");
       expect(planning?.querySelector("legend")?.textContent).toMatch(/next move/i);

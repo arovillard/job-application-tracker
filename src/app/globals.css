@@ -443,6 +443,7 @@ kbd {
 .artifact-card__error { background: var(--danger-soft); border-radius: var(--radius-sm); color: var(--danger); margin: 14px 19px; padding: 10px 12px; }
 
 .application-form { display: grid; gap: 24px; padding: 34px 44px 40px; }
+.application-form__body { display: grid; gap: 24px; min-height: 0; }
 .application-form__intro { color: var(--ink-muted); display: grid; font-size: 0.96rem; gap: 4px; }
 .application-form__intro strong { color: var(--ink); font-size: 1.32rem; letter-spacing: -0.03em; }
 .application-form__grid { display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -463,8 +464,8 @@ kbd {
 .form-disclosure[open] summary { border-bottom: 1px solid var(--line); }
 .form-disclosure[open] summary::after { content: "−"; }
 .form-disclosure summary span { color: var(--ink-faint); font-size: 0.72rem; font-weight: 650; margin-left: auto; margin-right: 12px; }
-.form-disclosure__grid { padding: 18px 18px 0; }
-.form-disclosure > .application-form__field { padding: 18px; }
+.form-disclosure[open] { display: grid; gap: 18px; padding-bottom: 18px; }
+.form-disclosure[open] > :not(summary) { margin: 0 18px; }
 .application-form__actions { align-items: center; display: flex; gap: 10px; justify-content: flex-end; padding-top: 4px; }
 
 .detail-actions-menu { position: relative; }
@@ -473,12 +474,16 @@ kbd {
 .detail-actions-menu [role="menuitem"].button--danger { color: var(--danger); }
 
 .modal-backdrop { align-items: center; background: rgba(10, 17, 31, 0.62); display: flex; inset: 0; justify-content: center; padding: 18px; position: fixed; z-index: 30; }
-.modal { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-md); max-height: min(780px, calc(100dvh - 36px)); overflow-y: auto; width: 100%; }
+.modal { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-md); display: grid; grid-template-rows: auto minmax(0, 1fr); max-height: min(780px, calc(100dvh - 36px)); overflow: hidden; width: 100%; }
 .modal--compact { max-width: 560px; }
 .modal--wide { max-width: 960px; }
-.modal__header { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 16px 19px; }
+.modal__header { align-items: center; border-bottom: 1px solid var(--line); display: flex; flex: 0 0 auto; justify-content: space-between; padding: 16px 19px; }
 .modal__title { font-size: 1.06rem; letter-spacing: -0.025em; margin: 0; }
 .modal__close { align-items: center; background: var(--surface-subtle); border: 1px solid var(--line); border-radius: 999px; color: var(--ink-muted); display: inline-flex; font-size: 1.15rem; height: 44px; justify-content: center; width: 44px; }
+.modal > .application-form { min-height: 0; }
+.modal .application-form { grid-template-rows: minmax(0, 1fr) auto; }
+.modal .application-form__body { overflow-y: auto; }
+.modal .application-form__actions { flex: 0 0 auto; }
 .note-form, .status-form, .delete-confirmation { display: grid; gap: 16px; padding: 20px; }
 .delete-confirmation p { color: var(--ink-muted); line-height: 1.6; margin: 0; }
 
@@ -536,13 +541,14 @@ kbd {
   .detail-side { grid-template-columns: 1fr; }
   .detail-list div { grid-template-columns: 90px minmax(0, 1fr); }
   .application-form { gap: 18px; padding: 22px 17px 18px; }
+  .application-form__body { gap: 18px; }
   .application-form__grid, .application-form__grid--planning { grid-template-columns: 1fr; }
   .application-form__field--wide { grid-column: auto; }
   .application-form__planning { padding: 18px 15px; }
-  .application-form__actions { background: var(--surface); border-top: 1px solid var(--line); bottom: 0; flex-direction: column-reverse; margin: 0 -17px -18px; padding: 14px 17px max(17px, env(safe-area-inset-bottom)); position: sticky; }
+  .application-form__actions { background: var(--surface); border-top: 1px solid var(--line); flex-direction: column-reverse; margin: 0 -17px -18px; padding: 14px 17px max(17px, env(safe-area-inset-bottom)); position: static; }
   .application-form__actions .button, .application-form__actions .application-form__button { width: 100%; }
   .modal-backdrop { align-items: flex-end; padding: 8px; }
-  .modal--wide { border-radius: var(--radius) var(--radius) 0 0; max-height: calc(100dvh - 16px); width: 100%; }
+  .modal { border-radius: var(--radius) var(--radius) 0 0; max-height: calc(100dvh - 16px); width: 100%; }
   .task-item { align-items: flex-start; flex-direction: column; }
   .task-item__actions { flex-wrap: wrap; }
   .toast { bottom: 16px; }

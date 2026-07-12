@@ -178,11 +178,15 @@ describe("OpportunityDetailContent", () => {
     expect(interactionMarkup).toContain('class="application-form__input"');
     expect(interactionMarkup).toContain('class="application-form__select"');
     expect(interactionMarkup).toContain('class="application-form__textarea"');
+    expect(interactionMarkup).toContain('class="application-form__body"');
     expect(interactionMarkup).toContain('class="application-form__actions"');
+    expect(interactionMarkup).toMatch(/application-form__body[\s\S]*application-form__actions/);
     expect(interactionMarkup).toContain('type="date"');
     expect(taskMarkup).toContain('class="application-form"');
     expect(taskMarkup).toContain('class="application-form__input"');
+    expect(taskMarkup).toContain('class="application-form__body"');
     expect(taskMarkup).toContain('class="application-form__actions"');
+    expect(taskMarkup).toMatch(/application-form__body[\s\S]*application-form__actions/);
     expect(taskMarkup).toContain('type="date"');
   });
 
@@ -483,7 +487,9 @@ describe("OpportunityDetailContent", () => {
 
     act(() => more.click());
     act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Archive")!.click());
-    expect(container.querySelector('[role="dialog"]')?.textContent).toContain("Archive Maya Chen");
+    const archiveDialog = container.querySelector('[role="dialog"]')!;
+    expect(archiveDialog.textContent).toContain("Archive Maya Chen");
+    expect(archiveDialog.querySelector(".application-form__body")?.nextElementSibling?.classList.contains("application-form__actions")).toBe(true);
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.textContent).toBe("Archive");
     act(() => [...container.querySelector('[role="dialog"]')!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Cancel")!.click());
     expect(document.activeElement).toBe(more);
@@ -492,6 +498,7 @@ describe("OpportunityDetailContent", () => {
     act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Delete permanently")!.click());
     const deleteDialog = container.querySelector('[role="dialog"]')!;
     expect(deleteDialog.textContent).toContain("Delete Maya Chen permanently");
+    expect(deleteDialog.querySelector(".application-form__body")?.nextElementSibling?.classList.contains("application-form__actions")).toBe(true);
     expect(deleteDialog.querySelector<HTMLButtonElement>('button[type="submit"]')?.classList.contains("button--danger")).toBe(true);
     act(() => root.unmount());
   });
@@ -509,6 +516,7 @@ describe("OpportunityDetailContent", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
     await act(async () => { resolveArchive(jsonResponse({ error: "Archive rejected" }, false)); });
+    expect(container.querySelector(".application-form__body [role=\"alert\"]")?.textContent).toContain("Archive rejected");
     expect(container.querySelector('[role="dialog"]')).not.toBeNull();
     expect(container.querySelector('[role="alert"]')?.textContent).toBe("Archive rejected");
 

@@ -11,6 +11,7 @@ type JobOpportunityFormCommonProps = {
   initialValue?: JobOpportunity | JobOpportunityInput | null;
   originOpportunityId?: string | null;
   isSubmitting?: boolean;
+  error?: string | null;
   submitLabel?: string;
   onCancel?: () => void;
 };
@@ -28,7 +29,7 @@ const appliedStatuses = new Set(["applied", "interviewing", "offer", "rejected"]
 
 export function JobOpportunityForm(props: ExplicitJobOpportunityFormProps): JSX.Element;
 export function JobOpportunityForm(props: LegacyJobOpportunityFormProps): JSX.Element;
-export function JobOpportunityForm({ initialValue, originOpportunityId, onSubmit, isSubmitting = false, submitLabel = "Create job opportunity", mode, onCancel }: ExplicitJobOpportunityFormProps | LegacyJobOpportunityFormProps) {
+export function JobOpportunityForm({ initialValue, originOpportunityId, onSubmit, isSubmitting = false, error, submitLabel = "Create job opportunity", mode, onCancel }: ExplicitJobOpportunityFormProps | LegacyJobOpportunityFormProps) {
   const resolvedMode = mode ?? (originOpportunityId ? "linked" : initialValue ? "edit" : "create");
   const [value, setValue] = useState<JobOpportunityInput>(() => ({ ...emptyJob, ...initialValue, originOpportunityId: originOpportunityId ?? initialValue?.originOpportunityId ?? null, type: "job" }));
   const [taskTitle, setTaskTitle] = useState("");
@@ -50,20 +51,23 @@ export function JobOpportunityForm({ initialValue, originOpportunityId, onSubmit
     return onSubmit({ opportunity, initialTask: resolvedMode === "create" && taskTitle.trim() ? { title: taskTitle.trim(), dueDate: taskDueDate || null } : null });
   };
   return <form className="application-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-    <div className="application-form__intro"><strong>Job opportunity</strong><span>Capture the role and plan your next move.</span></div>
-    <div className="application-form__grid">
+    <div className="application-form__body">
+      {error ? <p role="alert">{error}</p> : null}
+      <div className="application-form__intro"><strong>Job opportunity</strong><span>Capture the role and plan your next move.</span></div>
+      <div className="application-form__grid">
       <label className="application-form__field"><span className="application-form__label">Role <span>Required</span></span><input className="application-form__input" required aria-describedby="job-label-helper" value={value.label} onChange={(event) => set("label", event.target.value)} /><span id="job-label-helper" className="application-form__helper">Enter the role title.</span></label>
       <label className="application-form__field"><span className="application-form__label">Organization <span>Required</span></span><input className="application-form__input" required aria-describedby="job-organization-helper" value={value.organization ?? ""} onChange={(event) => set("organization", event.target.value || null)} /><span id="job-organization-helper" className="application-form__helper">Enter the organization name.</span></label>
-    </div>
-    <fieldset className="application-form__fieldset application-form__planning"><legend>Plan your next move</legend><div className="application-form__grid">
+      </div>
+      <fieldset className="application-form__fieldset application-form__planning"><legend>Plan your next move</legend><div className="application-form__grid">
       <label className="application-form__field"><span className="application-form__label">Stage</span><select className="application-form__select" value={value.status} onChange={(event) => set("status", event.target.value as JobOpportunityInput["status"])}>{JOB_STATUSES.map((status) => <option key={status} value={status}>{JOB_STATUS_LABELS[status]}</option>)}</select></label>
       <label className="application-form__field"><span className="application-form__label">Priority</span><select className="application-form__select" value={value.priority} onChange={(event) => set("priority", event.target.value as JobOpportunityInput["priority"])}>{OPPORTUNITY_PRIORITIES.map((priority) => <option key={priority}>{priority}</option>)}</select></label>
       {resolvedMode === "create" ? <><label className="application-form__field"><span className="application-form__label">First task</span><input className="application-form__input" value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} /></label><label className="application-form__field"><span className="application-form__label">Due date</span><input className="application-form__input" type="date" value={taskDueDate} onChange={(event) => setTaskDueDate(event.target.value)} /></label></> : null}
-    </div></fieldset>
-    <details className="form-disclosure" open={detailsOpen} onToggle={(event) => setDetailsOpen(event.currentTarget.open)}><summary>Optional details <span>Optional</span></summary><div className="application-form__grid form-disclosure__grid">
+      </div></fieldset>
+      <details className="form-disclosure" open={detailsOpen} onToggle={(event) => setDetailsOpen(event.currentTarget.open)}><summary>Optional details <span>Optional</span></summary><div className="application-form__grid form-disclosure__grid">
       {optional("url", "Posting URL", "url")}{optional("source", "Source")}{optional("location", "Location")}{optional("contact", "Contact")}
       {showAppliedDate ? <label className="application-form__field"><span className="application-form__label">Applied date</span><input className="application-form__input" type="date" value={value.appliedDate ?? ""} onChange={(event) => set("appliedDate", event.target.value || null)} /></label> : null}
-    </div><label className="application-form__field"><span className="application-form__label">Summary</span><textarea className="application-form__textarea" value={value.summary ?? ""} onChange={(event) => set("summary", event.target.value || null)} /></label></details>
+      </div><label className="application-form__field"><span className="application-form__label">Summary</span><textarea className="application-form__textarea" value={value.summary ?? ""} onChange={(event) => set("summary", event.target.value || null)} /></label></details>
+    </div>
     <div className="application-form__actions">{onCancel ? <button className="button" type="button" onClick={onCancel}>Cancel</button> : null}<button className="button button--primary" disabled={isSubmitting} type="submit">{isSubmitting ? "Saving…" : submitLabel}</button></div>
   </form>;
 }
