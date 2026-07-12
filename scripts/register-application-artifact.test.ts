@@ -29,5 +29,12 @@ describe("register-application-artifact CLI", () => {
     const db = new Database(dbPath); try { db.exec("CREATE TABLE applications (id TEXT PRIMARY KEY, company TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL, source TEXT, location TEXT, url TEXT, contact TEXT, notes TEXT, applied_date TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);"); db.prepare("INSERT INTO applications VALUES ('legacy-job', 'Acme', 'Frontend Engineer', 'wishlist', NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)").run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"); } finally { db.close(); }
     const file = path.join(tempDir, "fit.md"); writeFileSync(file, "# Fit");
     expect(run(["--opportunity-id", "legacy-job", "--type", "fit_analysis", "--title", "Fit", "--file", file]).artifact.opportunityId).toBe("legacy-job");
+    const migrated = new Database(dbPath); migrated.pragma("foreign_keys = ON");
+    try {
+      for (const table of ["job_opportunity_details", "opportunity_activities", "opportunity_tasks", "opportunity_artifacts"]) expect(migrated.prepare(`PRAGMA foreign_key_list(${table})`).all()).toEqual(expect.arrayContaining([expect.objectContaining({ table: "opportunities", on_delete: "CASCADE" })]));
+      expect(migrated.prepare("PRAGMA foreign_key_list(opportunity_tasks)").all()).toEqual(expect.arrayContaining([expect.objectContaining({ table: "opportunity_activities", on_delete: "SET NULL" })]));
+      migrated.prepare("DELETE FROM opportunities WHERE id='legacy-job'").run();
+      for (const table of ["job_opportunity_details", "opportunity_activities", "opportunity_tasks", "opportunity_artifacts"]) expect(migrated.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE opportunity_id='legacy-job'`).get()).toEqual({ count: 0 });
+    } finally { migrated.close(); }
   });
 });

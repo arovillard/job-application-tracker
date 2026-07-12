@@ -121,6 +121,30 @@ describe("upsert-job-posting CLI", () => {
     expect(query("SELECT COUNT(*) AS count FROM opportunity_tasks WHERE opportunity_id IN ('archived-id', 'rejected-id')")[0]).toEqual({ count: 4 });
   });
 
+  it("keeps punctuation-distinct migrated task titles on the same due date", () => {
+    const db = new Database(dbPath);
+    try {
+      db.exec("CREATE TABLE applications (id TEXT PRIMARY KEY, company TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL, source TEXT, location TEXT, url TEXT, contact TEXT, notes TEXT, applied_date TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE application_notes (id TEXT PRIMARY KEY, application_id TEXT NOT NULL, type TEXT NOT NULL, body TEXT NOT NULL, follow_up_date TEXT, created_at TEXT NOT NULL);");
+      db.prepare("INSERT INTO applications VALUES ('punctuation-job', 'Acme', 'Engineer', 'wishlist', NULL, NULL, 'https://example.com/job', NULL, NULL, NULL, ?, ?)").run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
+      db.prepare("INSERT INTO application_notes VALUES ('note-one', 'punctuation-job', 'follow_up', 'Follow-up', '2026-07-20', ?), ('note-two', 'punctuation-job', 'follow_up', 'Follow up', '2026-07-20', ?)").run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
+    } finally { db.close(); }
+    runUpsert(["--company", "Acme", "--role", "Engineer", "--url", "https://example.com/job"]);
+    expect(query("SELECT title FROM opportunity_tasks WHERE opportunity_id='punctuation-job' ORDER BY title")).toEqual([{ title: "Follow up" }, { title: "Follow-up" }]);
+  });
+
+  it("uses committed WAL state for dry-run duplicate lookup without writing the source", () => {
+    const db = new Database(dbPath);
+    db.pragma("journal_mode = WAL");
+    db.exec("CREATE TABLE opportunities (id TEXT PRIMARY KEY, type TEXT NOT NULL, label TEXT NOT NULL, organization TEXT, status TEXT NOT NULL, priority TEXT NOT NULL, summary TEXT, origin_opportunity_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE job_opportunity_details (opportunity_id TEXT PRIMARY KEY, url TEXT, source TEXT, location TEXT, contact TEXT, applied_date TEXT); CREATE TABLE opportunity_activities (id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL, type TEXT NOT NULL, body TEXT NOT NULL, metadata_json TEXT, occurred_at TEXT NOT NULL, created_at TEXT NOT NULL); CREATE TABLE opportunity_tasks (id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL, title TEXT NOT NULL, due_date TEXT, state TEXT NOT NULL, source_activity_id TEXT, completed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE opportunity_artifacts (id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, file_path TEXT NOT NULL, content_type TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(opportunity_id,type,file_path)); CREATE TABLE connection_opportunity_details (opportunity_id TEXT PRIMARY KEY, role_context TEXT, contact_info TEXT, meeting_context TEXT, relationship_strength TEXT NOT NULL); CREATE TABLE schema_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);");
+    db.prepare("INSERT INTO opportunities VALUES ('wal-job', 'job', 'Engineer', 'Acme', 'wishlist', 'medium', NULL, NULL, ?, ?)").run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
+    db.prepare("INSERT INTO job_opportunity_details VALUES ('wal-job', 'https://example.com/old', 'Careers', NULL, NULL, NULL)").run();
+    try {
+      const result = runUpsert(["--company", "Acme", "--role", "Engineer", "--url", "https://example.com/new", "--dry-run"]);
+      expect(result).toMatchObject({ action: "updated", opportunity: { id: "wal-job", url: "https://example.com/new" } });
+      expect(db.prepare("SELECT url FROM job_opportunity_details WHERE opportunity_id='wal-job'").get()).toEqual({ url: "https://example.com/old" });
+    } finally { db.close(); }
+  });
+
   it("keeps canonical output keys, CLI values over JSON, and user note text", () => {
     const input = path.join(tempDir, "posting.json");
     writeFileSync(input, JSON.stringify({ company: "JSON Co", role: "Engineer", url: "https://example.com/json", note: "Keep this note" }));
