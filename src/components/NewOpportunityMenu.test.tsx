@@ -47,6 +47,29 @@ describe("NewOpportunityMenu", () => {
     });
 
     expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(button);
+    act(() => root.unmount());
+  });
+
+  it("closes after activating either menu item", () => {
+    const { container, root } = mountMenu();
+    const button = container.querySelector("button")!;
+
+    act(() => {
+      button.click();
+    });
+    act(() => {
+      container.querySelector('[href="/opportunities/new?type=job"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+
+    act(() => {
+      button.click();
+    });
+    act(() => {
+      container.querySelector('[href="/opportunities/new?type=connection"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(button.getAttribute("aria-expanded")).toBe("false");
     act(() => root.unmount());
   });
 
@@ -80,6 +103,13 @@ describe("NewOpportunityMenu", () => {
       document.body.appendChild(input);
       input.focus();
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+    });
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "n", ctrlKey: true, bubbles: true }));
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "n", metaKey: true, bubbles: true }));
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "n", shiftKey: true, bubbles: true }));
     });
     expect(button.getAttribute("aria-expanded")).toBe("false");
 

@@ -36,6 +36,10 @@ function matchesSearch(opportunity: OpportunitySummary, search: string) {
     .some((value) => value?.toLowerCase().includes(query));
 }
 
+function isEditableTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
 function sortOpportunities(opportunities: OpportunitySummary[], sort: SortValue) {
   return [...opportunities].sort((left, right) => {
     if (sort === "organization") return (left.organization ?? left.label).localeCompare(right.organization ?? right.label);
@@ -71,6 +75,7 @@ export function Dashboard() {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" || event.key === "/") {
         event.preventDefault(); searchRef.current?.focus();
       }
