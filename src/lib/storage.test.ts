@@ -1,42 +1,21 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { type ApplicationInput } from "../types";
 import {
-  addApplicationNote,
-  changeApplicationStatus,
-  createApplication,
-  deleteApplication,
-  getApplicationDetail,
-  getApplication,
-  listFollowUps,
-  listApplications,
-  resetStorageForTests,
-  upsertApplicationArtifact,
-  updateApplication
+  createOpportunity,
+  getOpportunityDetail,
+  listOpportunities,
+  resetStorageForTests
 } from "./storage";
 
 let tempDir: string;
 
-const baseInput: ApplicationInput = {
-  company: "Acme",
-  role: "Frontend Engineer",
-  status: "applied",
-  source: "Referral",
-  location: "Remote",
-  url: "https://example.com/jobs/frontend",
-  contact: "Sam Recruiter",
-  notes: "Initial screen next week",
-  appliedDate: "2026-07-08",
-  followUpDate: "2026-07-15"
-};
-
 beforeEach(() => {
-  tempDir = mkdtempSync(path.join(tmpdir(), "jobtracker-storage-"));
+  tempDir = mkdtempSync(path.join(tmpdir(), "jobtracker-opportunity-storage-"));
   process.env.JOBTRACKER_DB_PATH = path.join(tempDir, "test.sqlite");
 });
 
@@ -46,433 +25,98 @@ afterEach(() => {
   rmSync(tempDir, { force: true, recursive: true });
 });
 
-describe("SQLite application storage", () => {
-  it("creates applications, trims text, and lists newest first", () => {
-    const first = createApplication({
-      ...baseInput,
-      company: "  Acme  ",
-      role: "  Frontend Engineer  ",
-      notes: "  Build hiring dashboard  "
+describe("SQLite opportunity storage", () => {
+  it("creates job and connection opportunities with type-specific details", () => {
+    const job = createOpportunity({
+      type: "job",
+      label: "Engineering Manager",
+      organization: "Acme",
+      status: "wishlist",
+      priority: "high",
+      summary: "Platform leadership role",
+      url: "https://example.com/job",
+      source: "Acme careers",
+      location: "Example City",
+      contact: "Maya Chen",
+      appliedDate: null,
+      originOpportunityId: null
     });
-    const second = createApplication({
-      ...baseInput,
-      company: "Zenith",
-      role: "Platform Engineer",
-      status: "wishlist"
+    const connection = createOpportunity({
+      type: "connection",
+      label: "Maya Chen",
+      organization: "Acme",
+      status: "new",
+      priority: "medium",
+      summary: "Met at the platform leadership meetup",
+      roleContext: "VP Engineering",
+      contactInfo: "maya@example.com",
+      meetingContext: "Example City engineering meetup",
+      relationshipStrength: "familiar"
     });
 
-    expect(first).toMatchObject({
-      company: "Acme",
-      role: "Frontend Engineer",
-      notes: "Build hiring dashboard"
-    });
-    expect(listApplications().map((application) => application.id)).toEqual([second.id, first.id]);
+    expect(job).toMatchObject({ type: "job", label: "Engineering Manager", url: "https://example.com/job" });
+    expect(connection).toMatchObject({ type: "connection", label: "Maya Chen", relationshipStrength: "familiar" });
+    expect(listOpportunities()).toHaveLength(2);
   });
 
-  it("persists an application priority and its next action", () => {
-    const created = createApplication({
-      ...baseInput,
-      nextAction: "Send a concise follow-up",
-      nextActionDate: "2026-07-15",
-      priority: "high"
-    });
-
-    resetStorageForTests();
-
-    expect(getApplication(created.id)).toMatchObject({
-      nextAction: "Send a concise follow-up",
-      nextActionDate: "2026-07-15",
-      priority: "high"
-    });
-  });
-
-  it("migrates legacy application rows with planning defaults", () => {
+  it("migrates legacy applications idempotently", () => {
     const databasePath = process.env.JOBTRACKER_DB_PATH;
-    if (!databasePath) {
-      throw new Error("Test database path is unavailable");
-    }
+    if (!databasePath) throw new Error("Test database path is unavailable");
 
-    const legacyDatabase = new Database(databasePath);
-    legacyDatabase.exec(`
+    const legacy = new Database(databasePath);
+    legacy.exec(`
       CREATE TABLE applications (
-        id TEXT PRIMARY KEY,
-        company TEXT NOT NULL,
-        role TEXT NOT NULL,
-        status TEXT NOT NULL,
-        source TEXT,
-        location TEXT,
-        url TEXT,
-        contact TEXT,
-        notes TEXT,
-        applied_date TEXT,
-        follow_up_date TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
-    legacyDatabase
-      .prepare(`
-        INSERT INTO applications (
-          id, company, role, status, source, location, url, contact, notes,
-          applied_date, follow_up_date, created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      .run(
-        "legacy-application",
-        "Legacy Co",
-        "Product Engineer",
-        "applied",
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        "2026-07-01T12:00:00.000Z",
-        "2026-07-01T12:00:00.000Z"
+        id TEXT PRIMARY KEY, company TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL,
+        source TEXT, location TEXT, url TEXT, contact TEXT, notes TEXT, applied_date TEXT,
+        follow_up_date TEXT, next_action TEXT, next_action_date TEXT,
+        priority TEXT NOT NULL DEFAULT 'medium', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       );
-    legacyDatabase.close();
+      CREATE TABLE application_notes (
+        id TEXT PRIMARY KEY, application_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'update',
+        body TEXT NOT NULL, follow_up_date TEXT, created_at TEXT NOT NULL
+      );
+      CREATE TABLE application_status_changes (
+        id TEXT PRIMARY KEY, application_id TEXT NOT NULL, from_status TEXT, to_status TEXT NOT NULL,
+        note TEXT, created_at TEXT NOT NULL
+      );
+      CREATE TABLE application_artifacts (
+        id TEXT PRIMARY KEY, application_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL,
+        file_path TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT 'text/markdown',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE(application_id, type, file_path)
+      );
+    `);
+    legacy.prepare(`INSERT INTO applications VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run("legacy-application", "Legacy Co", "Engineering Manager", "interviewing", "Referral", "Example City", "https://example.com/job", "Maya Chen", "Legacy summary", "2026-07-01", null, "Send portfolio", "2026-07-15", "high", "2026-07-01T12:00:00.000Z", "2026-07-02T12:00:00.000Z");
+    legacy.prepare(`INSERT INTO application_notes VALUES (?, ?, ?, ?, ?, ?)`)
+      .run("legacy-follow-up", "legacy-application", "follow_up", "Follow up with recruiter", "2026-07-18", "2026-07-03T12:00:00.000Z");
+    legacy.prepare(`INSERT INTO application_notes VALUES (?, ?, ?, ?, ?, ?)`)
+      .run("legacy-note", "legacy-application", "update", "Portfolio requested", null, "2026-07-04T12:00:00.000Z");
+    legacy.prepare(`INSERT INTO application_status_changes VALUES (?, ?, ?, ?, ?, ?)`)
+      .run("legacy-status", "legacy-application", "applied", "interviewing", "Screen booked", "2026-07-05T12:00:00.000Z");
+    legacy.prepare(`INSERT INTO application_artifacts VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run("legacy-artifact", "legacy-application", "resume", "Resume", "/tmp/resume.pdf", "application/pdf", "2026-07-01T12:00:00.000Z", "2026-07-01T12:00:00.000Z");
+    legacy.close();
 
-    expect(getApplication("legacy-application")).toMatchObject({
-      nextAction: null,
-      nextActionDate: null,
-      priority: "medium"
+    const detail = getOpportunityDetail("legacy-application");
+    expect(detail).toMatchObject({
+      id: "legacy-application", type: "job", label: "Engineering Manager",
+      organization: "Legacy Co", status: "interviewing"
     });
-  });
-
-  it("searches case-insensitively across application text fields", () => {
-    createApplication({ ...baseInput, company: "Northstar Labs", notes: "React role" });
-    createApplication({ ...baseInput, company: "Orbit", contact: "Maya Chen" });
-
-    expect(listApplications({ search: "northstar" })).toHaveLength(1);
-    expect(listApplications({ search: "MAYA" })[0]?.company).toBe("Orbit");
-    expect(listApplications({ search: "react" })[0]?.company).toBe("Northstar Labs");
-  });
-
-  it("filters by status when status is not all", () => {
-    createApplication({ ...baseInput, company: "Applied Co", status: "applied" });
-    createApplication({ ...baseInput, company: "Offer Co", status: "offer" });
-
-    expect(listApplications({ status: "offer" }).map((application) => application.company)).toEqual([
-      "Offer Co"
+    expect(detail?.activities.map((activity) => activity.type)).toEqual([
+      "opportunity_created", "status_change", "note", "status_change"
     ]);
-    expect(listApplications({ status: "all" })).toHaveLength(2);
-  });
-
-  it("gets, updates, and deletes applications", () => {
-    const created = createApplication(baseInput);
-
-    expect(getApplication(created.id)?.company).toBe("Acme");
-
-    const updated = updateApplication(created.id, {
-      ...baseInput,
-      company: "Acme Systems",
-      status: "interviewing",
-      source: ""
-    });
-
-    expect(updated).toMatchObject({
-      company: "Acme Systems",
-      status: "interviewing",
-      source: null
-    });
-    expect(deleteApplication(created.id)).toBe(true);
-    expect(getApplication(created.id)).toBeNull();
-    expect(deleteApplication(created.id)).toBe(false);
-  });
-
-  it("persists data in the configured SQLite file", () => {
-    const created = createApplication(baseInput);
+    expect(detail?.tasks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: "Send portfolio", dueDate: "2026-07-15", state: "open" }),
+      expect.objectContaining({ title: "Follow up with recruiter", dueDate: "2026-07-18", state: "open" })
+    ]));
+    expect(detail?.artifacts[0]).toMatchObject({ id: "legacy-artifact", type: "resume" });
 
     resetStorageForTests();
-
-    expect(getApplication(created.id)?.company).toBe("Acme");
-  });
-
-  it("rejects invalid application input with clear errors", () => {
-    expect(() => createApplication({ ...baseInput, company: "" })).toThrow(/company/i);
-    expect(() => createApplication({ ...baseInput, role: "   " })).toThrow(/role/i);
-    expect(() =>
-      createApplication({ ...baseInput, status: "not-a-status" as ApplicationInput["status"] })
-    ).toThrow(/status/i);
-    expect(() => createApplication({ ...baseInput, appliedDate: "07/08/2026" })).toThrow(/yyyy-mm-dd/i);
-  });
-
-  it("records notes and status changes in a readable application activity history", () => {
-    const created = createApplication({ ...baseInput, followUpDate: null });
-
-    const note = addApplicationNote(created.id, "  Recruiter asked for portfolio links  ");
-    const statusChange = changeApplicationStatus(
-      created.id,
-      "interviewing",
-      "Phone screen scheduled for Friday"
-    );
-    const detail = getApplicationDetail(created.id);
-
-    expect(note).toMatchObject({
-      applicationId: created.id,
-      type: "update",
-      body: "Recruiter asked for portfolio links"
-    });
-    expect(statusChange).toMatchObject({
-      applicationId: created.id,
-      fromStatus: "applied",
-      toStatus: "interviewing",
-      note: "Phone screen scheduled for Friday"
-    });
-    expect(detail).toMatchObject({
-      id: created.id,
-      status: "interviewing"
-    });
-    expect(detail?.notes.map((item) => item.body)).toEqual([
-      "Recruiter asked for portfolio links"
-    ]);
-    expect(detail?.statusHistory).toEqual([
-      expect.objectContaining({
-        fromStatus: null,
-        toStatus: "applied",
-        note: "Application created"
-      }),
-      expect.objectContaining({
-        fromStatus: "applied",
-        toStatus: "interviewing",
-        note: "Phone screen scheduled for Friday"
-      })
-    ]);
-    expect(detail?.activity.map((item) => item.activityType)).toEqual(["status", "note", "status"]);
-  });
-
-  it("rejects blank notes, missing applications, and no-op status changes", () => {
-    const created = createApplication(baseInput);
-
-    expect(() => addApplicationNote(created.id, "   ")).toThrow(/note/i);
-    expect(() => addApplicationNote("missing", "Followed up")).toThrow(/not found/i);
-    expect(() => changeApplicationStatus(created.id, "applied")).toThrow(/already applied/i);
-    expect(() => changeApplicationStatus("missing", "offer")).toThrow(/not found/i);
-  });
-
-  it("stores typed notes and lists scheduled follow-up notes as the follow-up queue", () => {
-    const created = createApplication({ ...baseInput, followUpDate: null });
-
-    addApplicationNote(created.id, {
-      type: "internal",
-      body: "Ask about team stability"
-    });
-    addApplicationNote(created.id, {
-      type: "follow_up",
-      body: "Send portfolio links",
-      followUpDate: "2026-07-20"
-    });
-    addApplicationNote(created.id, {
-      type: "update",
-      body: "Recruiter screen completed",
-      followUpDate: "2026-07-21"
-    });
-
-    const detail = getApplicationDetail(created.id);
-    const followUps = listFollowUps();
-
-    expect(detail?.notes.map((note) => ({
-      type: note.type,
-      body: note.body,
-      followUpDate: note.followUpDate
-    }))).toEqual([
-      {
-        type: "internal",
-        body: "Ask about team stability",
-        followUpDate: null
-      },
-      {
-        type: "follow_up",
-        body: "Send portfolio links",
-        followUpDate: "2026-07-20"
-      },
-      {
-        type: "update",
-        body: "Recruiter screen completed",
-        followUpDate: null
-      }
-    ]);
-    expect(followUps).toEqual([
-      expect.objectContaining({
-        applicationId: created.id,
-        type: "follow_up",
-        body: "Send portfolio links",
-        followUpDate: "2026-07-20",
-        application: expect.objectContaining({
-          company: "Acme",
-          role: "Frontend Engineer"
-        })
-      })
-    ]);
-  });
-
-  it("returns the earliest typed follow-up date on application rows", () => {
-    const created = createApplication({ ...baseInput, followUpDate: null });
-
-    addApplicationNote(created.id, {
-      type: "follow_up",
-      body: "Later follow-up",
-      followUpDate: "2026-08-10"
-    });
-    addApplicationNote(created.id, {
-      type: "follow_up",
-      body: "Sooner follow-up",
-      followUpDate: "2026-07-20"
-    });
-
-    expect(getApplication(created.id)?.followUpDate).toBe("2026-07-20");
-    expect(listApplications().find((application) => application.id === created.id)?.followUpDate).toBe(
-      "2026-07-20"
-    );
-  });
-
-  it("backfills legacy application follow-up dates into follow-up notes", () => {
-    const created = createApplication({ ...baseInput, followUpDate: "2026-07-22" });
-    const detail = getApplicationDetail(created.id);
-
-    expect(detail?.followUpDate).toBe("2026-07-22");
-    expect(detail?.notes).toEqual([
-      expect.objectContaining({
-        type: "follow_up",
-        body: "Follow up",
-        followUpDate: "2026-07-22"
-      })
-    ]);
-    expect(listFollowUps()[0]).toEqual(
-      expect.objectContaining({
-        applicationId: created.id,
-        followUpDate: "2026-07-22"
-      })
-    );
-  });
-
-  it("requires follow-up notes to have a valid follow-up date", () => {
-    const created = createApplication({ ...baseInput, followUpDate: null });
-
-    expect(() =>
-      addApplicationNote(created.id, {
-        type: "follow_up",
-        body: "Send thank-you note"
-      })
-    ).toThrow(/follow-up date/i);
-    expect(() =>
-      addApplicationNote(created.id, {
-        type: "follow_up",
-        body: "Send thank-you note",
-        followUpDate: "07/20/2026"
-      })
-    ).toThrow(/yyyy-mm-dd/i);
-    expect(() =>
-      addApplicationNote(created.id, {
-        type: "not-real" as "update",
-        body: "Unsupported note type"
-      })
-    ).toThrow(/note type/i);
-  });
-
-  it("associates Markdown artifacts with application details without duplicating content", () => {
-    const created = createApplication(baseInput);
-    const artifactDir = path.join(tempDir, "applications", "Acme");
-    const artifactPath = path.join(artifactDir, "frontend-engineer-fit-analysis.md");
-    mkdirSync(artifactDir, { recursive: true });
-    writeFileSync(
-      artifactPath,
-      [
-        "# Acme - Frontend Engineer Fit Analysis",
-        "",
-        "## Areas Where I Am Well-Qualified",
-        "",
-        "- Built production React workflows."
-      ].join("\n")
-    );
-
-    const artifact = upsertApplicationArtifact(created.id, {
-      type: "fit_analysis",
-      title: "Fit Analysis",
-      filePath: artifactPath,
-      contentType: "text/markdown"
-    });
-    const detail = getApplicationDetail(created.id);
-
-    expect(artifact).toMatchObject({
-      applicationId: created.id,
-      type: "fit_analysis",
-      title: "Fit Analysis",
-      filePath: artifactPath,
-      contentType: "text/markdown"
-    });
-    expect(detail?.artifacts).toEqual([
-      expect.objectContaining({
-        id: artifact.id,
-        type: "fit_analysis",
-        title: "Fit Analysis",
-        content: expect.stringContaining("## Areas Where I Am Well-Qualified"),
-        readError: null
-      })
-    ]);
-
-    writeFileSync(artifactPath, "# Updated Fit Analysis\n\nUpdated from the file.");
-
-    expect(getApplicationDetail(created.id)?.artifacts[0]?.content).toContain(
-      "Updated from the file."
-    );
-  });
-
-  it("shows only resume, fit analysis, and outreach artifacts on application details", () => {
-    const created = createApplication(baseInput);
-    const artifactDir = path.join(tempDir, "applications", "Acme");
-    mkdirSync(artifactDir, { recursive: true });
-
-    const files = {
-      resume: path.join(artifactDir, "resume.pdf"),
-      fit: path.join(artifactDir, "fit-analysis.md"),
-      outreach: path.join(artifactDir, "reach-out-message.md"),
-      posting: path.join(artifactDir, "posting.pdf")
-    };
-    writeFileSync(files.resume, "pdf");
-    writeFileSync(files.fit, "# Fit Analysis");
-    writeFileSync(files.outreach, "# Outreach");
-    writeFileSync(files.posting, "pdf");
-
-    upsertApplicationArtifact(created.id, {
-      type: "posting",
-      title: "Posting",
-      filePath: files.posting,
-      contentType: "application/pdf"
-    });
-    upsertApplicationArtifact(created.id, {
-      type: "outreach_message",
-      title: "Outreach",
-      filePath: files.outreach,
-      contentType: "text/markdown"
-    });
-    upsertApplicationArtifact(created.id, {
-      type: "fit_analysis",
-      title: "Fit Analysis",
-      filePath: files.fit,
-      contentType: "text/markdown"
-    });
-    upsertApplicationArtifact(created.id, {
-      type: "resume",
-      title: "Resume",
-      filePath: files.resume,
-      contentType: "application/pdf"
-    });
-
-    expect(getApplicationDetail(created.id)?.artifacts.map((artifact) => artifact.type)).toEqual([
-      "fit_analysis",
-      "outreach_message",
-      "resume"
-    ]);
-    expect(getApplicationDetail(created.id)?.artifacts[2]).toEqual(
-      expect.objectContaining({
-        type: "resume",
-        content: null,
-        readError: null
-      })
-    );
+    const rerun = getOpportunityDetail("legacy-application");
+    expect(listOpportunities()).toHaveLength(1);
+    expect(rerun?.activities).toHaveLength(4);
+    expect(rerun?.tasks).toHaveLength(2);
+    expect(rerun?.artifacts).toHaveLength(1);
   });
 });

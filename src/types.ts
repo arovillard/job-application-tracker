@@ -1,155 +1,36 @@
-export const APPLICATION_STATUSES = [
-  "wishlist",
-  "applied",
-  "interviewing",
-  "offer",
-  "rejected",
-  "archived"
-] as const;
+export const OPPORTUNITY_TYPES = ["job", "connection"] as const;
+export const JOB_STATUSES = ["wishlist", "applied", "interviewing", "offer", "rejected", "archived"] as const;
+export const CONNECTION_STATUSES = ["new", "outreach_planned", "waiting", "in_conversation", "opportunity_identified", "dormant", "closed", "archived"] as const;
+export const RELATIONSHIP_STRENGTHS = ["new", "familiar", "strong"] as const;
+export const OPPORTUNITY_PRIORITIES = ["low", "medium", "high"] as const;
+export const OPPORTUNITY_ACTIVITY_TYPES = ["note", "meeting", "call", "email", "message", "introduction", "status_change", "task_created", "task_completed", "task_cancelled", "task_rescheduled", "opportunity_created", "linked_job_created"] as const;
+export const OPPORTUNITY_TASK_STATES = ["open", "completed", "cancelled"] as const;
+export const OPPORTUNITY_ARTIFACT_TYPES = ["fit_analysis", "outreach_message", "referral_message", "cover_letter", "resume", "posting", "other"] as const;
 
-export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
+export type OpportunityType = (typeof OPPORTUNITY_TYPES)[number];
+export type JobStatus = (typeof JOB_STATUSES)[number];
+export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
+export type OpportunityStatus = JobStatus | ConnectionStatus;
+export type OpportunityPriority = (typeof OPPORTUNITY_PRIORITIES)[number];
+export type RelationshipStrength = (typeof RELATIONSHIP_STRENGTHS)[number];
+export type OpportunityActivityType = (typeof OPPORTUNITY_ACTIVITY_TYPES)[number];
+export type OpportunityTaskState = (typeof OPPORTUNITY_TASK_STATES)[number];
+export type OpportunityArtifactType = (typeof OPPORTUNITY_ARTIFACT_TYPES)[number];
 
-export const APPLICATION_PRIORITIES = ["low", "medium", "high"] as const;
-
-export type ApplicationPriority = (typeof APPLICATION_PRIORITIES)[number];
-
-export const STATUS_LABELS: Record<ApplicationStatus, string> = {
-  wishlist: "Wishlist",
-  applied: "Applied",
-  interviewing: "Interviewing",
-  offer: "Offer",
-  rejected: "Rejected",
-  archived: "Archived"
-};
-
-export const APPLICATION_NOTE_TYPES = ["update", "internal", "follow_up"] as const;
-
-export type ApplicationNoteType = (typeof APPLICATION_NOTE_TYPES)[number];
-
-export const APPLICATION_ARTIFACT_TYPES = [
-  "fit_analysis",
-  "outreach_message",
-  "referral_message",
-  "cover_letter",
-  "resume",
-  "posting",
-  "other"
-] as const;
-
-export type ApplicationArtifactType = (typeof APPLICATION_ARTIFACT_TYPES)[number];
-
-export const NOTE_TYPE_LABELS: Record<ApplicationNoteType, string> = {
-  update: "Update",
-  internal: "Internal note",
-  follow_up: "Follow-up"
-};
-
-export type Application = {
-  id: string;
-  company: string;
-  role: string;
-  status: ApplicationStatus;
-  source: string | null;
-  location: string | null;
-  url: string | null;
-  contact: string | null;
-  notes: string | null;
-  appliedDate: string | null;
-  followUpDate: string | null;
-  nextAction: string | null;
-  nextActionDate: string | null;
-  priority: ApplicationPriority;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type ApplicationInput = Omit<Application, "id" | "createdAt" | "updatedAt" | "priority" | "nextAction" | "nextActionDate"> & {
-  priority?: ApplicationPriority;
-  nextAction?: string | null;
-  nextActionDate?: string | null;
-};
-
-export type ApplicationNote = {
-  id: string;
-  applicationId: string;
-  type: ApplicationNoteType;
-  body: string;
-  followUpDate: string | null;
-  createdAt: string;
-};
-
-export type ApplicationNoteInput = {
-  type: ApplicationNoteType;
-  body: string;
-  followUpDate?: string | null;
-};
-
-export type ApplicationStatusChange = {
-  id: string;
-  applicationId: string;
-  fromStatus: ApplicationStatus | null;
-  toStatus: ApplicationStatus;
-  note: string | null;
-  createdAt: string;
-};
-
-export type ApplicationArtifact = {
-  id: string;
-  applicationId: string;
-  type: ApplicationArtifactType;
-  title: string;
-  filePath: string;
-  contentType: string;
-  content: string | null;
-  readError: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type ApplicationArtifactInput = {
-  type: ApplicationArtifactType;
-  title: string;
-  filePath: string;
-  contentType?: string | null;
-};
-
-export type ApplicationActivity =
-  | (ApplicationNote & {
-      activityType: "note";
-    })
-  | (ApplicationStatusChange & {
-      activityType: "status";
-    });
-
-export type FollowUpItem = ApplicationNote & {
-  application: Pick<Application, "id" | "company" | "role" | "status" | "source" | "location">;
-};
-
-export type ApplicationDetail = Omit<Application, "notes"> & {
-  summary: string | null;
-  notes: ApplicationNote[];
-  statusHistory: ApplicationStatusChange[];
-  artifacts: ApplicationArtifact[];
-  activity: ApplicationActivity[];
-};
-
-export type ApplicationFilters = {
-  search?: string;
-  status?: ApplicationStatus | "all";
-};
-
-export const EMPTY_APPLICATION_INPUT: ApplicationInput = {
-  company: "",
-  role: "",
-  status: "wishlist",
-  source: null,
-  location: null,
-  url: null,
-  contact: null,
-  notes: null,
-  appliedDate: null,
-  followUpDate: null,
-  nextAction: null,
-  nextActionDate: null,
-  priority: "medium"
-};
+export type OpportunityBase = { id: string; type: OpportunityType; label: string; organization: string | null; status: OpportunityStatus; priority: OpportunityPriority; summary: string | null; originOpportunityId: string | null; createdAt: string; updatedAt: string };
+export type JobOpportunity = OpportunityBase & { type: "job"; status: JobStatus; url: string | null; source: string | null; location: string | null; contact: string | null; appliedDate: string | null };
+export type ConnectionOpportunity = OpportunityBase & { type: "connection"; status: ConnectionStatus; originOpportunityId: null; roleContext: string | null; contactInfo: string | null; meetingContext: string | null; relationshipStrength: RelationshipStrength; lastInteractionAt: string | null };
+export type Opportunity = JobOpportunity | ConnectionOpportunity;
+export type OpportunitySummary = Opportunity & { nextOpenTask: OpportunityTask | null };
+export type JobOpportunityInput = { type: "job"; label: string; organization?: string | null; status: JobStatus; priority?: OpportunityPriority; summary?: string | null; url?: string | null; source?: string | null; location?: string | null; contact?: string | null; appliedDate?: string | null; originOpportunityId?: string | null };
+export type ConnectionOpportunityInput = { type: "connection"; label: string; organization?: string | null; status: ConnectionStatus; priority?: OpportunityPriority; summary?: string | null; roleContext?: string | null; contactInfo?: string | null; meetingContext?: string | null; relationshipStrength?: RelationshipStrength };
+export type OpportunityInput = JobOpportunityInput | ConnectionOpportunityInput;
+export type OpportunityActivity = { id: string; opportunityId: string; type: OpportunityActivityType; body: string; metadata: Record<string, unknown> | null; occurredAt: string; createdAt: string };
+export type OpportunityActivityInput = { type: Extract<OpportunityActivityType, "note" | "meeting" | "call" | "email" | "message" | "introduction">; body: string; occurredAt?: string | null; metadata?: Record<string, unknown> | null };
+export type OpportunityTask = { id: string; opportunityId: string; title: string; dueDate: string | null; state: OpportunityTaskState; sourceActivityId: string | null; completedAt: string | null; createdAt: string; updatedAt: string };
+export type OpportunityTaskInput = { title: string; dueDate?: string | null; sourceActivityId?: string | null };
+export type OpportunityTaskUpdateInput = { state?: OpportunityTaskState; dueDate?: string | null; title?: string };
+export type OpportunityArtifact = { id: string; opportunityId: string; type: OpportunityArtifactType; title: string; filePath: string; contentType: string; createdAt: string; updatedAt: string };
+export type OpportunityArtifactInput = { type: OpportunityArtifactType; title: string; filePath: string; contentType?: string | null };
+export type OpportunityFilters = { type?: OpportunityType | "all"; status?: OpportunityStatus | "all"; search?: string; includeArchived?: boolean };
+export type OpportunityDetail = Opportunity & { activities: OpportunityActivity[]; tasks: OpportunityTask[]; artifacts: OpportunityArtifact[]; origin: ConnectionOpportunity | null; originatedJobs: JobOpportunity[] };
