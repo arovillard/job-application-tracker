@@ -124,17 +124,16 @@ export function Dashboard() {
   return <main className="app-shell dashboard-shell">
     <header className="dashboard-header"><div className="dashboard-header__brand"><span className="brand-mark" aria-hidden="true">O</span><span>Opportunity Tracker</span></div>
       <div className="dashboard-header__actions"><span className="shortcut-hint"><kbd>⌘</kbd><kbd>K</kbd> Search</span>
-        <button className="icon-button" type="button" aria-label="Toggle theme" onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}>{theme === "light" ? "◐" : "☼"}</button>
+        <button className="icon-button" type="button" aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"} onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}>{theme === "light" ? "◐" : "☼"}</button>
         <NewOpportunityMenu />
       </div></header>
     {error ? <div className="notice notice--error" role="alert">{error}</div> : null}
     <section className="pipeline-workspace" aria-labelledby="pipeline-title">
-      <div className="pipeline-workspace__header"><div><p className="panel-heading__eyebrow">Workspace</p><h1 id="pipeline-title">Opportunities</h1></div><span className="pipeline-workspace__count">{loading ? "Loading opportunities" : `${filtered.length} in view`}</span></div>
+      <div className="pipeline-workspace__header"><div><p className="panel-heading__eyebrow">Pipeline</p><h2 id="pipeline-title">Your opportunities</h2></div><span className="pipeline-workspace__count">{loading ? "Loading your pipeline" : `${filtered.length} in view`}{pendingStatusId ? " · Updating stage" : ""}</span></div>
       <div className="pipeline-controls"><div className="pipeline-controls__filters">
-        <label className="search-field"><span className="sr-only">Search opportunities</span><input className="search-field__input" ref={searchRef} type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search people, companies, and roles" /></label>
+        <label className="search-field"><span className="sr-only">Search opportunities</span><span className="search-field__icon" aria-hidden="true">⌕</span><input className="search-field__input" ref={searchRef} type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search opportunities" /></label>
         <label className="select-field"><span className="sr-only">Sort opportunities</span><select value={sort} onChange={(event) => setSort(event.target.value as SortValue)}><option value="updated">Recently updated</option><option value="next-action">Next action date</option><option value="priority">Priority</option><option value="organization">Organization</option></select></label>
-      </div><OpportunityTypeFilter value={typeFilter} onChange={(value) => { setTypeFilter(value); setStatusFilter(value === "all" ? "active" : "all"); }} /></div>
-      <StatusFilter value={statusFilter} options={statusOptions} onChange={setStatusFilter} />
+      </div><div className="pipeline-filter-rail" role="region" aria-label="Filter opportunities"><OpportunityTypeFilter value={typeFilter} onChange={(value) => { setTypeFilter(value); setStatusFilter(value === "all" ? "active" : "all"); }} /><StatusFilter value={statusFilter} options={statusOptions} onChange={setStatusFilter} /></div></div>
       <AttentionQueue items={insights.attention} loading={loading} onViewAll={() => { setTypeFilter("all"); setStatusFilter("attention"); }} />
       <OpportunityTable opportunities={filtered} loading={loading} pendingStatusId={pendingStatusId} onStatusChange={updateStatus} emptyMessage={search ? "No opportunities match this search." : "Create your first job or connection opportunity."} />
     </section>

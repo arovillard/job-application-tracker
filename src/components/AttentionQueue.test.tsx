@@ -11,4 +11,12 @@ describe("AttentionQueue", () => {
 
     expect(markup).toBe("");
   });
+
+  it("names the loading state", () => {
+    const markup = renderToStaticMarkup(
+      <AttentionQueue items={[]} loading onViewAll={() => undefined} />
+    );
+
+    expect(markup).toContain('aria-label="Loading attention queue"');
+  });
 });

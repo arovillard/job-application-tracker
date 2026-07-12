@@ -5,8 +5,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const themeState = vi.hoisted(() => ({ theme: "light" as "light" | "dark", setTheme: vi.fn() }));
+
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock("./ThemeProvider", () => ({ useTheme: () => ({ theme: "light", setTheme: vi.fn() }) }));
+vi.mock("./ThemeProvider", () => ({ useTheme: () => themeState }));
 vi.mock("./Toast", () => ({ Toast: () => null }));
 
 import { Dashboard } from "./Dashboard";
@@ -26,6 +28,7 @@ function mountDashboard() {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  themeState.theme = "light";
   document.body.innerHTML = "";
 });
 
@@ -33,7 +36,11 @@ describe("Dashboard", () => {
   it("renders opportunity type and broad-status controls", () => {
     const markup = renderToStaticMarkup(<Dashboard />);
 
-    expect(markup).toContain("Opportunities");
+    expect(markup).toContain("Pipeline");
+    expect(markup).toContain('<h2 id="pipeline-title">Your opportunities</h2>');
+    expect(markup).toContain('class="search-field__icon"');
+    expect(markup).toContain('aria-label="Filter opportunities"');
+    expect(markup).not.toContain("Workspace");
     expect(markup).toContain("Jobs");
     expect(markup).toContain("Connections");
     expect(markup).toContain("Active");
@@ -43,6 +50,14 @@ describe("Dashboard", () => {
     expect(markup).toContain("New opportunity");
     expect(markup).not.toContain('href="/opportunities/new"');
     expect(markup).not.toContain("New application");
+  });
+
+  it("names the theme control for the destination theme", () => {
+    expect(renderToStaticMarkup(<Dashboard />)).toContain('aria-label="Switch to dark theme"');
+
+    themeState.theme = "dark";
+
+    expect(renderToStaticMarkup(<Dashboard />)).toContain('aria-label="Switch to light theme"');
   });
 
   it("does not steal focus or prevent search shortcuts in editable targets", () => {

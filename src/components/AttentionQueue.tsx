@@ -14,7 +14,7 @@ export function AttentionQueue({ items, maxItems = 3, loading = false, onViewAll
   if (!loading && visibleItems.length === 0) return null;
   return <section className="attention-strip" aria-label="Opportunities needing attention">
     <div className="attention-strip__summary"><strong>Needs attention</strong><span>{loading ? "Checking your next moves" : `${items.length} to review`}</span></div>
-    {loading ? <div className="attention-strip__skeleton" aria-busy="true"><span /><span /><span /></div> : <div className="attention-strip__items">
+    {loading ? <div className="attention-strip__skeleton" aria-busy="true" aria-label="Loading attention queue"><span /><span /><span /></div> : <div className="attention-strip__items">
       {visibleItems.map((item) => <Link className="attention-strip__item" href={`/opportunities/${item.opportunityId}`} key={item.id}>
         <span className={`attention-list__marker attention-list__marker--${item.priority}`} aria-hidden="true" />
         <span className="attention-strip__content"><strong>{item.label}</strong><span className={item.isOverdue ? "attention-strip__due attention-strip__due--overdue" : "attention-strip__due"}>{dueCopy(item)}</span></span>
