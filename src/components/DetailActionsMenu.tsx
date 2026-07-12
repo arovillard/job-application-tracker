@@ -15,13 +15,14 @@ export function DetailActionsMenu({ hasLinkedJob, onArchive, onCreateLinkedJob, 
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef<HTMLButtonElement[]>([]);
-  const focusFirstOnOpen = useRef(false);
+  const focusItemOnOpen = useRef<number | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    if (focusFirstOnOpen.current) {
-      focusFirstOnOpen.current = false;
-      itemsRef.current[0]?.focus();
+    if (focusItemOnOpen.current !== null) {
+      const itemIndex = focusItemOnOpen.current;
+      focusItemOnOpen.current = null;
+      itemsRef.current[itemIndex]?.focus();
     }
     const dismiss = (event: MouseEvent) => {
       if (!menuRef.current?.contains(event.target as Node) && !triggerRef.current?.contains(event.target as Node)) setOpen(false);
@@ -38,6 +39,12 @@ export function DetailActionsMenu({ hasLinkedJob, onArchive, onCreateLinkedJob, 
     close(true);
     action();
   };
+  const entries = [
+    { label: "Edit details", action: onEdit },
+    ...(hasLinkedJob ? [{ label: "Create job opportunity", action: onCreateLinkedJob }] : []),
+    { label: "Archive", action: onArchive },
+    { label: "Delete permanently", action: onDelete }
+  ];
   const keyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
     const count = itemsRef.current.length;
     if (event.key === "Escape") {
@@ -57,18 +64,12 @@ export function DetailActionsMenu({ hasLinkedJob, onArchive, onCreateLinkedJob, 
       itemsRef.current[(index - 1 + count) % count]?.focus();
     }
   };
-  const entries = [
-    { label: "Edit details", action: onEdit },
-    ...(hasLinkedJob ? [{ label: "Create job opportunity", action: onCreateLinkedJob }] : []),
-    { label: "Archive", action: onArchive },
-    { label: "Delete permanently", action: onDelete }
-  ];
 
   return <div className="detail-actions-menu">
     <button aria-controls="detail-actions-menu" aria-expanded={open} aria-haspopup="menu" className="button" ref={triggerRef} type="button" onClick={() => setOpen((current) => !current)} onKeyDown={(event) => {
-      if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      if (["Enter", " ", "ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
         event.preventDefault();
-        focusFirstOnOpen.current = true;
+        focusItemOnOpen.current = ["ArrowUp", "End"].includes(event.key) ? entries.length - 1 : 0;
         setOpen(true);
       }
     }}>More</button>

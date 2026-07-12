@@ -24,7 +24,26 @@ afterEach(() => {
 });
 
 describe("DetailActionsMenu", () => {
-  it("moves keyboard-opened menus to the first item and restores More before invoking a dialog action", () => {
+  it.each([
+    ["Enter", "Edit details"],
+    [" ", "Edit details"],
+    ["ArrowDown", "Edit details"],
+    ["Home", "Edit details"],
+    ["ArrowUp", "Delete permanently"],
+    ["End", "Delete permanently"]
+  ])("opens from a focused trigger with %s and focuses %s", (key, expectedItem) => {
+    const { container, root } = mountMenu();
+    const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+
+    act(() => trigger.focus());
+    act(() => trigger.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement?.textContent).toBe(expectedItem);
+    act(() => root.unmount());
+  });
+
+  it("restores the trigger before invoking a dialog action", () => {
     const onEdit = vi.fn();
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -32,7 +51,8 @@ describe("DetailActionsMenu", () => {
     act(() => { root = createRoot(container); root.render(<DetailActionsMenu hasLinkedJob onArchive={vi.fn()} onCreateLinkedJob={vi.fn()} onDelete={vi.fn()} onEdit={onEdit} />); });
     const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
 
-    act(() => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    act(() => trigger.focus());
+    act(() => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
     expect(document.activeElement?.textContent).toBe("Edit details");
     act(() => (document.activeElement as HTMLButtonElement).click());
     expect(onEdit).toHaveBeenCalledOnce();
@@ -40,7 +60,7 @@ describe("DetailActionsMenu", () => {
     act(() => root!.unmount());
   });
 
-  it("opens an accessible menu and supports Arrow, Home, End, Escape, and outside dismissal", () => {
+  it("wraps repeated item navigation, restores on Escape, and leaves focus alone on outside dismissal", () => {
     const { container, root } = mountMenu();
     const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
 
@@ -49,13 +69,18 @@ describe("DetailActionsMenu", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(items.map((item) => item.textContent)).toEqual(["Edit details", "Create job opportunity", "Archive", "Delete permanently"]);
 
-    act(() => items[0].dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+    act(() => items[0].focus());
+    act(() => items[0].dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true })));
     expect(document.activeElement).toBe(items[3]);
-    act(() => items[3].dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+    act(() => (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
     expect(document.activeElement).toBe(items[0]);
-    act(() => items[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    act(() => (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(items[3]);
+    act(() => (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(items[0]);
+    act(() => (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
     expect(document.activeElement).toBe(items[1]);
-    act(() => items[1].dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    act(() => (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
     expect(container.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
 
