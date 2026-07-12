@@ -39,11 +39,13 @@ describe("NewOpportunityMenu", () => {
     });
 
     expect(button.getAttribute("aria-expanded")).toBe("true");
-    expect(container.querySelector('[href="/opportunities/new?type=job"]')).not.toBeNull();
+    const jobItem = container.querySelector('[href="/opportunities/new?type=job"]')!;
+    expect(jobItem).not.toBeNull();
     expect(container.querySelector('[href="/opportunities/new?type=connection"]')).not.toBeNull();
 
     act(() => {
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      (jobItem as HTMLElement).focus();
+      jobItem.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     });
 
     expect(button.getAttribute("aria-expanded")).toBe("false");
@@ -58,18 +60,111 @@ describe("NewOpportunityMenu", () => {
     act(() => {
       button.click();
     });
+    container.querySelector('[href="/opportunities/new?type=job"]')!.addEventListener("click", (event) => event.preventDefault());
     act(() => {
-      container.querySelector('[href="/opportunities/new?type=job"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      container.querySelector('[href="/opportunities/new?type=job"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     });
     expect(button.getAttribute("aria-expanded")).toBe("false");
 
     act(() => {
       button.click();
     });
+    container.querySelector('[href="/opportunities/new?type=connection"]')!.addEventListener("click", (event) => event.preventDefault());
     act(() => {
-      container.querySelector('[href="/opportunities/new?type=connection"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      container.querySelector('[href="/opportunities/new?type=connection"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     });
     expect(button.getAttribute("aria-expanded")).toBe("false");
+    act(() => root.unmount());
+  });
+
+  it("moves focus through the menu from N with wrapping and home/end", () => {
+    const { container, root } = mountMenu();
+    const button = container.querySelector("button")!;
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+    });
+
+    const jobItem = container.querySelector('[href="/opportunities/new?type=job"]')! as HTMLElement;
+    const connectionItem = container.querySelector('[href="/opportunities/new?type=connection"]')! as HTMLElement;
+    expect(document.activeElement).toBe(jobItem);
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(jobItem);
+
+    act(() => {
+      jobItem.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(connectionItem);
+
+    act(() => {
+      connectionItem.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(jobItem);
+
+    act(() => {
+      jobItem.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(connectionItem);
+
+    act(() => {
+      connectionItem.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(jobItem);
+
+    act(() => {
+      jobItem.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(connectionItem);
+
+    act(() => {
+      connectionItem.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(jobItem);
+
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    act(() => root.unmount());
+  });
+
+  it("closes on Tab without preventing normal focus traversal", () => {
+    const { container, root } = mountMenu();
+    const button = container.querySelector("button")!;
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+    });
+    const jobItem = container.querySelector('[href="/opportunities/new?type=job"]')!;
+    const tabEvent = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+
+    act(() => {
+      jobItem.dispatchEvent(tabEvent);
+    });
+
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(tabEvent.defaultPrevented).toBe(false);
+
+    act(() => root.unmount());
+  });
+
+  it("closes on Shift+Tab without preventing normal focus traversal", () => {
+    const { container, root } = mountMenu();
+    const button = container.querySelector("button")!;
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+    });
+    const jobItem = container.querySelector('[href="/opportunities/new?type=job"]')!;
+    const tabEvent = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+
+    act(() => {
+      jobItem.dispatchEvent(tabEvent);
+    });
+
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(tabEvent.defaultPrevented).toBe(false);
+
     act(() => root.unmount());
   });
 
@@ -80,11 +175,36 @@ describe("NewOpportunityMenu", () => {
     act(() => {
       button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    outside.focus();
     act(() => {
       document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     });
 
     expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(outside);
+    act(() => root.unmount());
+  });
+
+  it("activates the focused item on Enter without restoring trigger focus", () => {
+    const { container, root } = mountMenu();
+    const button = container.querySelector("button")!;
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+    });
+    const jobItem = container.querySelector('[href="/opportunities/new?type=job"]')! as HTMLElement;
+    const activation = vi.fn((event: Event) => event.preventDefault());
+    jobItem.addEventListener("click", activation);
+
+    act(() => {
+      jobItem.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+
+    expect(activation).toHaveBeenCalledTimes(1);
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).not.toBe(button);
     act(() => root.unmount());
   });
 
