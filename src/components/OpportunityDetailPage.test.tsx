@@ -84,6 +84,14 @@ describe("OpportunityDetailContent", () => {
     expect(jobMarkup).toContain('class="stage-select" data-status="applied"');
   });
 
+  it("shows archived as an accurate disabled current stage without offering it as a transition", () => {
+    const activeMarkup = renderToStaticMarkup(<OpportunityDetailContent detail={job} onTaskAction={vi.fn()} />);
+    const archivedMarkup = renderToStaticMarkup(<OpportunityDetailContent detail={{ ...job, status: "archived" }} onTaskAction={vi.fn()} />);
+
+    expect(activeMarkup).not.toContain('<option disabled="" value="archived">');
+    expect(archivedMarkup).toContain('<option disabled="" value="archived" selected="">Archived</option>');
+  });
+
   it("keeps Archive out of the stage selector so it requires More confirmation", () => {
     const markup = renderToStaticMarkup(<OpportunityDetailContent detail={{ ...connection, status: "archived" }} onTaskAction={vi.fn()} />);
 
