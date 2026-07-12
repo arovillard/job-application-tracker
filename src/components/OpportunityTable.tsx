@@ -49,13 +49,15 @@ export function OpportunityTable({
   loading = false,
   pendingStatusId = null,
   onStatusChange,
-  emptyMessage
+  emptyMessage,
+  onClearFilters
 }: {
   opportunities: OpportunitySummary[];
   loading?: boolean;
   pendingStatusId?: string | null;
   onStatusChange?: (opportunity: OpportunitySummary, status: OpportunityStatus) => void | Promise<void>;
   emptyMessage?: string;
+  onClearFilters?: () => void;
 }) {
   if (loading) {
     return (
@@ -73,7 +75,7 @@ export function OpportunityTable({
         <div className="application-table__empty-state">
           <strong className="application-table__empty-title">Your opportunity pipeline is clear</strong>
           <p className="application-table__empty-message">{emptyMessage ?? "Create an opportunity to make your next move visible."}</p>
-          <p className="application-table__empty-message">Use New opportunity above to create your next record.</p>
+          {onClearFilters ? <button type="button" onClick={onClearFilters}>Clear filters</button> : <p className="application-table__empty-message">Use New opportunity above to create your next record.</p>}
         </div>
       </div>
     );
@@ -83,10 +85,10 @@ export function OpportunityTable({
     <div className="application-table">
       <table className="application-table__table">
         <thead className="application-table__head"><tr className="application-table__row">
-          <th className="application-table__header">Opportunity</th><th className="application-table__header">Stage</th>
-          <th className="application-table__header">Next move</th><th className="application-table__header">Focus</th>
-          <th className="application-table__header">Updated</th>
-          <th className="application-table__header application-table__header--actions"><span className="sr-only">Actions</span></th>
+          <th scope="col" className="application-table__header">Opportunity</th><th scope="col" className="application-table__header">Stage</th>
+          <th scope="col" className="application-table__header">Next move</th><th scope="col" className="application-table__header">Focus</th>
+          <th scope="col" className="application-table__header">Updated</th>
+          <th scope="col" className="application-table__header application-table__header--actions"><span className="sr-only">Actions</span></th>
         </tr></thead>
         <tbody className="application-table__body">
           {opportunities.map((opportunity) => {
@@ -101,6 +103,7 @@ export function OpportunityTable({
                 {opportunity.type === "job"
                   ? opportunity.location ? <span className="application-table__tertiary">{opportunity.location}</span> : null
                   : <span className="application-table__tertiary">{`${opportunity.relationshipStrength[0].toUpperCase()}${opportunity.relationshipStrength.slice(1)} relationship`}</span>}
+                {opportunity.type === "job" && opportunity.url ? <a href={opportunity.url} target="_blank" rel="noreferrer" aria-label={`View posting for ${opportunity.label}`}>View posting</a> : null}
               </div></td>
               <td className="application-table__cell" data-label="Stage">
                 {onStatusChange ? <label className="stage-select" data-status={opportunity.status}>

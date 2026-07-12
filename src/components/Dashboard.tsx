@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getDashboardInsights } from "../lib/dashboard";
 import { selectNextOpenTask } from "../lib/opportunity-tasks";
@@ -9,6 +9,7 @@ import { AttentionQueue } from "./AttentionQueue";
 import { CONNECTION_STATUS_LABELS, JOB_STATUS_LABELS, OpportunityTable, statusLabel } from "./OpportunityTable";
 import { OpportunityTypeFilter, type OpportunityTypeFilterValue } from "./OpportunityTypeFilter";
 import { NewOpportunityMenu } from "./NewOpportunityMenu";
+import { PipelinePulse } from "./PipelinePulse";
 import { StatusFilter, type StatusFilterOption } from "./StatusFilter";
 import { useTheme } from "./ThemeProvider";
 import { Toast } from "./Toast";
@@ -57,21 +58,36 @@ export function Dashboard() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; onAction?: () => void } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const pendingStatusRef = useRef(false);
+  const mountedRef = useRef(true);
+  const loadRequestRef = useRef(0);
   const { theme, setTheme } = useTheme();
 
-  useEffect(() => {
-    let active = true;
-    fetch("/api/opportunities?archived=include", { cache: "no-store" })
-      .then(async (response) => { if (!response.ok) throw new Error(await readError(response)); return response.json() as Promise<OpportunitySummary[]>; })
-      .then((loaded) => { if (active) setOpportunities(loaded); })
-      .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : "Unable to load opportunities"); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+  const loadOpportunities = useCallback(async () => {
+    const requestId = ++loadRequestRef.current;
+    setLoadError(null);
+    setLoading(true);
+    try {
+      const response = await fetch("/api/opportunities?archived=include", { cache: "no-store" });
+      if (!response.ok) throw new Error(await readError(response));
+      const loaded = await response.json() as OpportunitySummary[];
+      if (mountedRef.current && requestId === loadRequestRef.current) setOpportunities(loaded);
+    } catch (caught) {
+      if (mountedRef.current && requestId === loadRequestRef.current) setLoadError(caught instanceof Error ? caught.message : "Unable to load opportunities");
+    } finally {
+      if (mountedRef.current && requestId === loadRequestRef.current) setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void loadOpportunities();
+    return () => { mountedRef.current = false; };
+  }, [loadOpportunities]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -110,14 +126,14 @@ export function Dashboard() {
 
   const updateStatus = async (opportunity: OpportunitySummary, status: OpportunityStatus, suppressUndo = false) => {
     if (opportunity.status === status || pendingStatusRef.current) return;
-    pendingStatusRef.current = true; setPendingStatusId(opportunity.id); setError(null);
+    pendingStatusRef.current = true; setPendingStatusId(opportunity.id); setMutationError(null);
     try {
       const response = await fetch(`/api/opportunities/${opportunity.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
       if (!response.ok) throw new Error(await readError(response));
       const updated = detailToSummary(await response.json() as OpportunityDetail);
       setOpportunities((current) => current.map((item) => item.id === updated.id ? updated : item));
       if (!suppressUndo) setToast({ message: `${updated.label} moved to ${statusLabel(updated)}.`, onAction: () => void updateStatus(updated, opportunity.status, true) });
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to update stage"); }
+    } catch (caught) { setMutationError(caught instanceof Error ? caught.message : "Unable to update stage"); }
     finally { pendingStatusRef.current = false; setPendingStatusId(null); }
   };
 
@@ -127,16 +143,17 @@ export function Dashboard() {
         <button className="icon-button" type="button" aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"} onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}>{theme === "light" ? "◐" : "☼"}</button>
         <NewOpportunityMenu />
       </div></header>
-    {error ? <div className="notice notice--error" role="alert">{error}</div> : null}
-    <section className="pipeline-workspace" aria-labelledby="pipeline-title">
+    {loadError ? <section className="notice notice--error" role="alert"><p>{loadError}</p><button type="button" onClick={() => void loadOpportunities()}>Retry</button></section> : <section className="pipeline-workspace" aria-labelledby="pipeline-title">
       <div className="pipeline-workspace__header"><div><p className="panel-heading__eyebrow">Pipeline</p><h2 id="pipeline-title">Your opportunities</h2></div><span className="pipeline-workspace__count">{loading ? "Loading your pipeline" : `${filtered.length} in view`}{pendingStatusId ? " · Updating stage" : ""}</span></div>
+      {!loading ? <PipelinePulse opportunities={opportunities} attentionCount={insights.attention.length} /> : null}
+      {mutationError ? <div className="notice notice--error" role="alert">{mutationError}</div> : null}
       <div className="pipeline-controls"><div className="pipeline-controls__filters">
         <label className="search-field"><span className="sr-only">Search opportunities</span><span className="search-field__icon" aria-hidden="true">⌕</span><input className="search-field__input" ref={searchRef} type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search opportunities" /></label>
         <label className="select-field"><span className="sr-only">Sort opportunities</span><select value={sort} onChange={(event) => setSort(event.target.value as SortValue)}><option value="updated">Recently updated</option><option value="next-action">Next action date</option><option value="priority">Priority</option><option value="organization">Organization</option></select></label>
       </div><div className="pipeline-filter-rail" role="region" aria-label="Filter opportunities"><OpportunityTypeFilter value={typeFilter} onChange={(value) => { setTypeFilter(value); setStatusFilter(value === "all" ? "active" : "all"); }} /><StatusFilter value={statusFilter} options={statusOptions} onChange={setStatusFilter} /></div></div>
       <AttentionQueue items={insights.attention} loading={loading} onViewAll={() => { setTypeFilter("all"); setStatusFilter("attention"); }} />
-      <OpportunityTable opportunities={filtered} loading={loading} pendingStatusId={pendingStatusId} onStatusChange={updateStatus} emptyMessage={search ? "No opportunities match this search." : "Create your first job or connection opportunity."} />
-    </section>
+      <OpportunityTable opportunities={filtered} loading={loading} pendingStatusId={pendingStatusId} onStatusChange={updateStatus} emptyMessage={search || typeFilter !== "all" || statusFilter !== "active" ? "No opportunities match this search or filter." : "Create your first job or connection opportunity."} onClearFilters={search || typeFilter !== "all" || statusFilter !== "active" ? () => { setSearch(""); setTypeFilter("all"); setStatusFilter("active"); } : undefined} />
+    </section>}
     <Toast message={toast?.message ?? null} actionLabel={toast?.onAction ? "Undo" : undefined} onAction={() => { const action = toast?.onAction; setToast(null); action?.(); }} onDismiss={() => setToast(null)} />
   </main>;
 }

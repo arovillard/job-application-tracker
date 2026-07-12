@@ -167,4 +167,77 @@ describe("Dashboard", () => {
     });
     act(() => root.unmount());
   });
+
+  it("replaces the dashboard with a retryable load error without rendering loaded workspace content", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("Network unavailable"));
+    const { container, root } = mountDashboard();
+
+    await flushDashboard();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Network unavailable");
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Retry")).toBe(true);
+    expect(container.querySelector(".pipeline-pulse")).toBeNull();
+    expect(container.querySelector(".pipeline-controls")).toBeNull();
+    expect(container.querySelector(".application-table")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("retries a failed load and renders the pipeline pulse from the latest response", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new Error("Network unavailable"))
+      .mockResolvedValueOnce(jsonResponse([job, connection]));
+    const { container, root } = mountDashboard();
+
+    await flushDashboard();
+    act(() => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Retry")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.querySelector('.application-table--loading[role="status"]')?.textContent).toContain("Loading opportunities");
+    await flushDashboard();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.querySelector(".pipeline-pulse")?.textContent).toContain("2 Active");
+    expect(container.querySelector(".pipeline-pulse")?.textContent).toContain("2 Needs attention");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("keeps loaded opportunities visible when a stage mutation fails", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse([job]))
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({ error: "Stage update failed" }) } as Response);
+    const { container, root } = mountDashboard();
+
+    await flushDashboard();
+    const select = container.querySelector<HTMLSelectElement>(".stage-select select")!;
+    act(() => {
+      select.value = "offer";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await flushDashboard();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Stage update failed");
+    expect(container.querySelector(".pipeline-pulse")).not.toBeNull();
+    expect(container.querySelector(".application-table__primary")?.textContent).toBe("Platform Engineer");
+    act(() => root.unmount());
+  });
+
+  it("explains filtered empty results and clears every filter", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([job]));
+    const { container, root } = mountDashboard();
+
+    await flushDashboard();
+    act(() => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Closed")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("No opportunities match this search or filter.");
+    const clear = [...container.querySelectorAll("button")].find((button) => button.textContent === "Clear filters")!;
+    act(() => clear.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    expect([...container.querySelectorAll("button")].find((button) => button.textContent === "Active")?.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector(".application-table__primary")?.textContent).toBe("Platform Engineer");
+    act(() => root.unmount());
+  });
 });
