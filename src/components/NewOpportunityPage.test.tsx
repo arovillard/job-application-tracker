@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -6,7 +8,10 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams()
 }));
 
-import { buildConnectionCreationPayload } from "./ConnectionOpportunityForm";
+import {
+  buildConnectionCreationPayload,
+  ConnectionOpportunityForm
+} from "./ConnectionOpportunityForm";
 import { NewOpportunityPage } from "./NewOpportunityPage";
 
 describe("NewOpportunityPage", () => {
@@ -51,5 +56,51 @@ describe("NewOpportunityPage", () => {
     });
     expect(payload.opportunity).not.toHaveProperty("url");
     expect(payload.opportunity).not.toHaveProperty("appliedDate");
+  });
+
+  it("renders connection dates as date inputs and ordinary fields as text", () => {
+    document.body.innerHTML = renderToStaticMarkup(
+      <ConnectionOpportunityForm onSubmit={() => undefined} />
+    );
+
+    const inputFor = (label: string) => {
+      const matchingLabel = Array.from(document.querySelectorAll("label")).find(
+        (candidate) => candidate.querySelector("span")?.textContent === label
+      );
+      return matchingLabel?.querySelector("input") ?? null;
+    };
+
+    expect(inputFor("Date")?.getAttribute("type")).toBe("date");
+    expect(inputFor("Due date")?.getAttribute("type")).toBe("date");
+    expect(inputFor("Person's name")?.getAttribute("type")).toBe("text");
+  });
+
+  it("preserves submission time and null due date when optional dates are blank", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-12T08:30:00.000Z"));
+
+    try {
+      const payload = buildConnectionCreationPayload({
+        label: "Maya Chen",
+        organization: "Acme",
+        roleContext: "VP Engineering",
+        contactInfo: "maya@example.com",
+        meetingContext: "Example City engineering meetup",
+        summary: "Met after a panel",
+        relationshipStrength: "new",
+        status: "new",
+        priority: "medium",
+        activityType: "meeting",
+        activityBody: "Discussed platform leadership",
+        activityDate: "",
+        taskTitle: "Send portfolio",
+        taskDueDate: ""
+      });
+
+      expect(payload.initialActivity?.occurredAt).toBe("2026-07-12T08:30:00.000Z");
+      expect(payload.initialTask).toEqual({ title: "Send portfolio", dueDate: null });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
