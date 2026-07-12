@@ -48,13 +48,17 @@ describe("Dashboard", () => {
   it("does not steal focus or prevent search shortcuts in editable targets", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise(() => undefined));
     const { root } = mountDashboard();
+    const contenteditable = document.createElement("div");
+    contenteditable.setAttribute("contenteditable", "");
+    const plaintextEditable = document.createElement("div");
+    plaintextEditable.setAttribute("contenteditable", "plaintext-only");
     const targets = [
       document.createElement("input"),
       document.createElement("textarea"),
       document.createElement("select"),
-      document.createElement("div")
+      contenteditable,
+      plaintextEditable
     ];
-    targets[3].setAttribute("contenteditable", "true");
     targets.forEach((target) => document.body.appendChild(target));
 
     for (const target of targets) {

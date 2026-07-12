@@ -37,7 +37,7 @@ function matchesSearch(opportunity: OpportunitySummary, search: string) {
 }
 
 function isEditableTarget(target: EventTarget | null) {
-  return target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+  return target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])"));
 }
 
 function sortOpportunities(opportunities: OpportunitySummary[], sort: SortValue) {

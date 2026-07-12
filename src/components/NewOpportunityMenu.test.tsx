@@ -99,10 +99,11 @@ describe("NewOpportunityMenu", () => {
 
     act(() => {
       button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      const input = document.createElement("input");
-      document.body.appendChild(input);
-      input.focus();
-      input.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+      const plaintextEditable = document.createElement("div");
+      plaintextEditable.setAttribute("contenteditable", "plaintext-only");
+      document.body.appendChild(plaintextEditable);
+      plaintextEditable.focus();
+      plaintextEditable.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
     });
     expect(button.getAttribute("aria-expanded")).toBe("false");
 
