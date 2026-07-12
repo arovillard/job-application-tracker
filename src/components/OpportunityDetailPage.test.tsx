@@ -84,6 +84,13 @@ describe("OpportunityDetailContent", () => {
     expect(jobMarkup).toContain('class="stage-select" data-status="applied"');
   });
 
+  it("keeps Archive out of the stage selector so it requires More confirmation", () => {
+    const markup = renderToStaticMarkup(<OpportunityDetailContent detail={{ ...connection, status: "archived" }} onTaskAction={vi.fn()} />);
+
+    expect(markup).not.toContain('<option value="archived">');
+    expect(markup).toContain("More");
+  });
+
   it("uses the panel header/title contract for inline panels", () => {
     const titles = ["Record interaction", "Add task", "Edit details", "Create linked job"];
     const markup = titles.map((title) => renderToStaticMarkup(<TrackerPanel title={title}>Panel content</TrackerPanel>));
@@ -311,25 +318,26 @@ describe("OpportunityDetailContent", () => {
     act(() => root.unmount());
   });
 
-  it("keeps the latest status response when status requests resolve out of order", async () => {
+  it("serializes stage PATCH writes and does not issue a second mutation while the first is pending", async () => {
     let resolveFirst!: (value: Response) => void;
-    let resolveSecond!: (value: Response) => void;
     const first = new Promise<Response>((resolve) => { resolveFirst = resolve; });
-    const second = new Promise<Response>((resolve) => { resolveSecond = resolve; });
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(first).mockResolvedValueOnce(jsonResponse({ ...connection, status: "waiting" }));
     const { container, root } = mountDetail();
     await flush();
     const stage = container.querySelector<HTMLSelectElement>(".stage-select select")!;
 
     act(() => change(stage, "outreach_planned"));
     act(() => change(stage, "waiting"));
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    await act(async () => { resolveSecond(jsonResponse({ ...connection, label: "Latest status" })); });
-    await act(async () => { resolveFirst(jsonResponse({ ...connection, label: "Stale status" })); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(stage.disabled).toBe(true);
+    await act(async () => { resolveFirst(jsonResponse({ ...connection, status: "outreach_planned" })); });
 
-    expect(container.textContent).toContain("Maya Chen");
-    expect(container.textContent).not.toContain("Latest status");
-    expect(container.textContent).not.toContain("Stale status");
+    expect(stage.disabled).toBe(false);
+    act(() => change(stage, "waiting"));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await flush();
+
+    expect(stage.value).toBe("waiting");
     act(() => root.unmount());
   });
 
@@ -377,6 +385,33 @@ describe("OpportunityDetailContent", () => {
     act(() => record.click());
     await flush();
     expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("");
+    act(() => root.unmount());
+  });
+
+  it("resets successful interaction and task drafts before reopening while preserving failed drafts", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(connection))
+      .mockResolvedValueOnce(jsonResponse(connection))
+      .mockResolvedValueOnce(jsonResponse(connection));
+    const { container, root } = mountDetail();
+    await flush();
+    const record = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Record interaction")!;
+    const addTask = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Add task")!;
+
+    act(() => record.click());
+    act(() => change(container.querySelector<HTMLTextAreaElement>("textarea")!, "Saved note"));
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flush();
+    act(() => record.click());
+    expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("");
+    act(() => container.querySelector<HTMLButtonElement>(".modal__close")!.click());
+
+    act(() => addTask.click());
+    act(() => change(container.querySelector<HTMLInputElement>("input[required]")!, "Saved task"));
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flush();
+    act(() => addTask.click());
+    expect(container.querySelector<HTMLInputElement>("input[required]")?.value).toBe("");
     act(() => root.unmount());
   });
 
@@ -532,7 +567,7 @@ describe("OpportunityDetailContent", () => {
     act(() => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     await flush();
     expect(container.querySelector('[role="dialog"]')).toBeNull();
-    expect(container.querySelector<HTMLSelectElement>(".stage-select select")?.value).toBe("archived");
+    expect(container.querySelector(".stage-select")?.getAttribute("data-status")).toBe("archived");
     expect(routerState.push).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
@@ -566,30 +601,19 @@ describe("OpportunityDetailContent", () => {
     expect(routerState.push).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["stage-first", "archive-first"])("keeps archive when a prior stage request resolves %s", async (resolutionOrder) => {
+  it("does not issue archive PATCH while a stage PATCH is pending", async () => {
     let resolveStage!: (value: Response) => void;
-    let resolveArchive!: (value: Response) => void;
     const stageRequest = new Promise<Response>((resolve) => { resolveStage = resolve; });
-    const archiveRequest = new Promise<Response>((resolve) => { resolveArchive = resolve; });
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(stageRequest).mockReturnValueOnce(archiveRequest);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(stageRequest);
     const { container, root } = mountDetail();
     await flush();
 
     act(() => change(container.querySelector<HTMLSelectElement>(".stage-select select")!, "waiting"));
-    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
-    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Archive")!.click());
-    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-
-    const responses = {
-      stage: () => resolveStage(jsonResponse({ ...connection, status: "waiting" })),
-      archive: () => resolveArchive(jsonResponse({ ...connection, status: "archived" }))
-    };
-    await act(async () => { responses[resolutionOrder === "stage-first" ? "stage" : "archive"](); });
-    await act(async () => { responses[resolutionOrder === "stage-first" ? "archive" : "stage"](); });
-
-    expect(container.querySelector<HTMLSelectElement>(".stage-select select")?.value).toBe("archived");
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    const more = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+    expect(more.disabled).toBe(true);
+    act(() => more.click());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => { resolveStage(jsonResponse({ ...connection, status: "waiting" })); });
     act(() => root.unmount());
   });
 
@@ -623,7 +647,7 @@ describe("OpportunityDetailContent", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     await act(async () => { resolveArchive(jsonResponse({ ...connection, status: "archived" })); });
-    expect(container.querySelector<HTMLSelectElement>(".stage-select select")?.value).toBe("archived");
+    expect(container.querySelector(".stage-select")?.getAttribute("data-status")).toBe("archived");
     act(() => root.unmount());
   });
 

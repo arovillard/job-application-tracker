@@ -8,9 +8,10 @@ type DetailActionsMenuProps = {
   onCreateLinkedJob: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  disabled?: boolean;
 };
 
-export function DetailActionsMenu({ hasLinkedJob, onArchive, onCreateLinkedJob, onDelete, onEdit }: DetailActionsMenuProps) {
+export function DetailActionsMenu({ hasLinkedJob, onArchive, onCreateLinkedJob, onDelete, onEdit, disabled = false }: DetailActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -66,7 +67,15 @@ export function DetailActionsMenu({ hasLinkedJob, onArchive, onCreateLinkedJob, 
   };
 
   return <div className="detail-actions-menu">
-    <button aria-controls="detail-actions-menu" aria-expanded={open} aria-haspopup="menu" className="button" ref={triggerRef} type="button" onClick={() => setOpen((current) => !current)} onKeyDown={(event) => {
+    <button aria-controls="detail-actions-menu" aria-expanded={open} aria-haspopup="menu" className="button" disabled={disabled} ref={triggerRef} type="button" onClick={() => setOpen((current) => !current)} onKeyDown={(event) => {
+      if (event.key === "Escape" && open) {
+        event.preventDefault();
+        close(true);
+      } else if (open && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        const itemIndex = ["ArrowUp", "End"].includes(event.key) ? entries.length - 1 : 0;
+        itemsRef.current[itemIndex]?.focus();
+      } else
       if (["Enter", " ", "ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
         event.preventDefault();
         focusItemOnOpen.current = ["ArrowUp", "End"].includes(event.key) ? entries.length - 1 : 0;

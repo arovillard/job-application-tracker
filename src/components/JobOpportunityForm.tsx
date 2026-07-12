@@ -38,9 +38,9 @@ export function JobOpportunityForm({ initialValue, originOpportunityId, onSubmit
   const [detailsOpen, setDetailsOpen] = useState(resolvedMode !== "create" && optionalPopulated);
   const urlRef = useRef<HTMLInputElement>(null);
   const set = <K extends keyof JobOpportunityInput>(key: K, next: JobOpportunityInput[K]) => setValue((current) => ({ ...current, [key]: next }));
-  const optional = (key: keyof JobOpportunityInput, label: string, type = "text") => {
+  const optional = (key: keyof JobOpportunityInput, label: string, type = "text", autoComplete?: string) => {
     const helperId = `job-${String(key)}-helper`;
-    return <label className="application-form__field"><span className="application-form__label">{label}</span><input ref={key === "url" ? urlRef : undefined} className="application-form__input" type={type} aria-describedby={helperId} value={(value[key] as string | null) ?? ""} onInvalid={() => { setDetailsOpen(true); requestAnimationFrame(() => urlRef.current?.focus()); }} onChange={(event) => set(key, event.target.value || null)} /><span id={helperId} className="application-form__helper">Optional</span></label>;
+    return <label className="application-form__field"><span className="application-form__label">{label}</span><input ref={key === "url" ? urlRef : undefined} autoComplete={autoComplete} className="application-form__input" type={type} aria-describedby={helperId} value={(value[key] as string | null) ?? ""} onInvalid={() => { setDetailsOpen(true); requestAnimationFrame(() => urlRef.current?.focus()); }} onChange={(event) => set(key, event.target.value || null)} /><span id={helperId} className="application-form__helper">Optional</span></label>;
   };
   const showAppliedDate = appliedStatuses.has(value.status);
   const submit = () => {
@@ -56,7 +56,7 @@ export function JobOpportunityForm({ initialValue, originOpportunityId, onSubmit
       <div className="application-form__intro"><strong>Job opportunity</strong><span>Capture the role and plan your next move.</span></div>
       <div className="application-form__grid">
       <label className="application-form__field"><span className="application-form__label">Role <span>Required</span></span><input className="application-form__input" required aria-describedby="job-label-helper" value={value.label} onChange={(event) => set("label", event.target.value)} /><span id="job-label-helper" className="application-form__helper">Enter the role title.</span></label>
-      <label className="application-form__field"><span className="application-form__label">Organization <span>Required</span></span><input className="application-form__input" required aria-describedby="job-organization-helper" value={value.organization ?? ""} onChange={(event) => set("organization", event.target.value || null)} /><span id="job-organization-helper" className="application-form__helper">Enter the organization name.</span></label>
+      <label className="application-form__field"><span className="application-form__label">Organization <span>Required</span></span><input autoComplete="organization" className="application-form__input" required aria-describedby="job-organization-helper" value={value.organization ?? ""} onChange={(event) => set("organization", event.target.value || null)} /><span id="job-organization-helper" className="application-form__helper">Enter the organization name.</span></label>
       </div>
       <fieldset className="application-form__fieldset application-form__planning"><legend>Plan your next move</legend><div className="application-form__grid">
       <label className="application-form__field"><span className="application-form__label">Stage</span><select className="application-form__select" value={value.status} onChange={(event) => set("status", event.target.value as JobOpportunityInput["status"])}>{JOB_STATUSES.map((status) => <option key={status} value={status}>{JOB_STATUS_LABELS[status]}</option>)}</select></label>
@@ -64,7 +64,7 @@ export function JobOpportunityForm({ initialValue, originOpportunityId, onSubmit
       {resolvedMode === "create" ? <><label className="application-form__field"><span className="application-form__label">First task</span><input className="application-form__input" value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} /></label><label className="application-form__field"><span className="application-form__label">Due date</span><input className="application-form__input" type="date" value={taskDueDate} onChange={(event) => setTaskDueDate(event.target.value)} /></label></> : null}
       </div></fieldset>
       <details className="form-disclosure" open={detailsOpen} onToggle={(event) => setDetailsOpen(event.currentTarget.open)}><summary>Optional details <span>Optional</span></summary><div className="application-form__grid form-disclosure__grid">
-      {optional("url", "Posting URL", "url")}{optional("source", "Source")}{optional("location", "Location")}{optional("contact", "Contact")}
+      {optional("url", "Posting URL", "url", "url")}{optional("source", "Source")}{optional("location", "Location")}{optional("contact", "Contact", "text", "name")}
       {showAppliedDate ? <label className="application-form__field"><span className="application-form__label">Applied date</span><input className="application-form__input" type="date" value={value.appliedDate ?? ""} onChange={(event) => set("appliedDate", event.target.value || null)} /></label> : null}
       </div><label className="application-form__field"><span className="application-form__label">Summary</span><textarea className="application-form__textarea" value={value.summary ?? ""} onChange={(event) => set("summary", event.target.value || null)} /></label></details>
     </div>

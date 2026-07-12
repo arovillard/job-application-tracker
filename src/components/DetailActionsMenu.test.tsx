@@ -92,4 +92,30 @@ describe("DetailActionsMenu", () => {
     expect(document.activeElement).not.toBe(trigger);
     act(() => root.unmount());
   });
+
+  it.each([
+    ["ArrowDown", "Edit details"],
+    ["ArrowUp", "Delete permanently"],
+    ["Home", "Edit details"],
+    ["End", "Delete permanently"]
+  ])("moves focus immediately with %s when the pointer-open menu trigger is focused", (key, expectedItem) => {
+    const { container, root } = mountMenu();
+    const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+    act(() => trigger.click());
+    act(() => trigger.focus());
+    act(() => trigger.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+    expect(document.activeElement?.textContent).toBe(expectedItem);
+    act(() => root.unmount());
+  });
+
+  it("closes a pointer-open menu with Escape from its focused trigger", () => {
+    const { container, root } = mountMenu();
+    const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+    act(() => trigger.click());
+    act(() => trigger.focus());
+    act(() => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    act(() => root.unmount());
+  });
 });

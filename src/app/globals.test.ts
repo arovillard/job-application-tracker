@@ -145,6 +145,14 @@ describe("opportunity interface stylesheet", () => {
     expect(Number(minHeight)).toBeGreaterThanOrEqual(44);
   });
 
+  it("keeps task action controls at least 44px tall", () => {
+    const taskActionRule = css.match(/\.task-item__actions button\s*\{([^}]*)\}/)?.[1];
+    const minHeight = taskActionRule?.match(/min-height:\s*(\d+)px/)?.[1];
+
+    expect(taskActionRule).toBeDefined();
+    expect(Number(minHeight)).toBeGreaterThanOrEqual(44);
+  });
+
   it("gives every connection stage and activity marker a semantic or safe default", () => {
     for (const status of ["new", "outreach_planned", "waiting", "in_conversation", "opportunity_identified", "dormant", "closed", "archived"]) {
       expect(css).toContain(`.stage-select[data-status="${status}"]`);

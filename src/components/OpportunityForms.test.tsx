@@ -65,6 +65,18 @@ describe("opportunity creation forms", () => {
     expect(document.activeElement).toBe(url);
   });
 
+  it("provides semantic autocomplete hints for organization, names, URLs, and contacts", () => {
+    const jobForm = render(<JobOpportunityForm mode="create" onSubmit={vi.fn()} />);
+    expect(field(jobForm, "Organization").getAttribute("autocomplete")).toBe("organization");
+    expect(field(jobForm, "Posting URL").getAttribute("autocomplete")).toBe("url");
+    expect(field(jobForm, "Contact").getAttribute("autocomplete")).toBe("name");
+
+    const connectionForm = render(<ConnectionOpportunityForm onSubmit={vi.fn()} />);
+    expect(field(connectionForm, "Person's name").getAttribute("autocomplete")).toBe("name");
+    expect(field(connectionForm, "Organization").getAttribute("autocomplete")).toBe("organization");
+    expect(field(connectionForm, "Contact information").getAttribute("autocomplete")).toBe("email");
+  });
+
   it("shows applied date only for applied stages and clears it for Wishlist", () => {
     const onSubmit = vi.fn();
     const container = render(<JobOpportunityForm mode="edit" initialValue={{ type: "job", label: "Engineer", status: "applied", appliedDate: "2026-07-10" }} onSubmit={onSubmit} />);
