@@ -474,4 +474,79 @@ describe("OpportunityDetailContent", () => {
     expect(document.activeElement).toBe(more);
     act(() => root.unmount());
   });
+
+  it("opens named archive and danger delete confirmations from More, then Cancel restores More", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(connection));
+    const { container, root } = mountDetail();
+    await flush();
+    const more = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+
+    act(() => more.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Archive")!.click());
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain("Archive Maya Chen");
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.textContent).toBe("Archive");
+    act(() => [...container.querySelector('[role="dialog"]')!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Cancel")!.click());
+    expect(document.activeElement).toBe(more);
+
+    act(() => more.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Delete permanently")!.click());
+    const deleteDialog = container.querySelector('[role="dialog"]')!;
+    expect(deleteDialog.textContent).toContain("Delete Maya Chen permanently");
+    expect(deleteDialog.querySelector<HTMLButtonElement>('button[type="submit"]')?.classList.contains("button--danger")).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it("locks archive confirmation duplicates, preserves a failure, and merges the successful status without navigation", async () => {
+    let resolveArchive!: (value: Response) => void;
+    const archiveRequest = new Promise<Response>((resolve) => { resolveArchive = resolve; });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(archiveRequest);
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Archive")!.click());
+    const form = container.querySelector<HTMLFormElement>("form")!;
+    act(() => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
+    await act(async () => { resolveArchive(jsonResponse({ error: "Archive rejected" }, false)); });
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Archive rejected");
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...connection, status: "archived" }));
+    act(() => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flush();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector<HTMLSelectElement>(".stage-select select")?.value).toBe("archived");
+    expect(routerState.push).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it("navigates once only after successful delete and ignores a late delete result after unmount", async () => {
+    let resolveDelete!: (value: Response) => void;
+    const deleteRequest = new Promise<Response>((resolve) => { resolveDelete = resolve; });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(deleteRequest);
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Delete permanently")!.click());
+    const form = container.querySelector<HTMLFormElement>("form")!;
+    act(() => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => { resolveDelete(jsonResponse({})); });
+    expect(routerState.push).toHaveBeenCalledTimes(1);
+    expect(routerState.push).toHaveBeenCalledWith("/");
+    act(() => root.unmount());
+
+    let resolveLateDelete!: (value: Response) => void;
+    const lateDelete = new Promise<Response>((resolve) => { resolveLateDelete = resolve; });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(lateDelete);
+    const late = mountDetail();
+    await flush();
+    act(() => late.container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...late.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Delete permanently")!.click());
+    act(() => late.container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() => late.root.unmount());
+    await act(async () => { resolveLateDelete(jsonResponse({})); });
+    expect(routerState.push).toHaveBeenCalledTimes(1);
+  });
 });

@@ -43,7 +43,7 @@ export function DetailActionsMenu({ hasLinkedJob, onArchive, onCreateLinkedJob, 
     { label: "Edit details", action: onEdit },
     ...(hasLinkedJob ? [{ label: "Create job opportunity", action: onCreateLinkedJob }] : []),
     { label: "Archive", action: onArchive },
-    { label: "Delete permanently", action: onDelete }
+    { label: "Delete permanently", action: onDelete, danger: true }
   ];
   const keyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
     const count = itemsRef.current.length;
@@ -74,7 +74,7 @@ export function DetailActionsMenu({ hasLinkedJob, onArchive, onCreateLinkedJob, 
       }
     }}>More</button>
     {open ? <div id="detail-actions-menu" ref={menuRef} role="menu">
-      {entries.map((entry, index) => <button key={entry.label} ref={(element) => { if (element) itemsRef.current[index] = element; }} role="menuitem" type="button" onClick={() => invoke(entry.action)} onKeyDown={(event) => keyDown(event, index)}>{entry.label}</button>)}
+      {entries.map((entry, index) => <button className={entry.danger ? "button--danger" : undefined} key={entry.label} ref={(element) => { if (element) itemsRef.current[index] = element; }} role="menuitem" type="button" onClick={() => invoke(entry.action)} onKeyDown={(event) => keyDown(event, index)}>{entry.label}</button>)}
     </div> : null}
   </div>;
 }

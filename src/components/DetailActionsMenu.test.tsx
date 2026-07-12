@@ -68,6 +68,7 @@ describe("DetailActionsMenu", () => {
     const items = [...container.querySelectorAll<HTMLElement>('[role="menuitem"]')];
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(items.map((item) => item.textContent)).toEqual(["Edit details", "Create job opportunity", "Archive", "Delete permanently"]);
+    expect(items.find((item) => item.textContent === "Delete permanently")?.classList.contains("button--danger")).toBe(true);
 
     act(() => items[0].focus());
     act(() => items[0].dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true })));
