@@ -40,17 +40,218 @@ function writeActivity(db: SqliteDatabase, opportunityId: string, type: string, 
 function normalizedTask(input: OpportunityTaskInput) { const item = record(input); return { title: required(item.title, "Task title"), dueDate: date(item.dueDate, "Task due date"), sourceActivityId: optional(item.sourceActivityId, "Source activity ID") }; }
 function ensureExists(id: string) { const item = opportunity(id); if (!item) throw new Error("Opportunity not found"); return item; }
 
+function validateJobOrigin(originOpportunityId: string | null | undefined) {
+  if (!originOpportunityId) return;
+
+  const origin = opportunity(originOpportunityId);
+  if (!origin) throw new Error("Origin opportunity not found");
+  if (origin.type !== "connection" || origin.status === "archived") {
+    throw new Error("Origin must be an active connection");
+  }
+}
+
+function assertConnectionCanArchive(db: SqliteDatabase, id: string) {
+  const linkedJob = db
+    .prepare("SELECT id FROM opportunities WHERE origin_opportunity_id = ? LIMIT 1")
+    .get(id);
+
+  if (linkedJob) {
+    throw new Error("Cannot archive a connection with originating jobs");
+  }
+}
+
+function insertOpportunity(db: SqliteDatabase, id: string, item: OpportunityInput, now: string) {
+  db.prepare(
+    "INSERT INTO opportunities VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(
+    id,
+    item.type,
+    item.label,
+    item.organization,
+    item.status,
+    item.priority,
+    item.summary,
+    item.type === "job" ? item.originOpportunityId : null,
+    now,
+    now
+  );
+
+  if (item.type === "job") {
+    db.prepare("INSERT INTO job_opportunity_details VALUES (?, ?, ?, ?, ?, ?)").run(
+      id,
+      item.url,
+      item.source,
+      item.location,
+      item.contact,
+      item.appliedDate
+    );
+  } else {
+    db.prepare("INSERT INTO connection_opportunity_details VALUES (?, ?, ?, ?, ?)").run(
+      id,
+      item.roleContext,
+      item.contactInfo,
+      item.meetingContext,
+      item.relationshipStrength
+    );
+  }
+
+  writeActivity(
+    db,
+    id,
+    "opportunity_created",
+    "Opportunity created",
+    now,
+    item.type === "job" && item.originOpportunityId
+      ? { originOpportunityId: item.originOpportunityId }
+      : null
+  );
+}
+
 export function listOpportunities(filters: OpportunityFilters = {}): OpportunitySummary[] { const clauses: string[] = [], args: unknown[] = []; if (filters.type && filters.type !== "all") { clauses.push("o.type = ?"); args.push(filters.type); } if (filters.status && filters.status !== "all") { clauses.push("o.status = ?"); args.push(filters.status); } if (!filters.includeArchived) clauses.push("o.status <> 'archived'"); if (filters.search?.trim()) { const q = `%${filters.search.trim().toLowerCase()}%`; clauses.push("(lower(o.label) LIKE ? OR lower(coalesce(o.organization,'')) LIKE ? OR lower(coalesce(o.summary,'')) LIKE ? OR lower(coalesce(j.url,'')) LIKE ? OR lower(coalesce(j.source,'')) LIKE ? OR lower(coalesce(c.role_context,'')) LIKE ? OR lower(coalesce(c.contact_info,'')) LIKE ? OR lower(coalesce(c.meeting_context,'')) LIKE ?)"); args.push(q,q,q,q,q,q,q,q); } const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : ""; return (getDatabase().prepare(`${projection}${where} ORDER BY o.updated_at DESC, o.created_at DESC`).all(...args) as any[]).map((row) => ({ ...mapOpportunity(row), nextOpenTask: (getDatabase().prepare("SELECT * FROM opportunity_tasks WHERE opportunity_id = ? AND state = 'open' ORDER BY due_date IS NULL, due_date, created_at LIMIT 1").get(row.id) as any) ?? null })).map((item) => ({ ...item, nextOpenTask: item.nextOpenTask ? mapTask(item.nextOpenTask) : null })); }
 export function getOpportunityDetail(id: string): OpportunityDetail | null { const item = opportunity(id); if (!item) return null; const db = getDatabase(); const activities = (db.prepare("SELECT * FROM opportunity_activities WHERE opportunity_id = ? ORDER BY occurred_at, created_at, rowid").all(id) as any[]).map(mapActivity); const tasks = (db.prepare("SELECT * FROM opportunity_tasks WHERE opportunity_id = ? ORDER BY created_at").all(id) as any[]).map(mapTask); const artifacts = (db.prepare("SELECT * FROM opportunity_artifacts WHERE opportunity_id = ? ORDER BY updated_at DESC, created_at DESC").all(id) as any[]).map(mapArtifact); const origin = item.originOpportunityId ? opportunity(item.originOpportunityId) : null; const originatedJobs = item.type === "connection" ? (db.prepare(`${projection} WHERE o.origin_opportunity_id = ? ORDER BY o.created_at`).all(id) as any[]).map(mapOpportunity).filter((candidate): candidate is JobOpportunity => candidate.type === "job") : []; return { ...item, activities, tasks, artifacts, origin: origin?.type === "connection" ? origin : null, originatedJobs }; }
-export function createOpportunity(input: OpportunityInput, initial: { activity?: OpportunityActivityInput | null; task?: OpportunityTaskInput | null } = {}): OpportunityDetail { const item = normalizeInput(input); const db = getDatabase(), id = randomUUID(), now = nowIso(); if (item.type === "job" && item.originOpportunityId) { const origin = ensureExists(item.originOpportunityId); if (origin.type !== "connection" || origin.status === "archived") throw new Error("Origin must be an active connection"); } db.transaction(() => { db.prepare("INSERT INTO opportunities VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id,item.type,item.label,item.organization,item.status,item.priority,item.summary,item.type === "job" ? item.originOpportunityId : null,now,now); if (item.type === "job") db.prepare("INSERT INTO job_opportunity_details VALUES (?, ?, ?, ?, ?, ?)").run(id,item.url,item.source,item.location,item.contact,item.appliedDate); else db.prepare("INSERT INTO connection_opportunity_details VALUES (?, ?, ?, ?, ?)").run(id,item.roleContext,item.contactInfo,item.meetingContext,item.relationshipStrength); writeActivity(db,id,"opportunity_created","Opportunity created",now,item.type === "job" && item.originOpportunityId ? { originOpportunityId: item.originOpportunityId } : null); if (initial.activity) { const activity = normalizeActivity(initial.activity); const activityId = writeActivity(db,id,activity.type,activity.body,activity.occurredAt ?? now,activity.metadata); if (initial.task) insertTask(db,id,normalizedTask({ ...initial.task, sourceActivityId: activityId }),now); } else if (initial.task) insertTask(db,id,normalizedTask(initial.task),now); })(); return getOpportunityDetail(id)!; }
-function normalizeActivity(input: OpportunityActivityInput) { const item = record(input); const type = valueFrom<string>(item.type, activityTypes, "Activity type"); if (!humanActivityTypes.has(type)) throw new Error("Activity type must be user-created"); const occurredAt = optional(item.occurredAt, "Activity occurrence time"); if (occurredAt && Number.isNaN(Date.parse(occurredAt))) throw new Error("Activity occurrence time is invalid"); return { type, body: required(item.body,"Activity body"), occurredAt, metadata: metadata(item.metadata) }; }
+export function createOpportunity(
+  input: OpportunityInput,
+  initial: { activity?: OpportunityActivityInput | null; task?: OpportunityTaskInput | null } = {}
+): OpportunityDetail {
+  const item = normalizeInput(input);
+  const db = getDatabase();
+  const id = randomUUID();
+  const now = nowIso();
+
+  if (item.type === "job") validateJobOrigin(item.originOpportunityId);
+
+  db.transaction(() => {
+    insertOpportunity(db, id, item, now);
+    if (initial.activity) {
+      const activity = normalizeActivity(initial.activity);
+      const activityId = writeActivity(
+        db,
+        id,
+        activity.type,
+        activity.body,
+        activity.occurredAt ?? now,
+        activity.metadata
+      );
+      if (initial.task) {
+        insertTask(db, id, normalizedTask({ ...initial.task, sourceActivityId: activityId }), now);
+      }
+    } else if (initial.task) {
+      insertTask(db, id, normalizedTask(initial.task), now);
+    }
+  })();
+
+  return getOpportunityDetail(id)!;
+}
+
+function normalizeActivity(input: OpportunityActivityInput) {
+  const item = record(input);
+  const type = valueFrom<string>(item.type, activityTypes, "Activity type");
+  if (!humanActivityTypes.has(type)) throw new Error("Activity type must be user-created");
+
+  const occurredAt = optional(item.occurredAt, "Activity occurrence time");
+  const isoTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})$/;
+  if (occurredAt && (!isoTimestamp.test(occurredAt) || Number.isNaN(Date.parse(occurredAt)))) {
+    throw new Error("Activity occurrence time must be an ISO timestamp");
+  }
+
+  return { type, body: required(item.body, "Activity body"), occurredAt, metadata: metadata(item.metadata) };
+}
 function insertTask(db: SqliteDatabase, opportunityId: string, task: ReturnType<typeof normalizedTask>, now: string) { const id = randomUUID(); db.prepare("INSERT INTO opportunity_tasks VALUES (?, ?, ?, ?, 'open', ?, NULL, ?, ?)").run(id,opportunityId,task.title,task.dueDate,task.sourceActivityId,now,now); writeActivity(db,opportunityId,"task_created",`Task created: ${task.title}`,now,{ taskId:id, dueDate:task.dueDate }); return id; }
-export function updateOpportunity(id: string, input: OpportunityInput): OpportunityDetail | null { if (!opportunity(id)) return null; const item = normalizeInput(input), existing = ensureExists(id); if (existing.type !== item.type) throw new Error("Opportunity type cannot change"); const now = nowIso(), db = getDatabase(); db.transaction(() => { db.prepare("UPDATE opportunities SET label=?, organization=?, status=?, priority=?, summary=?, updated_at=? WHERE id=?").run(item.label,item.organization,item.status,item.priority,item.summary,now,id); if (item.type === "job") db.prepare("UPDATE job_opportunity_details SET url=?,source=?,location=?,contact=?,applied_date=? WHERE opportunity_id=?").run(item.url,item.source,item.location,item.contact,item.appliedDate,id); else db.prepare("UPDATE connection_opportunity_details SET role_context=?,contact_info=?,meeting_context=?,relationship_strength=? WHERE opportunity_id=?").run(item.roleContext,item.contactInfo,item.meetingContext,item.relationshipStrength,id); })(); return getOpportunityDetail(id); }
+export function updateOpportunity(id: string, input: OpportunityInput): OpportunityDetail | null {
+  const existing = opportunity(id);
+  if (!existing) return null;
+
+  const item = normalizeInput(input);
+  if (existing.type !== item.type) throw new Error("Opportunity type cannot change");
+  if (item.type === "job") validateJobOrigin(item.originOpportunityId);
+
+  const now = nowIso();
+  const db = getDatabase();
+  if (existing.type === "connection" && item.status === "archived") {
+    assertConnectionCanArchive(db, id);
+  }
+  db.transaction(() => {
+    db.prepare(
+      "UPDATE opportunities SET label=?, organization=?, status=?, priority=?, summary=?, origin_opportunity_id=?, updated_at=? WHERE id=?"
+    ).run(
+      item.label,
+      item.organization,
+      item.status,
+      item.priority,
+      item.summary,
+      item.type === "job" ? item.originOpportunityId : null,
+      now,
+      id
+    );
+    if (item.type === "job") {
+      db.prepare(
+        "UPDATE job_opportunity_details SET url=?,source=?,location=?,contact=?,applied_date=? WHERE opportunity_id=?"
+      ).run(item.url, item.source, item.location, item.contact, item.appliedDate, id);
+    } else {
+      db.prepare(
+        "UPDATE connection_opportunity_details SET role_context=?,contact_info=?,meeting_context=?,relationship_strength=? WHERE opportunity_id=?"
+      ).run(item.roleContext, item.contactInfo, item.meetingContext, item.relationshipStrength, id);
+    }
+    if (existing.status !== item.status) {
+      writeActivity(db, id, "status_change", `Status changed to ${item.status}`, now, {
+        fromStatus: existing.status,
+        toStatus: item.status
+      });
+    }
+  })();
+
+  return getOpportunityDetail(id);
+}
 export function deleteOpportunity(id: string) { return getDatabase().prepare("DELETE FROM opportunities WHERE id = ?").run(id).changes > 0; }
-export function changeOpportunityStatus(id: string, status: OpportunityStatus, note?: string | null): OpportunityDetail { const item = ensureExists(id); const allowed = item.type === "job" ? jobStatuses : connectionStatuses; const next = valueFrom<string>(status,allowed,"Status"); if (item.status === next) throw new Error(`Opportunity is already ${next}`); const now = nowIso(), body = optional(note,"Status note") ?? `Status changed to ${next}`, db=getDatabase(); db.transaction(() => { db.prepare("UPDATE opportunities SET status=?,updated_at=? WHERE id=?").run(next,now,id); writeActivity(db,id,"status_change",body,now,{fromStatus:item.status,toStatus:next}); })(); return getOpportunityDetail(id)!; }
+export function changeOpportunityStatus(
+  id: string,
+  status: OpportunityStatus,
+  note?: string | null
+): OpportunityDetail {
+  const item = ensureExists(id);
+  const allowed = item.type === "job" ? jobStatuses : connectionStatuses;
+  const next = valueFrom<string>(status, allowed, "Status");
+  if (item.status === next) throw new Error(`Opportunity is already ${next}`);
+
+  const db = getDatabase();
+  if (item.type === "connection" && next === "archived") {
+    assertConnectionCanArchive(db, id);
+  }
+
+  const now = nowIso();
+  const body = optional(note, "Status note") ?? `Status changed to ${next}`;
+  db.transaction(() => {
+    db.prepare("UPDATE opportunities SET status=?,updated_at=? WHERE id=?").run(next, now, id);
+    writeActivity(db, id, "status_change", body, now, { fromStatus: item.status, toStatus: next });
+  })();
+  return getOpportunityDetail(id)!;
+}
 export function addOpportunityActivity(id: string, input: OpportunityActivityInput, task?: OpportunityTaskInput | null): OpportunityDetail { ensureExists(id); const activity=normalizeActivity(input),now=nowIso(),db=getDatabase(); db.transaction(() => { const activityId=writeActivity(db,id,activity.type,activity.body,activity.occurredAt ?? now,activity.metadata); if(task) insertTask(db,id,normalizedTask({...task,sourceActivityId:activityId}),now); db.prepare("UPDATE opportunities SET updated_at=? WHERE id=?").run(now,id); })(); return getOpportunityDetail(id)!; }
 export function createOpportunityTask(id: string, input: OpportunityTaskInput): OpportunityDetail { ensureExists(id); const now=nowIso(),db=getDatabase(); db.transaction(() => { insertTask(db,id,normalizedTask(input),now); db.prepare("UPDATE opportunities SET updated_at=? WHERE id=?").run(now,id); })(); return getOpportunityDetail(id)!; }
 export function updateOpportunityTask(id: string, taskId: string, input: OpportunityTaskUpdateInput): OpportunityDetail { ensureExists(id); const db=getDatabase(), taskRow=db.prepare("SELECT * FROM opportunity_tasks WHERE id=? AND opportunity_id=?").get(taskId,id) as any; if(!taskRow) throw new Error("Task not found"); const task=mapTask(taskRow), item=record(input), now=nowIso(), nextState=item.state == null ? task.state : valueFrom<OpportunityTaskState>(item.state,taskStates,"Task state"), nextTitle=item.title == null ? task.title : required(item.title,"Task title"), nextDue=item.dueDate === undefined ? task.dueDate : date(item.dueDate,"Task due date"); if(task.state !== "open" && nextState !== task.state) throw new Error("Terminal task cannot change state"); const event = nextState === "completed" ? "task_completed" : nextState === "cancelled" ? "task_cancelled" : nextDue !== task.dueDate ? "task_rescheduled" : null; db.transaction(() => { db.prepare("UPDATE opportunity_tasks SET title=?,due_date=?,state=?,completed_at=?,updated_at=? WHERE id=?").run(nextTitle,nextDue,nextState,nextState === "completed" ? now : null,now,taskId); if(event) writeActivity(db,id,event,`Task ${event.replace("task_", "")}: ${nextTitle}`,now,{taskId,fromDueDate:task.dueDate,toDueDate:nextDue}); db.prepare("UPDATE opportunities SET updated_at=? WHERE id=?").run(now,id); })(); return getOpportunityDetail(id)!; }
-export function createLinkedJobOpportunity(connectionId: string, input: JobOpportunityInput): OpportunityDetail { const connection=ensureExists(connectionId); if(connection.type !== "connection" || connection.status === "archived") throw new Error("Linked job requires an active connection"); const job=createOpportunity({...input,type:"job",originOpportunityId:connectionId}); const db=getDatabase(),now=nowIso(); db.transaction(() => writeActivity(db,connectionId,"linked_job_created",`Linked job created: ${job.label}`,now,{jobOpportunityId:job.id}))(); return job; }
+export function createLinkedJobOpportunity(
+  connectionId: string,
+  input: JobOpportunityInput
+): OpportunityDetail {
+  const connection = ensureExists(connectionId);
+  if (connection.type !== "connection" || connection.status === "archived") {
+    throw new Error("Linked job requires an active connection");
+  }
+
+  const job = normalizeInput({ ...input, type: "job", originOpportunityId: connectionId });
+  if (job.type !== "job") throw new Error("Linked opportunity must be a job");
+
+  const db = getDatabase();
+  const jobId = randomUUID();
+  const now = nowIso();
+  db.transaction(() => {
+    insertOpportunity(db, jobId, job, now);
+    writeActivity(db, connectionId, "linked_job_created", `Linked job created: ${job.label}`, now, {
+      jobOpportunityId: jobId
+    });
+  })();
+
+  return getOpportunityDetail(jobId)!;
+}
 export function upsertOpportunityArtifact(id: string, input: OpportunityArtifactInput): OpportunityArtifact { const item=ensureExists(id); if(item.type !== "job") throw new Error("Artifacts are only valid for job opportunities"); const raw=record(input), type=valueFrom<string>(raw.type,artifactTypes,"Artifact type"), title=required(raw.title,"Artifact title"), filePath=path.resolve(required(raw.filePath,"Artifact file path")), contentType=optional(raw.contentType,"Content type") ?? "text/markdown",now=nowIso(),db=getDatabase(); db.transaction(() => { db.prepare("INSERT INTO opportunity_artifacts VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(opportunity_id,type,file_path) DO UPDATE SET title=excluded.title,content_type=excluded.content_type,updated_at=excluded.updated_at").run(randomUUID(),id,type,title,filePath,contentType,now,now); db.prepare("UPDATE opportunities SET updated_at=? WHERE id=?").run(now,id); })(); return mapArtifact(db.prepare("SELECT * FROM opportunity_artifacts WHERE opportunity_id=? AND type=? AND file_path=?").get(id,type,filePath)); }
 export function resetStorageForTests() { if (cachedDatabase?.db.open) cachedDatabase.db.close(); cachedDatabase=null; lastTimestampMs=0; }
