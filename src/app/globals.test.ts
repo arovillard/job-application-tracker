@@ -31,4 +31,44 @@ describe("opportunity interface stylesheet", () => {
     expect(css).not.toContain(".next-action-card > div");
     expect(css).toContain(".next-action-card > .task-list");
   });
+
+  it("keeps the dashboard control hierarchy and table geometry aligned with main", () => {
+    for (const contract of [
+      ".pipeline-filter-rail",
+      "overflow-x: auto",
+      "flex-wrap: nowrap",
+      "grid-template-columns: minmax(220px, 1fr) auto",
+      "padding: 22px 24px 18px",
+      "min-width: 770px",
+      "padding: 16px 18px",
+      ".application-table__cell[data-label=\"Updated\"]",
+      ".application-table__loading-row"
+    ]) {
+      expect(css).toContain(contract);
+    }
+
+    expect(css).toMatch(/\.application-table__loading-row\s*\{[^}]*grid-template-columns:\s*1\.3fr\s+0\.7fr\s+1fr\s+0\.5fr[^}]*\}/s);
+  });
+
+  it("limits transform feedback to fine hover pointers and preserves reduced motion", () => {
+    expect(css).toContain("@media (hover: hover) and (pointer: fine)");
+    expect(css).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(css).not.toContain("transition: all");
+    expect(css).not.toMatch(/transform:\s*scale\(0\)/);
+
+    const finePointerBlock = css.match(/@media \(hover: hover\) and \(pointer: fine\)\s*\{([\s\S]*?)\n\}/)?.[1];
+    expect(finePointerBlock).toBeDefined();
+
+    for (const selector of [
+      ".icon-button:hover",
+      ".button:hover, .application-form__button:hover, .application-table__button:hover",
+      ".application-table__open:hover span",
+      ".button:active, .application-form__button:active, .application-table__button:active"
+    ]) {
+      expect(finePointerBlock).toContain(selector);
+    }
+
+    const cssWithoutFinePointerTransforms = css.replace(/@media \(hover: hover\) and \(pointer: fine\)\s*\{[\s\S]*?\n\}/, "");
+    expect(cssWithoutFinePointerTransforms).not.toMatch(/:[^,{]*(?:hover|active)[^{]*\{[^}]*transform:/s);
+  });
 });

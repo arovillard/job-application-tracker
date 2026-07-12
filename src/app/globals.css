@@ -229,7 +229,7 @@ kbd {
   transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
   width: 44px;
 }
-.icon-button:hover { background: var(--surface-subtle); border-color: var(--line-strong); color: var(--ink); transform: translateY(-1px); }
+.icon-button:hover { background: var(--surface-subtle); border-color: var(--line-strong); color: var(--ink); }
 
 .button, .application-form__button, .application-table__button {
   align-items: center;
@@ -247,7 +247,7 @@ kbd {
   text-decoration: none;
   transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, color 160ms ease, transform 160ms ease;
 }
-.button:hover, .application-form__button:hover, .application-table__button:hover { border-color: var(--accent); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 12%, transparent); transform: translateY(-1px); }
+.button:hover, .application-form__button:hover, .application-table__button:hover { border-color: var(--accent); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 12%, transparent); }
 .button--primary, .application-form__button--primary { background: var(--accent); border-color: var(--accent); color: white; }
 .button--primary:hover, .application-form__button--primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
 .button--danger, .application-form__button--danger, .application-table__button--delete { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 32%, var(--line)); color: var(--danger); }
@@ -326,7 +326,10 @@ kbd {
 .search-field__icon { color: var(--ink-faint); font-size: 1.2rem; left: 12px; pointer-events: none; position: absolute; top: 8px; }
 .search-field__input { padding-left: 37px; }
 .select-field select { color: var(--ink-muted); font-size: 0.85rem; font-weight: 650; }
-.status-filter { border-top: 1px solid var(--line); padding-top: 13px; }
+.pipeline-filter-rail { align-items: center; border-top: 1px solid var(--line); display: flex; gap: 12px; min-width: 0; overflow-x: auto; padding-top: 13px; }
+.pipeline-filter-rail::before { color: var(--ink-faint); content: "Filter opportunities"; flex: 0 0 auto; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.pipeline-filter-rail .opportunity-type-filter, .pipeline-filter-rail .status-filter { flex: 0 0 auto; flex-wrap: nowrap; }
+.pipeline-filter-rail .status-filter { border: 0; padding: 0; }
 .status-filter__button { align-items: center; display: inline-flex; gap: 6px; min-height: 44px; }
 .status-filter__count { background: color-mix(in srgb, var(--surface-strong) 75%, transparent); border-radius: 999px; font-size: 0.72rem; min-width: 19px; padding: 1px 5px; }
 
@@ -341,10 +344,16 @@ kbd {
 .application-table__table { border-collapse: collapse; min-width: 770px; width: 100%; }
 .application-table__header { background: var(--surface-subtle); border-bottom: 1px solid var(--line); color: var(--ink-faint); font-size: 0.69rem; font-weight: 800; letter-spacing: 0.08em; padding: 12px 18px; text-align: left; text-transform: uppercase; }
 .application-table__header--actions { width: 90px; }
+.application-table__header:nth-child(1) { width: 31%; }
+.application-table__header:nth-child(2) { width: 16%; }
+.application-table__header:nth-child(3) { width: 24%; }
+.application-table__header:nth-child(4), .application-table__header:nth-child(5) { width: 11%; }
 .application-table__cell { border-bottom: 1px solid var(--line); padding: 16px 18px; vertical-align: middle; }
 .application-table__row:last-child .application-table__cell { border-bottom: 0; }
 .application-table__row:hover .application-table__cell { background: color-mix(in srgb, var(--accent-soft) 30%, var(--surface)); }
 .application-table__company, .next-move { display: grid; gap: 2px; min-width: 160px; }
+.application-table__identity-row { align-items: baseline; display: flex; flex-wrap: wrap; gap: 7px; }
+.application-table__identity-row .type-badge { align-self: auto; font-size: 0.64rem; padding: 0.14rem 0.42rem; }
 .application-table__primary { font-size: 0.92rem; font-weight: 780; letter-spacing: -0.015em; }
 .application-table__secondary { color: var(--ink-muted); font-size: 0.83rem; }
 .application-table__tertiary { color: var(--ink-faint); font-size: 0.75rem; }
@@ -362,6 +371,7 @@ kbd {
 .next-move__label { color: var(--ink); font-size: 0.84rem; font-weight: 650; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .next-move__label--empty, .next-move__date--empty { color: var(--ink-faint); font-weight: 500; }
 .next-move__date, .application-table__time { color: var(--ink-muted); font-size: 0.76rem; }
+.application-table__cell[data-label="Updated"] { min-width: 96px; white-space: nowrap; }
 .priority-chip, .status-badge { align-items: center; border-radius: 999px; display: inline-flex; font-size: 0.73rem; font-weight: 750; line-height: 1; padding: 7px 9px; white-space: nowrap; }
 .priority-chip--high { background: var(--danger-soft); color: var(--danger); }
 .priority-chip--medium { background: var(--warning-soft); color: var(--warning); }
@@ -375,7 +385,6 @@ kbd {
 .application-table__actions { display: flex; justify-content: flex-end; }
 .application-table__open, .text-button { background: transparent; border: 0; color: var(--accent); font-size: 0.8rem; font-weight: 780; padding: 5px 0; text-decoration: none; white-space: nowrap; }
 .application-table__open span { display: inline-block; transition: transform 150ms ease; }
-.application-table__open:hover span { transform: translateX(3px); }
 .application-table__empty-state { align-items: center; display: flex; flex-direction: column; gap: 10px; justify-content: center; margin: 0 auto; max-width: 440px; min-height: 330px; padding: 32px; text-align: center; }
 .application-table__empty-title { font-size: 1.15rem; letter-spacing: -0.025em; }
 .application-table__empty-message { color: var(--ink-muted); margin: 0 0 6px; }
@@ -488,6 +497,8 @@ kbd {
   .attention-strip__items, .attention-strip__skeleton { grid-column: 1 / -1; overflow-x: auto; }
   .pipeline-controls { padding: 13px 15px; }
   .pipeline-controls__filters { grid-template-columns: 1fr; }
+  .pipeline-filter-rail { gap: 10px; margin: 0; overscroll-behavior-x: contain; padding: 12px 0 1px; }
+  .pipeline-filter-rail::before { font-size: 0.64rem; }
   .status-filter { flex-wrap: wrap; margin: 0; overflow: visible; padding: 12px 0 1px; }
   .status-filter__button { flex: 0 0 auto; }
   .application-table { overflow: visible; }
@@ -519,6 +530,13 @@ kbd {
   .task-item { align-items: flex-start; flex-direction: column; }
   .task-item__actions { flex-wrap: wrap; }
   .toast { bottom: 16px; }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .icon-button:hover { transform: translateY(-1px); }
+  .button:hover, .application-form__button:hover, .application-table__button:hover { transform: translateY(-1px); }
+  .application-table__open:hover span { transform: translateX(3px); }
+  .button:active, .application-form__button:active, .application-table__button:active { transform: translateY(0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
