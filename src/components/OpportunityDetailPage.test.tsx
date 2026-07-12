@@ -1,10 +1,33 @@
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+import { act, type ComponentProps } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const routerState = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => routerState }));
+vi.mock("next/link", () => ({ default: (props: ComponentProps<"a">) => <a {...props} /> }));
 
 import type { OpportunityDetail } from "../types";
-import { InteractionComposer, OpportunityDetailContent, TaskComposer, TrackerPanel } from "./OpportunityDetailPage";
+import { InteractionComposer, OpportunityDetailContent, OpportunityDetailPage, TaskComposer, TrackerPanel } from "./OpportunityDetailPage";
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+function jsonResponse(body: unknown, ok = true) { return { ok, status: ok ? 200 : 422, json: async () => body } as Response; }
+function change(control: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  Object.getOwnPropertyDescriptor(Object.getPrototypeOf(control), "value")?.set?.call(control, value);
+  control.dispatchEvent(new Event("input", { bubbles: true }));
+  control.dispatchEvent(new Event("change", { bubbles: true }));
+}
+function mountDetail() {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  let root: Root;
+  act(() => { root = createRoot(container); root.render(<OpportunityDetailPage opportunityId="opportunity-1" />); });
+  return { container, root: root! };
+}
+async function flush() { await act(async () => { await Promise.resolve(); }); }
 
 const base = {
   id: "opportunity-1",
@@ -46,6 +69,12 @@ const job: OpportunityDetail = {
   }]
 };
 
+afterEach(() => {
+  vi.restoreAllMocks();
+  routerState.push.mockReset();
+  document.body.innerHTML = "";
+});
+
 describe("OpportunityDetailContent", () => {
   it("uses the panel header/title contract for inline panels", () => {
     const titles = ["Record interaction", "Add task", "Edit details", "Create linked job"];
@@ -64,10 +93,15 @@ describe("OpportunityDetailContent", () => {
     expect(markup).toContain("Meeting");
     expect(markup).toContain("Send portfolio");
     expect(markup).toContain("Record interaction");
-    expect(markup).toContain("Create job opportunity");
-    expect(markup).toContain("Edit details");
-    expect(markup).toContain("Archive");
-    expect(markup).toContain("Delete permanently");
+    expect(markup).toContain("More");
+    const actionBar = markup.match(/<div class="detail-action-bar">(.*?)<\/div>/)?.[1] ?? "";
+    expect(actionBar).toContain("Record interaction");
+    expect(actionBar).toContain("Add task");
+    expect(actionBar).toContain("More");
+    expect(actionBar).not.toContain("Create job opportunity");
+    expect(actionBar).not.toContain("Edit details");
+    expect(actionBar).not.toContain("Archive");
+    expect(actionBar).not.toContain("Delete permanently");
     expect(markup).toContain("Contact information");
     expect(markup).toContain("Last interaction");
   });
@@ -121,5 +155,56 @@ describe("OpportunityDetailContent", () => {
     const connectionWithJob = { ...connection, originatedJobs: [linkedJob] };
     expect(renderToStaticMarkup(<OpportunityDetailContent detail={linkedJob} onTaskAction={vi.fn()} />)).toContain("Maya Chen");
     expect(renderToStaticMarkup(<OpportunityDetailContent detail={connectionWithJob} onTaskAction={vi.fn()} />)).toContain("Engineering Manager");
+  });
+
+  it("keeps a failed interaction dialog and its isolated draft open with an alert", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockResolvedValueOnce(jsonResponse({ error: "Interaction rejected" }, false));
+    const { container, root } = mountDetail();
+    await flush();
+    const record = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Record interaction")!;
+    act(() => record.click());
+    const body = container.querySelector<HTMLTextAreaElement>("textarea")!;
+    act(() => change(body, "Followed up after panel"));
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flush();
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Interaction rejected");
+    expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("Followed up after panel");
+    act(() => root.unmount());
+  });
+
+  it("resets an interaction draft when Cancel closes its dialog", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(connection));
+    const { container, root } = mountDetail();
+    await flush();
+    const record = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Record interaction")!;
+    act(() => record.click());
+    act(() => change(container.querySelector<HTMLTextAreaElement>("textarea")!, "Draft note"));
+    act(() => [...container.querySelector('[role="dialog"]')!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Cancel")!.click());
+    await flush();
+    act(() => record.click());
+    await flush();
+    expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("");
+    act(() => root.unmount());
+  });
+
+  it("posts only the linked job opportunity payload and closes with a named success status", async () => {
+    const created = { ...job, id: "job-2", originOpportunityId: connection.id, origin: connection };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockResolvedValueOnce(jsonResponse(created));
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Create job opportunity")!.click());
+    const field = (label: string) => [...container.querySelectorAll("label")].find((candidate) => candidate.textContent?.includes(label))?.querySelector("input") as HTMLInputElement;
+    act(() => { change(field("Role"), "Staff Engineer"); change(field("Organization"), "Acme"); });
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flush();
+    const [, request] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(JSON.parse(request.body as string)).toMatchObject({ type: "job", label: "Staff Engineer", originOpportunityId: connection.id });
+    expect(JSON.parse(request.body as string)).not.toHaveProperty("initialTask");
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("Linked job created");
+    expect(routerState.push).toHaveBeenCalledWith("/opportunities/job-2");
+    act(() => root.unmount());
   });
 });
