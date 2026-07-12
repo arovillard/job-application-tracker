@@ -56,6 +56,33 @@
   color: var(--text-muted);
 }
 
+.opportunity-type-chooser {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.opportunity-type-chooser button {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 0.6rem;
+  min-height: 10rem;
+  padding: 1.5rem;
+  text-align: left;
+}
+
+.opportunity-type-chooser strong { font-size: 1.25rem; }
+.opportunity-type-chooser span { color: var(--text-muted); line-height: 1.5; }
+.application-form__fieldset { border: 1px solid var(--border); border-radius: 0.75rem; margin: 0; padding: 1rem; }
+
+@media (max-width: 640px) {
+  .opportunity-type-chooser { grid-template-columns: 1fr; }
+}
+
 :root[data-theme="dark"] {
   color-scheme: dark;
   --canvas: #101625;

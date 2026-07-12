@@ -1,5 +1,3 @@
-import { NewApplicationPage } from "../../../components/NewApplicationPage";
+import { redirect } from "next/navigation";
 
-export default function NewApplicationRoute() {
-  return <NewApplicationPage />;
-}
+export default function LegacyNewApplicationRoute() { redirect("/opportunities/new?type=job"); }
