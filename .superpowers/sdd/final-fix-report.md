@@ -50,3 +50,31 @@ Result: `npm run verify` passed lint, typecheck, and 11 test files / 50 tests. `
 
 - `npm run build` emits a Next.js warning about two workspace lockfiles and inferred Turbopack root. The build otherwise succeeds; this wave does not alter workspace configuration.
 - CLI invalid-date tests intentionally exercise rejected child-process input and therefore print the expected validation messages during Vitest output.
+
+## Final-review follow-up
+
+### RED evidence
+
+```bash
+npm test -- src/lib/storage.test.ts scripts/upsert-job-posting.test.ts src/lib/opportunity-detail-mutations.test.ts
+```
+
+Result: terminal-migration tests failed because rejected/archived next actions were omitted; the delete-mutation test failed because its response-specific helper did not exist.
+
+### GREEN evidence
+
+Focused command result: 3 files passed, 27 tests passed; `npm run typecheck` passed.
+
+```bash
+npm run verify
+npm run build
+```
+
+Result: verification passed lint, typecheck, and 12 test files / 52 tests. Production build completed successfully.
+
+### Follow-up changes
+
+- Runtime and shared CLI migrations now retain every legacy `next_action`, while still suppressing only typed follow-up tasks on rejected/archived jobs.
+- Permanent delete uses a DELETE-only response path that does not parse or assign `{ ok: true }` as detail state; tests cover success redirect and failure non-redirect.
+- Root lockfile package metadata now matches `package.json`.
+- Commit: pending creation.

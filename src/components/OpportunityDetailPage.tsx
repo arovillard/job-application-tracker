@@ -11,6 +11,7 @@ import { OpportunityArtifactViewer } from "./OpportunityArtifactViewer";
 import { OpportunityTaskList, type TaskAction } from "./OpportunityTaskList";
 import { JobOpportunityForm } from "./JobOpportunityForm";
 import { ConnectionOpportunityForm } from "./ConnectionOpportunityForm";
+import { deleteOpportunityRequest } from "../lib/opportunity-detail-mutations";
 
 async function readError(response: Response) { const body = await response.json().catch(() => null) as { error?: string } | null; return body?.error ?? `Request failed with ${response.status}`; }
 const humanActivityTypes = ["note", "meeting", "call", "email", "message", "introduction"] as const;
@@ -42,7 +43,7 @@ export function OpportunityDetailPage({ opportunityId }: { opportunityId: string
   const mutate = async (url: string, method: string, payload?: unknown) => { const response = await fetch(url, { method, headers: payload === undefined ? undefined : { "Content-Type": "application/json" }, body: payload === undefined ? undefined : JSON.stringify(payload) }); if (!response.ok) throw new Error(await readError(response)); const data = await response.json() as OpportunityDetail; setDetail(data); return data; };
   const taskAction = async (task: OpportunityTask, action: TaskAction, dueDate?: string | null) => { setPendingTaskId(task.id); setError(null); try { await mutate(`/api/opportunities/${opportunityId}/tasks/${task.id}`, "PATCH", { action, ...(action === "reschedule" ? { dueDate } : {}) }); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to update task"); } finally { setPendingTaskId(null); } };
   const archive = async () => { try { await mutate(`/api/opportunities/${opportunityId}/status`, "PATCH", { status: "archived" }); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to archive opportunity"); } };
-  const remove = async () => { if (!window.confirm(`Permanently delete ${detail?.label ?? "this opportunity"}? This cannot be undone.`)) return; try { await mutate(`/api/opportunities/${opportunityId}`, "DELETE"); router.push("/"); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to delete opportunity"); } };
+  const remove = async () => { if (!window.confirm(`Permanently delete ${detail?.label ?? "this opportunity"}? This cannot be undone.`)) return; try { await deleteOpportunityRequest(fetch, `/api/opportunities/${opportunityId}`, router.push); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to delete opportunity"); } };
   if (error && !detail) return <main className="app-shell"><div className="notice notice--error">{error}</div><Link href="/">Back to opportunities</Link></main>;
   if (!detail) return <main className="app-shell"><p>Loading opportunity…</p></main>;
   return <main className="app-shell"><OpportunityDetailContent detail={detail} pendingTaskId={pendingTaskId} onTaskAction={taskAction} onStatusChange={(status) => void mutate(`/api/opportunities/${opportunityId}/status`, "PATCH", { status }).catch((caught) => setError(caught.message))} onRecordInteraction={() => setShowInteraction(true)} onAddTask={() => setShowTask(true)} onEdit={() => setShowEdit(true)} onArchive={() => void archive()} onDelete={() => void remove()} onCreateJob={() => setShowLinkedJob(true)} />

@@ -128,7 +128,7 @@ describe("SQLite opportunity storage", () => {
     expect(rerun?.artifacts).toHaveLength(1);
   });
 
-  it("preserves terminal follow-up notes and skips their open tasks", () => {
+  it("preserves terminal next actions while skipping follow-up tasks", () => {
     const databasePath = process.env.JOBTRACKER_DB_PATH!;
     const legacy = new Database(databasePath);
     legacy.exec(`
@@ -143,7 +143,9 @@ describe("SQLite opportunity storage", () => {
 
     const detail = getOpportunityDetail("terminal");
 
-    expect(detail?.tasks).toEqual([]);
+    expect(detail?.tasks).toEqual([
+      expect.objectContaining({ title: "Send portfolio", dueDate: "2026-07-15", state: "open" })
+    ]);
     expect(detail?.activities).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "terminal-follow-up", type: "note", body: "Follow up with recruiter" })
     ]));

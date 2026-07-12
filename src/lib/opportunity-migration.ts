@@ -73,7 +73,7 @@ export function migrateLegacyApplications(db: SqliteDatabase) {
         insertTask.run(randomUUID(), id, title.trim(), due, at, at);
       };
       const terminal = app.status === "rejected" || app.status === "archived";
-      if (!terminal) addTask(app.next_action, app.next_action_date, updated);
+      addTask(app.next_action, app.next_action_date, updated);
       for (const note of notes.filter((row) => row.application_id === id)) {
         insertActivity.run(
           note.id || randomUUID(),
