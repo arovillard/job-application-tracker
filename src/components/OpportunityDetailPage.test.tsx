@@ -155,6 +155,22 @@ describe("OpportunityDetailContent", () => {
     act(() => root.unmount());
   });
 
+  it("opens Add task from the no-task CTA and restores that CTA on close", async () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { callback(0); return 1; });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [] }));
+    const { container, root } = mountDetail();
+    await flush();
+    const cta = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Set a next action")!;
+
+    act(() => cta.click());
+
+    expect(container.querySelector('[role="dialog"]')?.classList.contains("modal--compact")).toBe(true);
+    expect(document.activeElement).toBe(container.querySelector<HTMLInputElement>("input[required]"));
+    act(() => container.querySelector<HTMLButtonElement>(".modal__close")!.click());
+    expect(document.activeElement).toBe(cta);
+    act(() => root.unmount());
+  });
+
   it("renders interaction and task composers with application form hooks", () => {
     const interactionMarkup = renderToStaticMarkup(<InteractionComposer activityType="note" body="" occurredDate="" taskTitle="" taskDueDate="" onActivityTypeChange={vi.fn()} onBodyChange={vi.fn()} onOccurredDateChange={vi.fn()} onTaskTitleChange={vi.fn()} onTaskDueDateChange={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} />);
     const taskMarkup = renderToStaticMarkup(<TaskComposer taskTitle="" taskDueDate="" onTaskTitleChange={vi.fn()} onTaskDueDateChange={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} />);

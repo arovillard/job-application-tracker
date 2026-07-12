@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { OpportunityTask } from "../types";
-import { OpportunityTaskList, selectPrimaryTask } from "./OpportunityTaskList";
+import { getLocalCalendarDate, OpportunityTaskList, selectPrimaryTask } from "./OpportunityTaskList";
 
 const task = (id: string, title: string, dueDate: string | null, state: OpportunityTask["state"] = "open"): OpportunityTask => ({
   id, opportunityId: "opportunity-1", title, dueDate, state, sourceActivityId: null,
@@ -11,6 +11,12 @@ const task = (id: string, title: string, dueDate: string | null, state: Opportun
 });
 
 describe("OpportunityTaskList", () => {
+  it("derives today from local calendar components at the UTC date boundary", () => {
+    const localEvening = new Date(2026, 6, 12, 20, 30);
+
+    expect(getLocalCalendarDate(localEvening)).toBe("2026-07-12");
+  });
+
   it("selects the earliest dated open task before undated tasks", () => {
     expect(selectPrimaryTask([
       task("undated", "Research company", null),
@@ -45,6 +51,13 @@ describe("OpportunityTaskList", () => {
     expect(markup).toContain("Task history (1)");
     expect(markup).toContain("<details>");
     expect(markup).not.toContain("<details open=\"\">");
+  });
+
+  it("places the task list directly inside the next-action card and keeps Tasks separate", () => {
+    const markup = renderToStaticMarkup(<OpportunityTaskList tasks={[task("primary", "Send follow-up", "2026-07-15")]} today="2026-07-12" onAction={vi.fn()} />);
+
+    expect(markup).toContain('<section class="next-action-card"><header class="tracker-panel__header"><h2 class="tracker-panel__title">Next action</h2></header><div class="task-list">');
+    expect(markup).toContain('<section class="tracker-panel"><header class="tracker-panel__header"><h2 class="tracker-panel__title">Tasks</h2>');
   });
 
   it("offers an add-task CTA when no open task exists", () => {
