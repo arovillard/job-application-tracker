@@ -118,4 +118,53 @@ describe("opportunity interface stylesheet", () => {
     expect(mobileCss).toMatch(/\.application-form__actions\s*\{[^}]*background:\s*var\(--surface\);[^}]*border-top:\s*1px\s+solid\s+var\(--line\);[^}]*bottom:\s*0;[^}]*position:\s*sticky;[^}]*\}/s);
     expect(mobileCss).toContain(".modal .application-form__actions { position: static; }");
   });
+
+  it("styles the WCE-9 dashboard pulse, contextual states, and rich table rows", () => {
+    for (const selector of [
+      ".pipeline-pulse {",
+      ".pipeline-pulse__metrics {",
+      ".pipeline-pulse__metrics strong {",
+      ".pipeline-pulse__bar {",
+      ".pipeline-pulse__bar--empty {",
+      ".pipeline-pulse__bar-jobs {",
+      ".pipeline-pulse__bar-connections {",
+      ".notice--error .button, .notice--error button {",
+      ".application-table--empty {",
+      ".application-table__link {",
+      ".application-table__link:focus-visible {"
+    ]) {
+      expect(css).toContain(selector);
+    }
+  });
+
+  it("gives every connection stage and activity marker a semantic or safe default", () => {
+    for (const status of ["new", "outreach_planned", "waiting", "in_conversation", "opportunity_identified", "dormant", "closed", "archived"]) {
+      expect(css).toContain(`.stage-select[data-status="${status}"]`);
+    }
+
+    for (const type of ["note", "message", "email", "call", "meeting", "introduction", "status_change", "task_created", "task_completed", "task_cancelled", "task_rescheduled", "opportunity_created", "linked_job_created"]) {
+      expect(css).toContain(`.activity-timeline__marker--${type}`);
+    }
+    expect(css).toContain(".activity-timeline__marker--default");
+  });
+
+  it("cascades dashboard filters and table cards without fixed-width overflow at 760px and 320px", () => {
+    const mobileStart = css.indexOf("@media (max-width: 760px)");
+    const nextMediaStart = css.indexOf("@media", mobileStart + 1);
+    const mobileCss = css.slice(mobileStart, nextMediaStart === -1 ? undefined : nextMediaStart);
+
+    expect(mobileCss).toMatch(/\.pipeline-filter-rail\s*\{[^}]*overflow-x:\s*auto;[^}]*scrollbar-width:\s*none;[^}]*\}/s);
+    expect(mobileCss).toMatch(/\.application-table__table, \.application-table__body, \.application-table__row, \.application-table__cell\s*\{[^}]*min-width:\s*0;[^}]*width:\s*100%;[^}]*\}/s);
+    expect(mobileCss).toMatch(/\.application-table__cell\s*\{[^}]*grid-template-columns:\s*minmax\(72px,\s*0\.7fr\)\s+minmax\(0,\s*1fr\);[^}]*\}/s);
+    expect(css).toContain("@media (max-width: 320px)");
+    expect(css).toMatch(/@media \(max-width: 320px\)\s*\{[\s\S]*?body\s*\{[^}]*min-width:\s*0;[^}]*\}/s);
+  });
+
+  it("uses theme-derived dashboard tokens and retains visible focus and motion gates", () => {
+    expect(css).toMatch(/:root\[data-theme="dark"\]\s*\{[^}]*--accent-soft:[^;]+;[^}]*--success-soft:[^;]+;[^}]*--warning-soft:[^;]+;[^}]*--danger-soft:[^;]+;[^}]*\}/s);
+    expect(css).toContain(".pipeline-pulse__bar--empty { background: var(--surface-strong);");
+    expect(css).toContain(".status-filter__button:focus-visible");
+    expect(css).toContain("@media (hover: hover) and (pointer: fine)");
+    expect(css).toContain("@media (prefers-reduced-motion: reduce)");
+  });
 });
