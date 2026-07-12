@@ -110,7 +110,7 @@ describe("upsert-job-posting CLI", () => {
     expect(query("SELECT COUNT(*) AS count FROM opportunity_tasks WHERE opportunity_id = 'legacy-job' AND title = 'Follow up'")[0]).toEqual({ count: 1 });
   });
 
-  it("retains archived and rejected legacy next actions and follow-up tasks", () => {
+  it("preserves archived and rejected follow-up notes without open tasks", () => {
     const db = new Database(dbPath);
     try {
       db.exec("CREATE TABLE applications (id TEXT PRIMARY KEY, company TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL, source TEXT, location TEXT, url TEXT, contact TEXT, notes TEXT, applied_date TEXT, next_action TEXT, next_action_date TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE application_notes (id TEXT PRIMARY KEY, application_id TEXT NOT NULL, type TEXT NOT NULL, body TEXT NOT NULL, follow_up_date TEXT, created_at TEXT NOT NULL);");
@@ -118,7 +118,15 @@ describe("upsert-job-posting CLI", () => {
       for (const status of ["archived", "rejected"]) db.prepare("INSERT INTO application_notes VALUES (?, ?, 'follow_up', 'Follow up', '2026-07-21', ?)").run(`${status}-note`, `${status}-id`, "2026-01-01T00:00:00.000Z");
     } finally { db.close(); }
     runUpsert(["--company", "archived", "--role", "Role", "--url", "https://example.com/archived", "--posting-state", "closed"]);
-    expect(query("SELECT COUNT(*) AS count FROM opportunity_tasks WHERE opportunity_id IN ('archived-id', 'rejected-id')")[0]).toEqual({ count: 4 });
+    expect(query("SELECT COUNT(*) AS count FROM opportunity_tasks WHERE opportunity_id IN ('archived-id', 'rejected-id')")[0]).toEqual({ count: 0 });
+    expect(query("SELECT id, type FROM opportunity_activities WHERE id IN ('archived-note', 'rejected-note') ORDER BY id")).toEqual([
+      { id: "archived-note", type: "note" }, { id: "rejected-note", type: "note" }
+    ]);
+  });
+
+  it("rejects impossible applied and follow-up calendar dates", () => {
+    expect(() => runUpsert(["--company", "Example Co", "--role", "Engineer", "--url", "https://example.com/job", "--applied-date", "2026-02-31"])).toThrow(/calendar date/i);
+    expect(() => runUpsert(["--company", "Example Co", "--role", "Engineer", "--url", "https://example.com/job", "--follow-up-date", "2026-99-01"])).toThrow(/calendar date/i);
   });
 
   it("keeps punctuation-distinct migrated task titles on the same due date", () => {

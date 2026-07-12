@@ -13,7 +13,7 @@ const compact = (value) => value == null ? null : String(value).replace(/\s+/g, 
 const required = (value, label) => { const text = compact(value); if (!text) throw new Error(`${label} is required`); return text; };
 const normalizedKey = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const now = () => new Date().toISOString();
-const date = (value, label) => { const text = compact(value); if (text && !/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new Error(`${label} must use YYYY-MM-DD format`); return text; };
+const date = (value, label) => { const text = compact(value); if (!text) return null; const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text); if (!match) throw new Error(`${label} must use YYYY-MM-DD format`); const [, year, month, day] = match, parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))); if (parsed.getUTCFullYear() !== Number(year) || parsed.getUTCMonth() !== Number(month) - 1 || parsed.getUTCDate() !== Number(day)) throw new Error(`${label} must be a real calendar date`); return text; };
 const sourceFrom = (url) => { try { return new URL(url).hostname.replace(/^www\./, "") || "Public job posting"; } catch { return "Public job posting"; } };
 
 function connect(dbPath) { mkdirSync(path.dirname(dbPath), { recursive: true }); const db = new Database(dbPath); db.pragma("foreign_keys = ON"); ensureOpportunitySchema(db); migrateLegacyApplications(db); return db; }

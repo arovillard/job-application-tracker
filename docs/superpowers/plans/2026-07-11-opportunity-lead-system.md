@@ -191,7 +191,7 @@ expect(detail?.tasks).toEqual(expect.arrayContaining([
 expect(detail?.artifacts[0]).toMatchObject({ id: "legacy-artifact", type: "resume" });
 ```
 
-The two `note` activities preserve both the ordinary legacy note and the typed follow-up note. The follow-up also creates an open task, so migration retains historical context and future work.
+The two `note` activities preserve both the ordinary legacy note and the typed follow-up note. The follow-up creates an open task only when the migrated job is not rejected or archived; terminal jobs retain the note history but have no open follow-up or legacy next-action tasks.
 
 Run migration initialization twice and assert the second pass creates no duplicate opportunities, activities, tasks, or artifacts.
 

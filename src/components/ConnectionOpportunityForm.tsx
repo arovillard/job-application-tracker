@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { CONNECTION_STATUSES, OPPORTUNITY_PRIORITIES, RELATIONSHIP_STRENGTHS, type ConnectionOpportunityInput, type OpportunityActivityInput, type OpportunityTaskInput } from "../types";
+import { CONNECTION_STATUSES, OPPORTUNITY_PRIORITIES, RELATIONSHIP_STRENGTHS, type ConnectionOpportunity, type ConnectionOpportunityInput, type OpportunityActivityInput, type OpportunityTaskInput } from "../types";
 import { CONNECTION_STATUS_LABELS } from "./OpportunityTable";
 
 export type ConnectionFormState = {
@@ -41,10 +41,11 @@ const empty: ConnectionFormState = {
   activityDate: "", taskTitle: "", taskDueDate: ""
 };
 
-export function ConnectionOpportunityForm({ onSubmit, isSubmitting = false }: {
+export function ConnectionOpportunityForm({ onSubmit, isSubmitting = false, initialValue, submitLabel = "Create connection" }: {
   onSubmit: (payload: ConnectionCreationPayload) => void | Promise<void>; isSubmitting?: boolean;
+  initialValue?: ConnectionOpportunity | ConnectionOpportunityInput | null; submitLabel?: string;
 }) {
-  const [state, setState] = useState(empty);
+  const [state, setState] = useState(() => ({ ...empty, ...initialValue, organization: initialValue?.organization ?? "", roleContext: initialValue?.roleContext ?? "", contactInfo: initialValue?.contactInfo ?? "", meetingContext: initialValue?.meetingContext ?? "", summary: initialValue?.summary ?? "" }));
   const set = <K extends keyof ConnectionFormState>(key: K, value: ConnectionFormState[K]) => setState((current) => ({ ...current, [key]: value }));
   const input = (key: keyof ConnectionFormState, label: string, required = false) => <label className="application-form__field"><span className="application-form__label">{label}</span><input className="application-form__input" required={required} value={state[key] as string} onChange={(event) => set(key, event.target.value as never)} /></label>;
   return <form className="application-form" onSubmit={(event) => { event.preventDefault(); void onSubmit(buildConnectionCreationPayload(state)); }}>
@@ -59,6 +60,6 @@ export function ConnectionOpportunityForm({ onSubmit, isSubmitting = false }: {
       {input("activityDate", "Date")}{input("activityBody", "What happened?")}
     </div></fieldset>
     <fieldset className="application-form__fieldset"><legend>Next action</legend><div className="application-form__grid">{input("taskTitle", "Action")}{input("taskDueDate", "Due date")}</div></fieldset>
-    <button className="button button--primary" disabled={isSubmitting} type="submit">{isSubmitting ? "Saving…" : "Create connection"}</button>
+    <button className="button button--primary" disabled={isSubmitting} type="submit">{isSubmitting ? "Saving…" : submitLabel}</button>
   </form>;
 }

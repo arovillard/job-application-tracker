@@ -56,6 +56,11 @@ describe("OpportunityDetailContent", () => {
     expect(markup).toContain("Send portfolio");
     expect(markup).toContain("Record interaction");
     expect(markup).toContain("Create job opportunity");
+    expect(markup).toContain("Edit details");
+    expect(markup).toContain("Archive");
+    expect(markup).toContain("Delete permanently");
+    expect(markup).toContain("Contact information");
+    expect(markup).toContain("Last interaction");
   });
 
   it("renders job materials without relationship controls", () => {
@@ -64,7 +69,15 @@ describe("OpportunityDetailContent", () => {
     expect(markup).toContain("Engineering Manager");
     expect(markup).toContain("Application materials");
     expect(markup).toContain("Fit Analysis");
+    expect(markup).toContain("Priority");
+    expect(markup).toContain("Posting URL");
+    expect(markup).toContain("Applied date");
     expect(markup).not.toContain("Relationship strength");
+  });
+
+  it("renders task rescheduling controls", () => {
+    const markup = renderToStaticMarkup(<OpportunityDetailContent detail={job} onTaskAction={vi.fn()} />);
+    expect(markup).toContain("Reschedule");
   });
 
   it("renders origin links in both directions", () => {

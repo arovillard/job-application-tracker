@@ -98,4 +98,15 @@ describe("getDashboardInsights", () => {
       connection({ id: "future-connection", nextOpenTask: { ...future, opportunityId: "future-connection" } })
     ], "2026-07-09")).toEqual({ attention: [] });
   });
+
+  it("excludes terminal opportunities from due-task attention", () => {
+    const due = task({ dueDate: "2026-07-09" });
+    expect(getDashboardInsights([
+      job({ id: "rejected-job", status: "rejected", nextOpenTask: { ...due, opportunityId: "rejected-job" } }),
+      job({ id: "archived-job", status: "archived", nextOpenTask: { ...due, opportunityId: "archived-job" } }),
+      connection({ id: "dormant", status: "dormant", nextOpenTask: { ...due, opportunityId: "dormant" } }),
+      connection({ id: "closed", status: "closed", nextOpenTask: { ...due, opportunityId: "closed" } }),
+      connection({ id: "archived", status: "archived", nextOpenTask: { ...due, opportunityId: "archived" } })
+    ], "2026-07-09")).toEqual({ attention: [] });
+  });
 });

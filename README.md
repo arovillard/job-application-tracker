@@ -87,11 +87,11 @@ The workspace tracks two opportunity types:
 - **Jobs** retain the existing wishlist, applied, interviewing, offer, rejected, and archived pipeline.
 - **Connections** track a person from first capture through outreach, conversation, a concrete opportunity, dormancy, closure, or archive. Relationship strength is recorded separately as new, familiar, or strong.
 
-Both types share priority, chronological activity history, actionable tasks, search, and the attention queue. Tasks can be completed, cancelled, reopened, and rescheduled. Recording a meeting, call, email, message, introduction, or note can create the next task in the same operation.
+Both types share priority, chronological activity history, actionable tasks, search, and the attention queue. Tasks can be completed, cancelled, reopened, and rescheduled. Detail pages support editing, archiving, confirmed permanent deletion, backdated interactions, and independent task creation. Recording a meeting, call, email, message, introduction, or note can create the next task in the same operation.
 
 A connection can originate multiple linked job opportunities. The connection and each job retain independent histories and link back to each other.
 
-Existing databases migrate automatically and transactionally. Application IDs, timestamps, statuses, notes, status history, follow-ups, next actions, and artifact links are preserved. Legacy `/applications/<id>` links redirect to the migrated opportunity.
+Existing databases migrate automatically and transactionally. Application IDs, timestamps, statuses, notes, status history, follow-ups, next actions, and artifact links are preserved. Typed follow-up notes remain historical note activities; their open tasks, and legacy next-action tasks, are not created for rejected or archived jobs. Legacy `/applications/<id>` links redirect to the migrated opportunity.
 
 ## Application Materials
 

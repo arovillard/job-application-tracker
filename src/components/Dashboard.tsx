@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { getDashboardInsights } from "../lib/dashboard";
+import { selectNextOpenTask } from "../lib/opportunity-tasks";
 import { CONNECTION_STATUSES, JOB_STATUSES, type OpportunityDetail, type OpportunityStatus, type OpportunitySummary } from "../types";
 import { AttentionQueue } from "./AttentionQueue";
 import { CONNECTION_STATUS_LABELS, JOB_STATUS_LABELS, OpportunityTable, statusLabel } from "./OpportunityTable";
@@ -23,7 +24,7 @@ async function readError(response: Response) {
 }
 
 function detailToSummary(detail: OpportunityDetail): OpportunitySummary {
-  return { ...detail, nextOpenTask: detail.tasks.find((task) => task.state === "open") ?? null };
+  return { ...detail, nextOpenTask: selectNextOpenTask(detail.tasks) };
 }
 
 function matchesSearch(opportunity: OpportunitySummary, search: string) {

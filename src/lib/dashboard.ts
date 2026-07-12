@@ -32,6 +32,7 @@ const CONNECTION_FORWARD_STATUSES = new Set([
   "opportunity_identified"
 ]);
 const PRIORITY_WEIGHT: Record<OpportunityPriority, number> = { high: 0, medium: 1, low: 2 };
+const TERMINAL_STATUSES = new Set(["rejected", "archived", "dormant", "closed"]);
 
 function dateKey(value: Date | string) {
   if (typeof value === "string") return value.slice(0, 10);
@@ -65,6 +66,7 @@ export function getDashboardInsights(
   const attention: DashboardAttentionItem[] = [];
 
   for (const opportunity of opportunities) {
+    if (TERMINAL_STATUSES.has(opportunity.status)) continue;
     const task = opportunity.nextOpenTask;
     if (task?.dueDate && task.dueDate <= today) {
       attention.push({

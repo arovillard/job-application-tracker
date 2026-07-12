@@ -41,10 +41,11 @@ export function migrateLegacyApplications(db) {
         taskPairs.add(taskKey);
         db.prepare("INSERT INTO opportunity_tasks VALUES (?, ?, ?, ?, 'open', NULL, NULL, ?, ?)").run(randomUUID(), id, title.trim(), dueDate, createdAt, createdAt);
       };
-      addTask(app.next_action, app.next_action_date, app.updated_at);
+      const terminal = app.status === "rejected" || app.status === "archived";
+      if (!terminal) addTask(app.next_action, app.next_action_date, app.updated_at);
       for (const note of notes.filter((row) => row.application_id === id)) {
         db.prepare("INSERT INTO opportunity_activities VALUES (?, ?, 'note', ?, NULL, ?, ?)").run(note.id || randomUUID(), id, note.body, note.created_at, note.created_at);
-        if (note.type === "follow_up") addTask(note.body, note.follow_up_date, note.created_at);
+        if (!terminal && note.type === "follow_up") addTask(note.body, note.follow_up_date, note.created_at);
       }
       for (const change of changes.filter((row) => row.application_id === id)) db.prepare("INSERT INTO opportunity_activities VALUES (?, ?, 'status_change', ?, ?, ?, ?)").run(change.id || randomUUID(), id, change.note || `Status changed to ${change.to_status}`, JSON.stringify({ fromStatus: change.from_status, toStatus: change.to_status }), change.created_at, change.created_at);
       for (const artifact of artifacts.filter((row) => row.application_id === id)) db.prepare("INSERT INTO opportunity_artifacts VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(artifact.id, id, artifact.type, artifact.title, artifact.file_path, artifact.content_type || "text/markdown", artifact.created_at, artifact.updated_at);

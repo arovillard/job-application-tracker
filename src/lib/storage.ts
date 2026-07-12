@@ -4,6 +4,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { CONNECTION_STATUSES, JOB_STATUSES, OPPORTUNITY_ACTIVITY_TYPES, OPPORTUNITY_ARTIFACT_TYPES, OPPORTUNITY_PRIORITIES, OPPORTUNITY_TASK_STATES, RELATIONSHIP_STRENGTHS, type ConnectionOpportunity, type JobOpportunity, type JobOpportunityInput, type Opportunity, type OpportunityActivity, type OpportunityActivityInput, type OpportunityArtifact, type OpportunityArtifactInput, type OpportunityDetail, type OpportunityFilters, type OpportunityInput, type OpportunityPriority, type OpportunityStatus, type OpportunitySummary, type OpportunityTask, type OpportunityTaskInput, type OpportunityTaskState, type OpportunityTaskUpdateInput } from "../types";
 import { ensureOpportunitySchema, migrateLegacyApplications } from "./opportunity-migration";
+import { selectNextOpenTask } from "./opportunity-tasks";
 
 type SqliteDatabase = ReturnType<typeof Database>;
 type CachedDatabase = { path: string; db: SqliteDatabase };
@@ -36,11 +37,12 @@ const humanActivityTypes = new Set(["note", "meeting", "call", "email", "message
 
 function nowIso() { const ms = Math.max(Date.now(), lastTimestampMs + 1); lastTimestampMs = ms; return new Date(ms).toISOString(); }
 function databasePath() { return process.env.JOBTRACKER_DB_PATH?.trim() ? path.resolve(process.env.JOBTRACKER_DB_PATH) : path.join(process.cwd(), "data", "jobtracker.sqlite"); }
-function getDatabase() { const filePath = databasePath(); if (cachedDatabase?.path === filePath && cachedDatabase.db.open) return cachedDatabase.db; if (cachedDatabase?.db.open) cachedDatabase.db.close(); mkdirSync(path.dirname(filePath), { recursive: true }); const db = new Database(filePath); db.pragma("journal_mode = WAL"); db.pragma("foreign_keys = ON"); ensureOpportunitySchema(db); migrateLegacyApplications(db); cachedDatabase = { path: filePath, db }; return db; }
+export class DatabaseInitializationError extends Error { constructor(filePath: string, cause: unknown) { super(`Unable to initialize opportunity database at ${filePath}: ${cause instanceof Error ? cause.message : String(cause)}`); this.name = "DatabaseInitializationError"; } }
+function getDatabase() { const filePath = databasePath(); if (cachedDatabase?.path === filePath && cachedDatabase.db.open) return cachedDatabase.db; if (cachedDatabase?.db.open) cachedDatabase.db.close(); let db: SqliteDatabase | null = null; try { mkdirSync(path.dirname(filePath), { recursive: true }); db = new Database(filePath); db.pragma("journal_mode = WAL"); db.pragma("foreign_keys = ON"); ensureOpportunitySchema(db); migrateLegacyApplications(db); cachedDatabase = { path: filePath, db }; return db; } catch (error) { db?.close(); throw new DatabaseInitializationError(filePath, error); } }
 function record(value: unknown): Record<string, unknown> { if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Input is invalid"); return value as Record<string, unknown>; }
 function required(value: unknown, label: string) { if (typeof value !== "string" || !value.trim()) throw new Error(`${label} is required`); return value.trim(); }
 function optional(value: unknown, label: string) { if (value == null) return null; if (typeof value !== "string") throw new Error(`${label} must be text`); return value.trim() || null; }
-function date(value: unknown, label: string) { const result = optional(value, label); if (result && !/^\d{4}-\d{2}-\d{2}$/.test(result)) throw new Error(`${label} must use YYYY-MM-DD format`); return result; }
+function date(value: unknown, label: string) { const result = optional(value, label); if (!result) return null; const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(result); if (!match) throw new Error(`${label} must use YYYY-MM-DD format`); const [, year, month, day] = match; const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))); if (parsed.getUTCFullYear() !== Number(year) || parsed.getUTCMonth() !== Number(month) - 1 || parsed.getUTCDate() !== Number(day)) throw new Error(`${label} must be a real calendar date`); return result; }
 function valueFrom<T extends string>(value: unknown, allowed: Set<string>, label: string): T { if (typeof value !== "string" || !allowed.has(value)) throw new Error(`${label} is invalid`); return value as T; }
 function metadata(value: unknown) { if (value == null) return null; if (typeof value !== "object" || Array.isArray(value)) throw new Error("Activity metadata must be an object"); return value as Record<string, unknown>; }
 
@@ -129,7 +131,7 @@ function insertOpportunity(db: SqliteDatabase, id: string, item: OpportunityInpu
   );
 }
 
-export function listOpportunities(filters: OpportunityFilters = {}): OpportunitySummary[] { const clauses: string[] = [], args: unknown[] = []; if (filters.type && filters.type !== "all") { clauses.push("o.type = ?"); args.push(filters.type); } if (filters.status && filters.status !== "all") { clauses.push("o.status = ?"); args.push(filters.status); } if (!filters.includeArchived) clauses.push("o.status <> 'archived'"); if (filters.search?.trim()) { const q = `%${filters.search.trim().toLowerCase()}%`; clauses.push("(lower(o.label) LIKE ? OR lower(coalesce(o.organization,'')) LIKE ? OR lower(coalesce(o.summary,'')) LIKE ? OR lower(coalesce(j.url,'')) LIKE ? OR lower(coalesce(j.source,'')) LIKE ? OR lower(coalesce(c.role_context,'')) LIKE ? OR lower(coalesce(c.contact_info,'')) LIKE ? OR lower(coalesce(c.meeting_context,'')) LIKE ?)"); args.push(q,q,q,q,q,q,q,q); } const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : ""; return (getDatabase().prepare(`${projection}${where} ORDER BY o.updated_at DESC, o.created_at DESC`).all(...args) as OpportunityRow[]).map((row) => ({ ...mapOpportunity(row), nextOpenTask: (getDatabase().prepare("SELECT * FROM opportunity_tasks WHERE opportunity_id = ? AND state = 'open' ORDER BY due_date IS NULL, due_date, created_at LIMIT 1").get(row.id) as TaskRow | undefined) ?? null })).map((item) => ({ ...item, nextOpenTask: item.nextOpenTask ? mapTask(item.nextOpenTask) : null })); }
+export function listOpportunities(filters: OpportunityFilters = {}): OpportunitySummary[] { const clauses: string[] = [], args: unknown[] = []; if (filters.type && filters.type !== "all") { clauses.push("o.type = ?"); args.push(filters.type); } if (filters.status && filters.status !== "all") { clauses.push("o.status = ?"); args.push(filters.status); } if (!filters.includeArchived) clauses.push("o.status <> 'archived'"); if (filters.search?.trim()) { const q = `%${filters.search.trim().toLowerCase()}%`; clauses.push("(lower(o.label) LIKE ? OR lower(coalesce(o.organization,'')) LIKE ? OR lower(coalesce(o.summary,'')) LIKE ? OR lower(coalesce(j.url,'')) LIKE ? OR lower(coalesce(j.source,'')) LIKE ? OR lower(coalesce(c.role_context,'')) LIKE ? OR lower(coalesce(c.contact_info,'')) LIKE ? OR lower(coalesce(c.meeting_context,'')) LIKE ?)"); args.push(q,q,q,q,q,q,q,q); } const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : ""; const db = getDatabase(); return (db.prepare(`${projection}${where} ORDER BY o.updated_at DESC, o.created_at DESC`).all(...args) as OpportunityRow[]).map((row) => ({ ...mapOpportunity(row), nextOpenTask: selectNextOpenTask((db.prepare("SELECT * FROM opportunity_tasks WHERE opportunity_id = ? AND state = 'open' ORDER BY due_date IS NULL, due_date, created_at").all(row.id) as TaskRow[]).map(mapTask)) })); }
 export function getOpportunityDetail(id: string): OpportunityDetail | null { const item = opportunity(id); if (!item) return null; const db = getDatabase(); const activities = (db.prepare("SELECT * FROM opportunity_activities WHERE opportunity_id = ? ORDER BY occurred_at, created_at, rowid").all(id) as ActivityRow[]).map(mapActivity); const tasks = (db.prepare("SELECT * FROM opportunity_tasks WHERE opportunity_id = ? ORDER BY created_at").all(id) as TaskRow[]).map(mapTask); const artifacts = (db.prepare("SELECT * FROM opportunity_artifacts WHERE opportunity_id = ? ORDER BY updated_at DESC, created_at DESC").all(id) as ArtifactRow[]).map(mapArtifact); const origin = item.originOpportunityId ? opportunity(item.originOpportunityId) : null; const originatedJobs = item.type === "connection" ? (db.prepare(`${projection} WHERE o.origin_opportunity_id = ? ORDER BY o.created_at`).all(id) as OpportunityRow[]).map(mapOpportunity).filter((candidate): candidate is JobOpportunity => candidate.type === "job") : []; return { ...item, activities, tasks, artifacts, origin: origin?.type === "connection" ? origin : null, originatedJobs }; }
 export function createOpportunity(
   input: OpportunityInput,
@@ -178,7 +180,7 @@ function normalizeActivity(input: OpportunityActivityInput) {
 
   return { type, body: required(item.body, "Activity body"), occurredAt, metadata: metadata(item.metadata) };
 }
-function insertTask(db: SqliteDatabase, opportunityId: string, task: ReturnType<typeof normalizedTask>, now: string) { const id = randomUUID(); db.prepare("INSERT INTO opportunity_tasks VALUES (?, ?, ?, ?, 'open', ?, NULL, ?, ?)").run(id,opportunityId,task.title,task.dueDate,task.sourceActivityId,now,now); writeActivity(db,opportunityId,"task_created",`Task created: ${task.title}`,now,{ taskId:id, dueDate:task.dueDate }); return id; }
+function insertTask(db: SqliteDatabase, opportunityId: string, task: ReturnType<typeof normalizedTask>, now: string) { if (task.sourceActivityId && !db.prepare("SELECT 1 FROM opportunity_activities WHERE id=? AND opportunity_id=?").get(task.sourceActivityId, opportunityId)) throw new Error("Source activity does not belong to this opportunity"); const id = randomUUID(); db.prepare("INSERT INTO opportunity_tasks VALUES (?, ?, ?, ?, 'open', ?, NULL, ?, ?)").run(id,opportunityId,task.title,task.dueDate,task.sourceActivityId,now,now); writeActivity(db,opportunityId,"task_created",`Task created: ${task.title}`,now,{ taskId:id, dueDate:task.dueDate }); return id; }
 export function updateOpportunity(id: string, input: OpportunityInput): OpportunityDetail | null {
   const existing = opportunity(id);
   if (!existing) return null;
@@ -282,6 +284,7 @@ export function updateOpportunityTask(
   const nextTitle = item.title == null ? task.title : required(item.title, "Task title");
   const nextDue = item.dueDate === undefined ? task.dueDate : date(item.dueDate, "Task due date");
   const reopening = task.state !== "open" && nextState === "open";
+  if (task.state !== "open" && item.state != null && nextState === task.state) throw new Error("Task is already terminal");
   if (task.state !== "open" && nextState !== task.state && !reopening) {
     throw new Error("Terminal task cannot change state");
   }
@@ -337,6 +340,7 @@ export function createLinkedJobOpportunity(
     writeActivity(db, connectionId, "linked_job_created", `Linked job created: ${job.label}`, now, {
       jobOpportunityId: jobId
     });
+    db.prepare("UPDATE opportunities SET updated_at=? WHERE id=?").run(now, connectionId);
   })();
 
   return getOpportunityDetail(jobId)!;

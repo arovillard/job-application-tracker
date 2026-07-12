@@ -72,7 +72,8 @@ export function migrateLegacyApplications(db: SqliteDatabase) {
         taskPairs.add(key);
         insertTask.run(randomUUID(), id, title.trim(), due, at, at);
       };
-      addTask(app.next_action, app.next_action_date, updated);
+      const terminal = app.status === "rejected" || app.status === "archived";
+      if (!terminal) addTask(app.next_action, app.next_action_date, updated);
       for (const note of notes.filter((row) => row.application_id === id)) {
         insertActivity.run(
           note.id || randomUUID(),
@@ -83,7 +84,7 @@ export function migrateLegacyApplications(db: SqliteDatabase) {
           note.created_at,
           note.created_at
         );
-        if (note.type === "follow_up") {
+        if (!terminal && note.type === "follow_up") {
           addTask(note.body, note.follow_up_date, note.created_at!);
         }
       }

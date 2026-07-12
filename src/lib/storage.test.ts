@@ -128,7 +128,7 @@ describe("SQLite opportunity storage", () => {
     expect(rerun?.artifacts).toHaveLength(1);
   });
 
-  it("retains terminal follow-ups and next actions while preserving follow-up activities", () => {
+  it("preserves terminal follow-up notes and skips their open tasks", () => {
     const databasePath = process.env.JOBTRACKER_DB_PATH!;
     const legacy = new Database(databasePath);
     legacy.exec(`
@@ -143,10 +143,7 @@ describe("SQLite opportunity storage", () => {
 
     const detail = getOpportunityDetail("terminal");
 
-    expect(detail?.tasks).toEqual(expect.arrayContaining([
-      expect.objectContaining({ title: "Send portfolio", dueDate: "2026-07-15" }),
-      expect.objectContaining({ title: "Follow up with recruiter", dueDate: "2026-07-18" })
-    ]));
+    expect(detail?.tasks).toEqual([]);
     expect(detail?.activities).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "terminal-follow-up", type: "note", body: "Follow up with recruiter" })
     ]));
@@ -242,6 +239,35 @@ describe("SQLite opportunity storage", () => {
 
     expect(getOpportunityDetail(job.id)?.activities.filter((activity) => activity.type === "task_cancelled")).toHaveLength(1);
     expect(() => updateOpportunityTask(job.id, cancelledTaskId, { state: "completed" })).toThrow(/terminal/i);
+  });
+
+  it("rejects repeated terminal task actions without changing timestamps", () => {
+    const job = createOpportunity({ type: "job", label: "Engineer", status: "applied" });
+    const taskId = createOpportunityTask(job.id, { title: "Send portfolio" }).tasks[0]!.id;
+    updateOpportunityTask(job.id, taskId, { state: "completed" });
+    const completed = getOpportunityDetail(job.id)!.tasks[0]!;
+
+    expect(() => updateOpportunityTask(job.id, taskId, { state: "completed" })).toThrow(/already terminal/i);
+    expect(getOpportunityDetail(job.id)!.tasks[0]).toMatchObject({ updatedAt: completed.updatedAt, completedAt: completed.completedAt });
+  });
+
+  it("rejects impossible calendar dates and cross-opportunity source activities", () => {
+    const first = createOpportunity({ type: "job", label: "Engineer", status: "applied" });
+    const second = createOpportunity({ type: "job", label: "Designer", status: "wishlist" });
+    const activity = addOpportunityActivity(first.id, { type: "note", body: "Spoke" }).activities.at(-1)!;
+
+    expect(() => createOpportunity({ type: "job", label: "Invalid", status: "wishlist", appliedDate: "2026-02-29" })).toThrow(/calendar date/i);
+    expect(() => createOpportunityTask(second.id, { title: "Follow up", dueDate: "2026-02-31" })).toThrow(/calendar date/i);
+    expect(() => createOpportunityTask(second.id, { title: "Follow up", sourceActivityId: activity.id })).toThrow(/source activity/i);
+  });
+
+  it("updates the originating connection timestamp when creating a linked job", () => {
+    const connection = createOpportunity({ type: "connection", label: "Maya", status: "new" });
+    const originalUpdatedAt = connection.updatedAt;
+    const job = createLinkedJobOpportunity(connection.id, { type: "job", label: "Engineer", status: "wishlist" });
+
+    expect(job.originOpportunityId).toBe(connection.id);
+    expect(getOpportunityDetail(connection.id)!.updatedAt).not.toBe(originalUpdatedAt);
   });
 
   it("rejects invalid subtype, status, date, and non-job artifact input", () => {

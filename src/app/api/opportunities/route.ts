@@ -11,7 +11,7 @@ import {
   type OpportunityTaskInput,
   type OpportunityType
 } from "../../../types";
-import { createOpportunity, listOpportunities } from "../../../lib/storage";
+import { createOpportunity, DatabaseInitializationError, listOpportunities } from "../../../lib/storage";
 
 export const runtime = "nodejs";
 
@@ -38,7 +38,7 @@ function parseArchived(value: string | null) {
 
 export function opportunityErrorResponse(error: unknown, forcedStatus?: number) {
   const message = error instanceof Error ? error.message : "Request failed";
-  const status = forcedStatus ?? (/not found/i.test(message) ? 404 : 400);
+  const status = forcedStatus ?? (error instanceof DatabaseInitializationError ? 500 : /not found/i.test(message) ? 404 : 400);
   return NextResponse.json({ error: message }, { status });
 }
 

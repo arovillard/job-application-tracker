@@ -188,11 +188,41 @@ describe("opportunity API", () => {
       completedAt: null
     });
 
+    await updateTask(
+      request("http://localhost/task", "PATCH", { action: "complete" }),
+      taskContext(first.id, task.id)
+    );
+
     const wrongOwner = await updateTask(
       request("http://localhost/task", "PATCH", { action: "reschedule", dueDate: "2026-07-22" }),
       taskContext(second.id, task.id)
     );
     expect(wrongOwner.status).toBe(400);
+
+    const repeatedComplete = await updateTask(
+      request("http://localhost/task", "PATCH", { action: "complete" }),
+      taskContext(first.id, task.id)
+    );
+    expect(repeatedComplete.status).toBe(400);
+  });
+
+  it("rejects cross-opportunity task source activities and impossible dates", async () => {
+    const first = await create(connectionInput);
+    const second = await create({ ...connectionInput, label: "Jordan Lee" });
+    const activity = await json<OpportunityDetail>(await addActivity(
+      request("http://localhost/activities", "POST", { type: "note", body: "Met" }),
+      context(first.id)
+    ));
+    const sourceActivityId = activity.activities.at(-1)!.id;
+
+    expect((await addTask(
+      request("http://localhost/tasks", "POST", { title: "Follow up", sourceActivityId }),
+      context(second.id)
+    )).status).toBe(400);
+    expect((await addTask(
+      request("http://localhost/tasks", "POST", { title: "Follow up", dueDate: "2028-02-30" }),
+      context(second.id)
+    )).status).toBe(400);
   });
 
   it("creates linked jobs only from active connections", async () => {
