@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -76,7 +76,27 @@ describe("upsert-job-posting CLI", () => {
   it("does not persist a job opportunity when dry-run is requested", () => {
     const result = runUpsert(["--company", "Dry Run Co", "--role", "Staff Engineer", "--url", "https://example.com/dry-run", "--dry-run"]);
     expect(result.opportunity).toMatchObject({ organization: "Dry Run Co", label: "Staff Engineer" });
-    expect(query("SELECT COUNT(*) AS count FROM opportunities WHERE type = 'job'")[0]).toEqual({ count: 0 });
+    expect(existsSync(dbPath)).toBe(false);
+  });
+
+  it("leaves a fresh database path absent for dry-run", () => {
+    expect(existsSync(dbPath)).toBe(false);
+    runUpsert(["--company", "Dry Run Co", "--role", "Staff Engineer", "--url", "https://example.com/dry-run", "--dry-run"]);
+    expect(existsSync(dbPath)).toBe(false);
+  });
+
+  it("leaves legacy schema and migration marker unchanged for dry-run", () => {
+    const db = new Database(dbPath);
+    try {
+      db.exec("CREATE TABLE applications (id TEXT PRIMARY KEY, company TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL, source TEXT, location TEXT, url TEXT, contact TEXT, notes TEXT, applied_date TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);");
+      db.prepare("INSERT INTO applications VALUES ('legacy-dry', 'Acme', 'Engineer', 'wishlist', NULL, NULL, 'https://example.com/job', NULL, NULL, NULL, ?, ?)").run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
+    } finally { db.close(); }
+    runUpsert(["--company", "Acme", "--role", "Engineer", "--url", "https://example.com/job", "--dry-run"]);
+    const unchanged = new Database(dbPath);
+    try {
+      expect(unchanged.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='opportunities'").get()).toBeUndefined();
+      expect(unchanged.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_metadata'").get()).toBeUndefined();
+    } finally { unchanged.close(); }
   });
 
   it("migrates a legacy application before locating its job opportunity", () => {
@@ -88,5 +108,25 @@ describe("upsert-job-posting CLI", () => {
     const result = runUpsert(["--company", "Acme", "--role", "Platform Engineer", "--url", "https://example.com/new", "--posting-state", "open"]);
     expect(result).toMatchObject({ action: "updated", opportunity: { id: "legacy-job", type: "job", url: "https://example.com/new" } });
     expect(query("SELECT COUNT(*) AS count FROM opportunity_tasks WHERE opportunity_id = 'legacy-job' AND title = 'Follow up'")[0]).toEqual({ count: 1 });
+  });
+
+  it("retains archived and rejected legacy next actions and follow-up tasks", () => {
+    const db = new Database(dbPath);
+    try {
+      db.exec("CREATE TABLE applications (id TEXT PRIMARY KEY, company TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL, source TEXT, location TEXT, url TEXT, contact TEXT, notes TEXT, applied_date TEXT, next_action TEXT, next_action_date TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE application_notes (id TEXT PRIMARY KEY, application_id TEXT NOT NULL, type TEXT NOT NULL, body TEXT NOT NULL, follow_up_date TEXT, created_at TEXT NOT NULL);");
+      for (const status of ["archived", "rejected"]) db.prepare("INSERT INTO applications VALUES (?, ?, ?, ?, NULL, NULL, ?, NULL, NULL, NULL, 'Next action', '2026-07-20', ?, ?)").run(`${status}-id`, status, "Role", status, `https://example.com/${status}`, "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
+      for (const status of ["archived", "rejected"]) db.prepare("INSERT INTO application_notes VALUES (?, ?, 'follow_up', 'Follow up', '2026-07-21', ?)").run(`${status}-note`, `${status}-id`, "2026-01-01T00:00:00.000Z");
+    } finally { db.close(); }
+    runUpsert(["--company", "archived", "--role", "Role", "--url", "https://example.com/archived", "--posting-state", "closed"]);
+    expect(query("SELECT COUNT(*) AS count FROM opportunity_tasks WHERE opportunity_id IN ('archived-id', 'rejected-id')")[0]).toEqual({ count: 4 });
+  });
+
+  it("keeps canonical output keys, CLI values over JSON, and user note text", () => {
+    const input = path.join(tempDir, "posting.json");
+    writeFileSync(input, JSON.stringify({ company: "JSON Co", role: "Engineer", url: "https://example.com/json", note: "Keep this note" }));
+    const result = runUpsert(["--input-json", input, "--company", "CLI Co"]);
+    expect(Object.keys(result).sort()).toEqual(["action", "activityIds", "application", "changes", "opportunity", "taskIds"]);
+    expect(result.opportunity.organization).toBe("CLI Co");
+    expect(query("SELECT body FROM opportunity_activities WHERE id = ?", result.activityIds[1])[0]).toEqual(expect.objectContaining({ body: expect.stringContaining("Keep this note") }));
   });
 });

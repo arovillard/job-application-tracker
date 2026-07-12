@@ -25,4 +25,9 @@ describe("register-application-artifact CLI", () => {
     const rejected = spawnSync(process.execPath, ["scripts/register-application-artifact.mjs", "--db", dbPath, "--opportunity-id", "connection-id", "--type", "fit_analysis", "--title", "Fit", "--file", file], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" });
     expect(rejected.status).toBe(1); expect(rejected.stderr).toContain("Artifacts can only be registered to job opportunities");
   });
+  it("migrates an unmigrated legacy database before registering an artifact", () => {
+    const db = new Database(dbPath); try { db.exec("CREATE TABLE applications (id TEXT PRIMARY KEY, company TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL, source TEXT, location TEXT, url TEXT, contact TEXT, notes TEXT, applied_date TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);"); db.prepare("INSERT INTO applications VALUES ('legacy-job', 'Acme', 'Frontend Engineer', 'wishlist', NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)").run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"); } finally { db.close(); }
+    const file = path.join(tempDir, "fit.md"); writeFileSync(file, "# Fit");
+    expect(run(["--opportunity-id", "legacy-job", "--type", "fit_analysis", "--title", "Fit", "--file", file]).artifact.opportunityId).toBe("legacy-job");
+  });
 });
