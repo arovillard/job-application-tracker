@@ -12,14 +12,22 @@ import {
   buildConnectionCreationPayload,
   ConnectionOpportunityForm
 } from "./ConnectionOpportunityForm";
-import { NewOpportunityPage } from "./NewOpportunityPage";
+import { NewOpportunityPage, resolveOpportunityType } from "./NewOpportunityPage";
 
 describe("NewOpportunityPage", () => {
-  it("starts with a clear job or connection choice", () => {
+  it("resolves unknown opportunity types to jobs", () => {
+    expect(resolveOpportunityType(null)).toBe("job");
+    expect(resolveOpportunityType("job")).toBe("job");
+    expect(resolveOpportunityType("connection")).toBe("connection");
+    expect(resolveOpportunityType("unknown")).toBe("job");
+  });
+
+  it("renders the job form by default without an intermediate chooser", () => {
     const markup = renderToStaticMarkup(<NewOpportunityPage />);
-    expect(markup).toContain("What kind of opportunity are you adding?");
-    expect(markup).toContain("Job posting");
-    expect(markup).toContain("Connection");
+    expect(markup).toContain("Add a job");
+    expect(markup).toContain("Role");
+    expect(markup).toContain("Organization");
+    expect(markup).not.toContain("What kind of opportunity are you adding?");
   });
 
   it("builds a connection envelope without job-only fields", () => {
