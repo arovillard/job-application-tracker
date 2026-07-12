@@ -173,6 +173,74 @@ describe("OpportunityDetailContent", () => {
     act(() => root.unmount());
   });
 
+  it("retains focus in an interaction draft while typing rerenders the dialog", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(connection));
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Record interaction")!.click());
+    const body = container.querySelector<HTMLTextAreaElement>("textarea")!;
+    body.focus();
+    act(() => change(body, "Draft note"));
+    expect(document.activeElement).toBe(body);
+    act(() => root.unmount());
+  });
+
+  it("submits an interaction only once while its request is pending", async () => {
+    let resolveRequest!: (value: Response) => void;
+    const request = new Promise<Response>((resolve) => { resolveRequest = resolve; });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(request);
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Record interaction")!.click());
+    act(() => change(container.querySelector<HTMLTextAreaElement>("textarea")!, "Draft"));
+    const form = container.querySelector<HTMLFormElement>("form")!;
+    act(() => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
+    await act(async () => { resolveRequest(jsonResponse(connection)); });
+    act(() => root.unmount());
+  });
+
+  it("ignores a cancelled interaction result and preserves background errors outside dialogs", async () => {
+    let resolveRequest!: (value: Response) => void;
+    const request = new Promise<Response>((resolve) => { resolveRequest = resolve; });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(request);
+    const { container, root } = mountDetail();
+    await flush();
+    const record = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Record interaction")!;
+    act(() => record.click());
+    act(() => change(container.querySelector<HTMLTextAreaElement>("textarea")!, "Draft"));
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Cancel")!.click());
+    await act(async () => { resolveRequest(jsonResponse({ ...connection, label: "Stale result" })); });
+    expect(container.textContent).not.toContain("Stale result");
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("keeps the newest dialog result when an older request resolves out of order", async () => {
+    let resolveFirst!: (value: Response) => void;
+    let resolveSecond!: (value: Response) => void;
+    const first = new Promise<Response>((resolve) => { resolveFirst = resolve; });
+    const second = new Promise<Response>((resolve) => { resolveSecond = resolve; });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const { container, root } = mountDetail();
+    await flush();
+    const record = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Record interaction")!;
+    act(() => record.click());
+    act(() => change(container.querySelector<HTMLTextAreaElement>("textarea")!, "First"));
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() => container.querySelector<HTMLButtonElement>(".modal__close")!.click());
+    act(() => record.click());
+    act(() => change(container.querySelector<HTMLTextAreaElement>("textarea")!, "Second"));
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await act(async () => { resolveSecond(jsonResponse({ ...connection, label: "Newest result" })); });
+    await act(async () => { resolveFirst(jsonResponse({ ...connection, label: "Stale result" })); });
+    expect(container.textContent).toContain("Newest result");
+    expect(container.textContent).not.toContain("Stale result");
+    act(() => root.unmount());
+  });
+
   it("resets an interaction draft when Cancel closes its dialog", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(connection));
     const { container, root } = mountDetail();

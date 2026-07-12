@@ -15,9 +15,14 @@ export function DetailActionsMenu({ hasLinkedJob, onArchive, onCreateLinkedJob, 
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef<HTMLButtonElement[]>([]);
+  const focusFirstOnOpen = useRef(false);
 
   useEffect(() => {
     if (!open) return;
+    if (focusFirstOnOpen.current) {
+      focusFirstOnOpen.current = false;
+      itemsRef.current[0]?.focus();
+    }
     const dismiss = (event: MouseEvent) => {
       if (!menuRef.current?.contains(event.target as Node) && !triggerRef.current?.contains(event.target as Node)) setOpen(false);
     };
@@ -30,7 +35,7 @@ export function DetailActionsMenu({ hasLinkedJob, onArchive, onCreateLinkedJob, 
     setOpen(false);
   };
   const invoke = (action: () => void) => {
-    close();
+    close(true);
     action();
   };
   const keyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -60,7 +65,13 @@ export function DetailActionsMenu({ hasLinkedJob, onArchive, onCreateLinkedJob, 
   ];
 
   return <div className="detail-actions-menu">
-    <button aria-controls="detail-actions-menu" aria-expanded={open} aria-haspopup="menu" className="button" ref={triggerRef} type="button" onClick={() => setOpen((current) => !current)}>More</button>
+    <button aria-controls="detail-actions-menu" aria-expanded={open} aria-haspopup="menu" className="button" ref={triggerRef} type="button" onClick={() => setOpen((current) => !current)} onKeyDown={(event) => {
+      if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        focusFirstOnOpen.current = true;
+        setOpen(true);
+      }
+    }}>More</button>
     {open ? <div id="detail-actions-menu" ref={menuRef} role="menu">
       {entries.map((entry, index) => <button key={entry.label} ref={(element) => { if (element) itemsRef.current[index] = element; }} role="menuitem" type="button" onClick={() => invoke(entry.action)} onKeyDown={(event) => keyDown(event, index)}>{entry.label}</button>)}
     </div> : null}

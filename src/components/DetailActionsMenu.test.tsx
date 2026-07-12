@@ -24,6 +24,22 @@ afterEach(() => {
 });
 
 describe("DetailActionsMenu", () => {
+  it("moves keyboard-opened menus to the first item and restores More before invoking a dialog action", () => {
+    const onEdit = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let root: Root;
+    act(() => { root = createRoot(container); root.render(<DetailActionsMenu hasLinkedJob onArchive={vi.fn()} onCreateLinkedJob={vi.fn()} onDelete={vi.fn()} onEdit={onEdit} />); });
+    const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+
+    act(() => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect(document.activeElement?.textContent).toBe("Edit details");
+    act(() => (document.activeElement as HTMLButtonElement).click());
+    expect(onEdit).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(trigger);
+    act(() => root!.unmount());
+  });
+
   it("opens an accessible menu and supports Arrow, Home, End, Escape, and outside dismissal", () => {
     const { container, root } = mountMenu();
     const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
