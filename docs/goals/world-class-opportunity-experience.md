@@ -19,8 +19,8 @@ Execute `docs/specs/world-class-opportunity-experience.md` through `docs/plans/w
 | WCE-2 Creation forms | none | complete | `f3f4152..e5ec6e0`; 18 tests; Sol approved |
 | WCE-3 Pipeline pulse | none | complete | `10ea564`; reviewed with WCE-4 |
 | WCE-4 Dashboard/table state | WCE-3 | complete | `d4fdb49..844a281`; 21 tests; Sol approved |
-| WCE-5 Detail dialogs | WCE-1, WCE-2 | root correction | `2b4033e..8722bca`; concurrency/menu coverage still open |
-| WCE-6 Task hierarchy | WCE-5 | pending | pending |
+| WCE-5 Detail dialogs | WCE-1, WCE-2 | complete | `2b4033e..373cdc9`; 42 focused tests; Sol approved |
+| WCE-6 Task hierarchy | WCE-5 | in progress | pending |
 | WCE-7 Destructive safety | WCE-5 | pending | pending |
 | WCE-8 Form/detail visuals | WCE-5, WCE-6, WCE-7 | pending | pending |
 | WCE-9 Dashboard visuals | WCE-4, WCE-8 | pending | pending |
