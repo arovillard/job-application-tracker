@@ -32,6 +32,10 @@ describe("agent skill packaging", () => {
 
       expect(claudeSkill).toContain("description:");
       expect(claudeSkill).toContain(codexSkill.match(/^description: .+$/m)?.[0]);
+      if (skillName === "job-tracker-add-posting") {
+        expect(codexSkill).toContain("Confirm opportunity.type is job.");
+        expect(claudeSkill).toContain("Confirm opportunity.type is job.");
+      }
     }
   });
 

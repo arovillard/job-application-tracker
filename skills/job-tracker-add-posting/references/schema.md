@@ -1,138 +1,44 @@
-# JobTracker SQLite Reference
+# Opportunity schema reference
 
-Use this only when `scripts/upsert-job-posting.mjs` is blocked or when you need to explain the tracker state.
-
-## Database
-
-Default path:
-
-```text
-JOBTRACKER_DB_PATH, or ./data/jobtracker.sqlite from the project root
-```
-
-Override path for tests or unusual environments with `--db` or `JOBTRACKER_DB_PATH`.
+The current workflow writes only opportunity tables. Legacy `applications` tables remain read-only migration evidence.
 
 ## Tables
 
-`applications`
+- `opportunities`: shared `id`, `type` (`job` or `connection`), `label`, nullable `organization`, type-valid `status`, `priority` (`low`, `medium`, `high`), `summary`, nullable `origin_opportunity_id`, and timestamps.
+- `job_opportunity_details`: job-only `url`, `source`, `location`, `contact`, and `applied_date` keyed by `opportunity_id`.
+- `connection_opportunity_details`: connection-only `role_context`, `contact_info`, `meeting_context`, and `relationship_strength` (`new`, `familiar`, `strong`).
+- `opportunity_activities`: append-only activity timeline with `note`, interaction types, status changes, and task events.
+- `opportunity_tasks`: `open`, `completed`, or `cancelled` follow-up work, optionally linked to an activity.
+- `opportunity_artifacts`: job-only application material metadata, uniquely keyed by `(opportunity_id, type, file_path)`.
+- `schema_metadata`: migration marker storage.
+
+Job statuses are `wishlist`, `applied`, `interviewing`, `offer`, `rejected`, and `archived`. Connection statuses are `new`, `outreach_planned`, `waiting`, `in_conversation`, `opportunity_identified`, `dormant`, `closed`, and `archived`.
+
+## Duplicate rules
+
+Posting intake compares normalized organization and label only among `type = 'job'` records. A connection with the same organization and label is never a duplicate. Artifact matching by company and role also searches job opportunities only.
+
+## Verification queries
 
 ```sql
-id TEXT PRIMARY KEY,
-company TEXT NOT NULL,
-role TEXT NOT NULL,
-status TEXT NOT NULL,
-source TEXT,
-location TEXT,
-url TEXT,
-contact TEXT,
-notes TEXT,
-applied_date TEXT,
-follow_up_date TEXT,
-created_at TEXT NOT NULL,
-updated_at TEXT NOT NULL
-```
+SELECT o.id, o.type, o.label, o.organization, o.status, d.url
+FROM opportunities o
+JOIN job_opportunity_details d ON d.opportunity_id = o.id
+WHERE o.type = 'job' AND lower(o.organization) = lower('COMPANY')
+ORDER BY o.updated_at DESC;
 
-Valid statuses:
+SELECT type, body, occurred_at
+FROM opportunity_activities
+WHERE opportunity_id = 'OPPORTUNITY_ID'
+ORDER BY occurred_at, created_at;
 
-```text
-wishlist, applied, interviewing, offer, rejected, archived
-```
+SELECT title, due_date, state
+FROM opportunity_tasks
+WHERE opportunity_id = 'OPPORTUNITY_ID'
+ORDER BY created_at;
 
-`application_notes`
-
-```sql
-id TEXT PRIMARY KEY,
-application_id TEXT NOT NULL,
-type TEXT NOT NULL DEFAULT 'update',
-body TEXT NOT NULL,
-follow_up_date TEXT,
-created_at TEXT NOT NULL
-```
-
-Valid note types:
-
-```text
-update, internal, follow_up
-```
-
-Follow-ups are typed notes: `type = 'follow_up'` with `follow_up_date = YYYY-MM-DD`.
-
-`application_status_changes`
-
-```sql
-id TEXT PRIMARY KEY,
-application_id TEXT NOT NULL,
-from_status TEXT,
-to_status TEXT NOT NULL,
-note TEXT,
-created_at TEXT NOT NULL
-```
-
-`application_artifacts`
-
-```sql
-id TEXT PRIMARY KEY,
-application_id TEXT NOT NULL,
-type TEXT NOT NULL,
-title TEXT NOT NULL,
-file_path TEXT NOT NULL,
-content_type TEXT NOT NULL DEFAULT 'text/markdown',
-created_at TEXT NOT NULL,
-updated_at TEXT NOT NULL
-```
-
-Valid artifact types:
-
-```text
-fit_analysis, outreach_message, referral_message, cover_letter, resume, posting, other
-```
-
-Artifact rows link application records to generated files. The file remains the source of truth; the database stores path and metadata only.
-The app only displays `resume`, `fit_analysis`, and `outreach_message` artifacts.
-
-## App Conventions
-
-- Do not create duplicate records for the same normalized company and role.
-- Insert new public postings as `wishlist` unless the user explicitly says the application was already submitted.
-- Keep records active when sources disagree about whether a posting is open. Do not archive a posting unless the user explicitly confirms that.
-- Store posting context in `applications.notes` only when creating the record or when the current summary is blank. Otherwise add an `update` note so user-written summaries are not overwritten.
-- Every created application needs an initial `application_status_changes` row with `from_status = NULL`, `to_status = current status`, and `note = 'Application created'`.
-- Every duplicate update should add an `update` note describing the source URL and any changed fields.
-
-## Verification Queries
-
-Find a record:
-
-```sql
-SELECT id, company, role, status, source, location, url, notes, updated_at
-FROM applications
-WHERE lower(company) LIKE lower('%COMPANY%')
-ORDER BY updated_at DESC;
-```
-
-Read notes:
-
-```sql
-SELECT type, body, follow_up_date, created_at
-FROM application_notes
-WHERE application_id = 'APPLICATION_ID'
-ORDER BY created_at ASC;
-```
-
-Read status history:
-
-```sql
-SELECT from_status, to_status, note, created_at
-FROM application_status_changes
-WHERE application_id = 'APPLICATION_ID'
-ORDER BY created_at ASC;
-```
-
-Read linked files:
-
-```sql
-SELECT type, title, file_path, content_type, updated_at
-FROM application_artifacts
-WHERE application_id = 'APPLICATION_ID'
+SELECT type, title, file_path, content_type
+FROM opportunity_artifacts
+WHERE opportunity_id = 'OPPORTUNITY_ID'
 ORDER BY updated_at DESC;
 ```

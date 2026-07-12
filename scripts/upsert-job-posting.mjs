@@ -2,534 +2,63 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-
 import Database from "better-sqlite3";
 
-const APPLICATION_STATUSES = new Set([
-  "wishlist",
-  "applied",
-  "interviewing",
-  "offer",
-  "rejected",
-  "archived"
-]);
-const POSTING_STATES = new Set(["open", "closed", "unknown"]);
-const INACTIVE_STATUSES = new Set(["archived", "rejected"]);
-const DEFAULT_DB_PATH = process.env.JOBTRACKER_DB_PATH?.trim()
-  ? path.resolve(process.env.JOBTRACKER_DB_PATH)
-  : path.join(process.cwd(), "data", "jobtracker.sqlite");
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function compactText(value) {
-  if (value == null) {
-    return null;
-  }
-
-  const text = String(value).replace(/\s+/g, " ").trim();
-  return text || null;
-}
-
-function requireText(value, label) {
-  const text = compactText(value);
-
-  if (!text) {
-    throw new Error(`${label} is required`);
-  }
-
-  return text;
-}
-
-function optionalDate(value, label) {
-  const text = compactText(value);
-
-  if (text !== null && !/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    throw new Error(`${label} must use YYYY-MM-DD format`);
-  }
-
-  return text;
-}
-
-function normalizeKey(value) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function deriveSource(url) {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname.toLowerCase().replace(/^www\./, "") || "Public job posting";
-  } catch {
-    return "Public job posting";
-  }
-}
+const STATUSES = new Set(["wishlist", "applied", "interviewing", "offer", "rejected", "archived"]);
+const INACTIVE = new Set(["archived", "rejected"]);
+const compact = (value) => value == null ? null : String(value).replace(/\s+/g, " ").trim() || null;
+const required = (value, label) => { const text = compact(value); if (!text) throw new Error(`${label} is required`); return text; };
+const normalized = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const now = () => new Date().toISOString();
+const date = (value, label) => { const text = compact(value); if (text && !/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new Error(`${label} must use YYYY-MM-DD format`); return text; };
+const sourceFrom = (url) => { try { return new URL(url).hostname.replace(/^www\./, "") || "Public job posting"; } catch { return "Public job posting"; } };
 
 function ensureSchema(db) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS applications (
-      id TEXT PRIMARY KEY,
-      company TEXT NOT NULL,
-      role TEXT NOT NULL,
-      status TEXT NOT NULL,
-      source TEXT,
-      location TEXT,
-      url TEXT,
-      contact TEXT,
-      notes TEXT,
-      applied_date TEXT,
-      follow_up_date TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS applications_status_idx
-      ON applications(status);
-
-    CREATE INDEX IF NOT EXISTS applications_updated_at_idx
-      ON applications(updated_at DESC);
-
-    CREATE TABLE IF NOT EXISTS application_notes (
-      id TEXT PRIMARY KEY,
-      application_id TEXT NOT NULL,
-      type TEXT NOT NULL DEFAULT 'update',
-      body TEXT NOT NULL,
-      follow_up_date TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS application_notes_application_created_idx
-      ON application_notes(application_id, created_at);
-
-    CREATE TABLE IF NOT EXISTS application_status_changes (
-      id TEXT PRIMARY KEY,
-      application_id TEXT NOT NULL,
-      from_status TEXT,
-      to_status TEXT NOT NULL,
-      note TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS application_status_changes_application_created_idx
-      ON application_status_changes(application_id, created_at);
-  `);
+  db.exec(`CREATE TABLE IF NOT EXISTS opportunities (id TEXT PRIMARY KEY, type TEXT NOT NULL, label TEXT NOT NULL, organization TEXT, status TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'medium', summary TEXT, origin_opportunity_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (origin_opportunity_id) REFERENCES opportunities(id) ON DELETE SET NULL);
+CREATE TABLE IF NOT EXISTS job_opportunity_details (opportunity_id TEXT PRIMARY KEY, url TEXT, source TEXT, location TEXT, contact TEXT, applied_date TEXT, FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS connection_opportunity_details (opportunity_id TEXT PRIMARY KEY, role_context TEXT, contact_info TEXT, meeting_context TEXT, relationship_strength TEXT NOT NULL DEFAULT 'new', FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS opportunity_activities (id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL, type TEXT NOT NULL, body TEXT NOT NULL, metadata_json TEXT, occurred_at TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS opportunity_tasks (id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL, title TEXT NOT NULL, due_date TEXT, state TEXT NOT NULL, source_activity_id TEXT, completed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE CASCADE, FOREIGN KEY (source_activity_id) REFERENCES opportunity_activities(id) ON DELETE SET NULL);
+CREATE TABLE IF NOT EXISTS opportunity_artifacts (id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, file_path TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT 'text/markdown', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(opportunity_id, type, file_path), FOREIGN KEY (opportunity_id) REFERENCES opportunities(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS schema_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS opportunities_status_idx ON opportunities(status); CREATE INDEX IF NOT EXISTS opportunities_updated_at_idx ON opportunities(updated_at DESC); CREATE INDEX IF NOT EXISTS opportunity_activities_opportunity_occurred_idx ON opportunity_activities(opportunity_id, occurred_at); CREATE INDEX IF NOT EXISTS opportunity_tasks_opportunity_state_idx ON opportunity_tasks(opportunity_id, state); CREATE INDEX IF NOT EXISTS opportunity_artifacts_opportunity_updated_idx ON opportunity_artifacts(opportunity_id, updated_at DESC);`);
 }
-
-function connect(dbPath) {
-  mkdirSync(path.dirname(dbPath), { recursive: true });
-  const db = new Database(dbPath);
-  db.pragma("foreign_keys = ON");
-  ensureSchema(db);
-  return db;
+function table(db, name) { return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name)); }
+function migrateLegacyApplications(db) {
+  if (!table(db, "applications") || db.prepare("SELECT 1 FROM schema_metadata WHERE key = 'opportunity_schema_version'").get()) return;
+  db.transaction(() => {
+    const apps = db.prepare("SELECT * FROM applications").all(); const notes = table(db, "application_notes") ? db.prepare("SELECT * FROM application_notes").all() : []; const changes = table(db, "application_status_changes") ? db.prepare("SELECT * FROM application_status_changes").all() : []; const artifacts = table(db, "application_artifacts") ? db.prepare("SELECT * FROM application_artifacts").all() : [];
+    for (const app of apps) {
+      db.prepare("INSERT INTO opportunities VALUES (?, 'job', ?, ?, ?, ?, ?, NULL, ?, ?)").run(app.id, app.role, app.company, app.status, app.priority || "medium", app.notes, app.created_at, app.updated_at);
+      db.prepare("INSERT INTO job_opportunity_details VALUES (?, ?, ?, ?, ?, ?)").run(app.id, app.url, app.source, app.location, app.contact, app.applied_date);
+      db.prepare("INSERT INTO opportunity_activities VALUES (?, ?, 'opportunity_created', 'Opportunity created', NULL, ?, ?)").run(randomUUID(), app.id, app.created_at, app.created_at);
+      db.prepare("INSERT INTO opportunity_activities VALUES (?, ?, 'status_change', ?, ?, ?, ?)").run(randomUUID(), app.id, `Status set to ${app.status}`, JSON.stringify({ fromStatus: null, toStatus: app.status }), app.created_at, app.created_at);
+      const taskPairs = new Set();
+      const addTask = (title, dueDate, createdAt) => {
+        if (app.status === "rejected" || app.status === "archived" || !compact(title)) return;
+        const taskKey = `${normalized(title)}|${dueDate || ""}`;
+        if (taskPairs.has(taskKey)) return;
+        taskPairs.add(taskKey);
+        db.prepare("INSERT INTO opportunity_tasks VALUES (?, ?, ?, ?, 'open', NULL, NULL, ?, ?)").run(randomUUID(), app.id, compact(title), dueDate, createdAt, createdAt);
+      };
+      addTask(app.next_action, app.next_action_date, app.updated_at);
+      for (const note of notes.filter((item) => item.application_id === app.id)) { db.prepare("INSERT INTO opportunity_activities VALUES (?, ?, 'note', ?, NULL, ?, ?)").run(note.id || randomUUID(), app.id, note.body, note.created_at, note.created_at); if (note.type === "follow_up") addTask(note.body, note.follow_up_date, note.created_at); }
+      for (const change of changes.filter((item) => item.application_id === app.id)) db.prepare("INSERT INTO opportunity_activities VALUES (?, ?, 'status_change', ?, ?, ?, ?)").run(change.id || randomUUID(), app.id, change.note || `Status changed to ${change.to_status}`, JSON.stringify({ fromStatus: change.from_status, toStatus: change.to_status }), change.created_at, change.created_at);
+      for (const artifact of artifacts.filter((item) => item.application_id === app.id)) db.prepare("INSERT INTO opportunity_artifacts VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(artifact.id, app.id, artifact.type, artifact.title, artifact.file_path, artifact.content_type || "text/markdown", artifact.created_at, artifact.updated_at);
+    }
+    db.prepare("INSERT INTO schema_metadata VALUES ('opportunity_schema_version', '1')").run();
+  })();
 }
-
-function applicationProjectionSql(where) {
-  return `
-    SELECT
-      applications.id,
-      applications.company,
-      applications.role,
-      applications.status,
-      applications.source,
-      applications.location,
-      applications.url,
-      applications.contact,
-      applications.notes,
-      applications.applied_date,
-      CASE
-        WHEN applications.status IN ('archived', 'rejected') THEN NULL
-        ELSE (
-          SELECT MIN(application_notes.follow_up_date)
-          FROM application_notes
-          WHERE application_notes.application_id = applications.id
-            AND application_notes.type = 'follow_up'
-            AND application_notes.follow_up_date IS NOT NULL
-        )
-      END AS follow_up_date,
-      applications.created_at,
-      applications.updated_at
-    FROM applications
-    ${where}
-  `;
-}
-
-function rowToApplication(row) {
-  if (!row) {
-    return null;
-  }
-
-  return {
-    id: row.id,
-    company: row.company,
-    role: row.role,
-    status: row.status,
-    source: row.source,
-    location: row.location,
-    url: row.url,
-    contact: row.contact,
-    notes: row.notes,
-    appliedDate: row.applied_date,
-    followUpDate: row.follow_up_date,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
-}
-
-function getApplication(db, applicationId) {
-  const row = db.prepare(applicationProjectionSql("WHERE applications.id = ?")).get(applicationId);
-  const application = rowToApplication(row);
-
-  if (!application) {
-    throw new Error("Application was not found after write");
-  }
-
-  return application;
-}
-
-function findDuplicate(db, company, role) {
-  const companyKey = normalizeKey(company);
-  const roleKey = normalizeKey(role);
-  const rows = db.prepare("SELECT * FROM applications").all();
-
-  return (
-    rows.find(
-      (row) => normalizeKey(row.company) === companyKey && normalizeKey(row.role) === roleKey
-    ) ?? null
-  );
-}
-
-function insertStatusChange(db, applicationId, fromStatus, toStatus, note, createdAt) {
-  db.prepare(
-    `
-      INSERT INTO application_status_changes (
-        id, application_id, from_status, to_status, note, created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?)
-    `
-  ).run(randomUUID(), applicationId, fromStatus, toStatus, note, createdAt);
-}
-
-function insertNote(db, applicationId, noteType, body, followUpDate, createdAt) {
-  const noteId = randomUUID();
-  db.prepare(
-    `
-      INSERT INTO application_notes (
-        id, application_id, type, body, follow_up_date, created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?)
-    `
-  ).run(noteId, applicationId, noteType, body, followUpDate, createdAt);
-  return noteId;
-}
-
-function buildNote({ action, source, url, postingState, changes, note }) {
-  const fragments = [`${action} from public posting`, `source: ${source}`, `url: ${url}`];
-
-  if (postingState !== "unknown") {
-    fragments.push(`posting state: ${postingState}`);
-  }
-
-  fragments.push(changes.length ? `changes: ${changes.join("; ")}` : "changes: none");
-
-  if (note) {
-    fragments.push(`note: ${note}`);
-  }
-
-  return `${fragments.join(". ")}.`;
-}
-
-function addFollowUpIfRequested(db, applicationId, followUpDate, now) {
-  if (followUpDate === null) {
-    return null;
-  }
-
-  return insertNote(db, applicationId, "follow_up", "Follow up", followUpDate, now);
-}
-
+function connect(dbPath) { mkdirSync(path.dirname(dbPath), { recursive: true }); const db = new Database(dbPath); db.pragma("foreign_keys = ON"); ensureSchema(db); migrateLegacyApplications(db); return db; }
+function job(db, id) { const row = db.prepare("SELECT o.*, d.url, d.source, d.location, d.contact, d.applied_date, (SELECT MIN(due_date) FROM opportunity_tasks WHERE opportunity_id=o.id AND state='open') AS follow_up_date FROM opportunities o JOIN job_opportunity_details d ON d.opportunity_id=o.id WHERE o.id=? AND o.type='job'").get(id); if (!row) throw new Error("Opportunity was not found after write"); return { id: row.id, type: row.type, label: row.label, organization: row.organization, status: row.status, priority: row.priority, summary: row.summary, url: row.url, source: row.source, location: row.location, contact: row.contact, appliedDate: row.applied_date, followUpDate: row.follow_up_date, createdAt: row.created_at, updatedAt: row.updated_at }; }
+function activity(db, id, type, body, at, metadata = null) { const activityId = randomUUID(); db.prepare("INSERT INTO opportunity_activities VALUES (?, ?, ?, ?, ?, ?, ?)").run(activityId, id, type, body, metadata && JSON.stringify(metadata), at, at); return activityId; }
+function task(db, id, due, at) { const taskId = randomUUID(); db.prepare("INSERT INTO opportunity_tasks VALUES (?, ?, 'Follow up', ?, 'open', NULL, NULL, ?, ?)").run(taskId, id, due, at, at); return taskId; }
+function parse(argv) { const args = { db: process.env.JOBTRACKER_DB_PATH?.trim() ? path.resolve(process.env.JOBTRACKER_DB_PATH) : path.join(process.cwd(), "data", "jobtracker.sqlite"), payload: {}, dryRun: false, input: null }; const fields = new Map([["--company", "company"], ["--role", "role"], ["--url", "url"], ["--source", "source"], ["--location", "location"], ["--contact", "contact"], ["--summary", "summary"], ["--note", "note"], ["--status", "status"], ["--posting-state", "posting_state"], ["--applied-date", "applied_date"], ["--follow-up-date", "follow_up_date"]]); for (let i=0;i<argv.length;i+=1) { const arg=argv[i]; if (fields.has(arg)) { if (!argv[++i]) throw new Error(`${arg} requires a value`); args.payload[fields.get(arg)] = argv[i]; } else if (arg === "--db") { if (!argv[++i]) throw new Error("--db requires a value"); args.db=path.resolve(argv[i]); } else if (arg === "--input-json") { if (!argv[++i]) throw new Error("--input-json requires a value"); args.input=argv[i]; } else if (arg === "--replace-summary") args.payload.replace_summary=true; else if (arg === "--reactivate") args.payload.reactivate=true; else if (arg === "--dry-run") args.dryRun=true; else throw new Error(`Unknown argument: ${arg}`); } if (args.input) Object.assign(args.payload, JSON.parse(args.input === "-" ? readFileSync(0, "utf8") : readFileSync(args.input, "utf8"))); return args; }
 function upsert(payload, dbPath, dryRun) {
-  const company = requireText(typeof payload.company === "string" ? payload.company : null, "Company");
-  const role = requireText(typeof payload.role === "string" ? payload.role : null, "Role");
-  const url = requireText(typeof payload.url === "string" ? payload.url : null, "URL");
-  const source =
-    compactText(typeof payload.source === "string" ? payload.source : null) ?? deriveSource(url);
-  const location = compactText(typeof payload.location === "string" ? payload.location : null);
-  const contact = compactText(typeof payload.contact === "string" ? payload.contact : null);
-  const summary = compactText(typeof payload.summary === "string" ? payload.summary : null);
-  const note = compactText(typeof payload.note === "string" ? payload.note : null);
-  const appliedDate = optionalDate(
-    typeof payload.applied_date === "string" ? payload.applied_date : null,
-    "Applied date"
-  );
-  const followUpDate = optionalDate(
-    typeof payload.follow_up_date === "string" ? payload.follow_up_date : null,
-    "Follow-up date"
-  );
-  const postingState =
-    compactText(typeof payload.posting_state === "string" ? payload.posting_state : null) ?? "unknown";
-  const requestedStatus = compactText(typeof payload.status === "string" ? payload.status : null);
-  const replaceSummary = Boolean(payload.replace_summary);
-  const reactivate = Boolean(payload.reactivate);
-
-  if (!POSTING_STATES.has(postingState)) {
-    throw new Error(`Posting state must be one of: ${Array.from(POSTING_STATES).sort().join(", ")}`);
+  const organization=required(payload.company,"Company"), label=required(payload.role,"Role"), url=required(payload.url,"URL"), source=compact(payload.source) || sourceFrom(url), location=compact(payload.location), contact=compact(payload.contact), summary=compact(payload.summary), requested=compact(payload.status), followUp=date(payload.follow_up_date,"Follow-up date"), state=compact(payload.posting_state) || "unknown";
+  if (requested && !STATUSES.has(requested)) throw new Error(`Status must be one of: ${[...STATUSES].sort().join(", ")}`); if (!["open","closed","unknown"].includes(state)) throw new Error("Posting state must be one of: closed, open, unknown");
+  const db=connect(dbPath), timestamp=now(); let result; db.exec("BEGIN"); try { const existing=db.prepare("SELECT o.*, d.url, d.source, d.location, d.contact, d.applied_date FROM opportunities o JOIN job_opportunity_details d ON d.opportunity_id=o.id WHERE o.type='job'").all().find((row) => normalized(row.organization || "") === normalized(organization) && normalized(row.label) === normalized(label)); let id, action, changes=[]; const activityIds=[], taskIds=[];
+    if (!existing) { id=randomUUID(); const status=requested || "wishlist"; db.prepare("INSERT INTO opportunities VALUES (?, 'job', ?, ?, ?, 'medium', ?, NULL, ?, ?)").run(id,label,organization,status,summary,timestamp,timestamp); db.prepare("INSERT INTO job_opportunity_details VALUES (?, ?, ?, ?, ?, ?)").run(id,url,source,location,contact,date(payload.applied_date,"Applied date")); activityIds.push(activity(db,id,"opportunity_created","Opportunity created",timestamp)); activityIds.push(activity(db,id,"note",`Added tracker record from public posting. source: ${source}. url: ${url}.`,timestamp)); changes=["created new application record"]; action="created"; } else { id=existing.id; const assignments=[], values=[]; const detailAssignments=[], detailValues=[]; const update=(oldValue,newValue,labelName,assign,valuesList) => { if (newValue !== null && newValue !== oldValue) { assign.push(`${labelName} = ?`); valuesList.push(newValue); changes.push(`${labelName}: ${oldValue || "blank"} -> ${newValue}`); } }; update(existing.source,source,"source",detailAssignments,detailValues); update(existing.location,location,"location",detailAssignments,detailValues); update(existing.url,url,"url",detailAssignments,detailValues); update(existing.contact,contact,"contact",detailAssignments,detailValues); if (summary !== null && (payload.replace_summary || !existing.summary)) update(existing.summary,summary,"summary",assignments,values); let status=requested; if (!status && payload.reactivate && INACTIVE.has(existing.status) && state !== "closed") status="wishlist"; if (status && status !== existing.status) { assignments.push("status = ?"); values.push(status); changes.push(`status: ${existing.status} -> ${status}`); activityIds.push(activity(db,id,"status_change","Status updated from public posting review",timestamp,{ fromStatus: existing.status, toStatus: status })); } if (assignments.length) db.prepare(`UPDATE opportunities SET ${assignments.join(", ")}, updated_at = ? WHERE id = ?`).run(...values,timestamp,id); else db.prepare("UPDATE opportunities SET updated_at=? WHERE id=?").run(timestamp,id); if (detailAssignments.length) db.prepare(`UPDATE job_opportunity_details SET ${detailAssignments.join(", ")} WHERE opportunity_id = ?`).run(...detailValues,id); activityIds.push(activity(db,id,"note",`Reviewed existing tracker record from public posting. source: ${source}. url: ${url}. changes: ${changes.join("; ") || "none"}.`,timestamp)); action="updated"; }
+    if (followUp) { taskIds.push(task(db,id,followUp,timestamp)); activityIds.push(activity(db,id,"task_created","Follow up task created",timestamp,{ taskId: taskIds[0], dueDate: followUp })); } const opportunity=job(db,id); result={ action, opportunity, application: opportunity, changes, activityIds, taskIds }; db.exec(dryRun ? "ROLLBACK" : "COMMIT"); } catch (error) { db.exec("ROLLBACK"); db.close(); throw error; } db.close(); return { ...result, dryRun };
   }
-
-  if (requestedStatus !== null && !APPLICATION_STATUSES.has(requestedStatus)) {
-    throw new Error(`Status must be one of: ${Array.from(APPLICATION_STATUSES).sort().join(", ")}`);
-  }
-
-  const db = connect(dbPath);
-  const now = nowIso();
-  db.exec("BEGIN");
-
-  try {
-    const existing = findDuplicate(db, company, role);
-    const noteIds = [];
-    let followUpNoteId = null;
-    let applicationId;
-    let action;
-    let changes;
-
-    if (existing === null) {
-      applicationId = randomUUID();
-      const status = requestedStatus ?? "wishlist";
-      db.prepare(
-        `
-          INSERT INTO applications (
-            id, company, role, status, source, location, url, contact, notes,
-            applied_date, follow_up_date, created_at, updated_at
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
-        `
-      ).run(
-        applicationId,
-        company,
-        role,
-        status,
-        source,
-        location,
-        url,
-        contact,
-        summary,
-        appliedDate,
-        now,
-        now
-      );
-      insertStatusChange(db, applicationId, null, status, "Application created", now);
-      changes = ["created new application record"];
-      noteIds.push(
-        insertNote(
-          db,
-          applicationId,
-          "update",
-          buildNote({
-            action: "Added tracker record",
-            source,
-            url,
-            postingState,
-            changes,
-            note
-          }),
-          null,
-          now
-        )
-      );
-      followUpNoteId = addFollowUpIfRequested(db, applicationId, followUpDate, now);
-      action = "created";
-    } else {
-      applicationId = existing.id;
-      const assignments = [];
-      const values = [];
-      changes = [];
-
-      function updateField(column, label, newValue) {
-        const oldValue = existing[column];
-
-        if (newValue !== null && newValue !== oldValue) {
-          assignments.push(`${column} = ?`);
-          values.push(newValue);
-          changes.push(`${label}: ${oldValue || "blank"} -> ${newValue}`);
-        }
-      }
-
-      updateField("source", "source", source);
-      updateField("location", "location", location);
-      updateField("url", "url", url);
-      updateField("contact", "contact", contact);
-
-      if (summary !== null && (replaceSummary || !existing.notes)) {
-        updateField("notes", "summary", summary);
-      }
-
-      let nextStatus = requestedStatus;
-
-      if (
-        nextStatus === null &&
-        reactivate &&
-        INACTIVE_STATUSES.has(existing.status) &&
-        postingState !== "closed"
-      ) {
-        nextStatus = "wishlist";
-      }
-
-      if (nextStatus !== null && nextStatus !== existing.status) {
-        assignments.push("status = ?");
-        values.push(nextStatus);
-        changes.push(`status: ${existing.status} -> ${nextStatus}`);
-        insertStatusChange(
-          db,
-          applicationId,
-          existing.status,
-          nextStatus,
-          "Status updated from public posting review",
-          now
-        );
-      }
-
-      if (assignments.length) {
-        assignments.push("updated_at = ?");
-        values.push(now, applicationId);
-        db.prepare(`UPDATE applications SET ${assignments.join(", ")} WHERE id = ?`).run(...values);
-      } else {
-        db.prepare("UPDATE applications SET updated_at = ? WHERE id = ?").run(now, applicationId);
-      }
-
-      noteIds.push(
-        insertNote(
-          db,
-          applicationId,
-          "update",
-          buildNote({
-            action: "Reviewed existing tracker record",
-            source,
-            url,
-            postingState,
-            changes,
-            note
-          }),
-          null,
-          now
-        )
-      );
-      followUpNoteId = addFollowUpIfRequested(db, applicationId, followUpDate, now);
-      action = "updated";
-    }
-
-    const application = getApplication(db, applicationId);
-
-    if (dryRun) {
-      db.exec("ROLLBACK");
-    } else {
-      db.exec("COMMIT");
-    }
-
-    db.close();
-
-    return {
-      action,
-      dryRun,
-      dbPath,
-      application,
-      changes,
-      noteIds,
-      followUpNoteId
-    };
-  } catch (error) {
-    db.exec("ROLLBACK");
-    db.close();
-    throw error;
-  }
-}
-
-function readJson(inputPath) {
-  const raw = inputPath === "-" ? readFileSync(0, "utf8") : readFileSync(inputPath, "utf8");
-  const data = JSON.parse(raw);
-
-  if (typeof data !== "object" || data === null || Array.isArray(data)) {
-    throw new Error("Input JSON must be an object");
-  }
-
-  return data;
-}
-
-function parseArgs(argv) {
-  const args = {
-    db: DEFAULT_DB_PATH,
-    inputJson: null,
-    dryRun: false,
-    payload: {}
-  };
-  const fieldMap = new Map([
-    ["--company", "company"],
-    ["--role", "role"],
-    ["--url", "url"],
-    ["--source", "source"],
-    ["--location", "location"],
-    ["--contact", "contact"],
-    ["--summary", "summary"],
-    ["--note", "note"],
-    ["--status", "status"],
-    ["--posting-state", "posting_state"],
-    ["--applied-date", "applied_date"],
-    ["--follow-up-date", "follow_up_date"]
-  ]);
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-
-    if (fieldMap.has(arg)) {
-      index += 1;
-
-      if (index >= argv.length) {
-        throw new Error(`${arg} requires a value`);
-      }
-
-      args.payload[fieldMap.get(arg)] = argv[index];
-    } else if (arg === "--db") {
-      index += 1;
-
-      if (index >= argv.length) {
-        throw new Error("--db requires a value");
-      }
-
-      args.db = path.resolve(argv[index]);
-    } else if (arg === "--input-json") {
-      index += 1;
-
-      if (index >= argv.length) {
-        throw new Error("--input-json requires a value");
-      }
-
-      args.inputJson = argv[index];
-    } else if (arg === "--replace-summary") {
-      args.payload.replace_summary = true;
-    } else if (arg === "--reactivate") {
-      args.payload.reactivate = true;
-    } else if (arg === "--dry-run") {
-      args.dryRun = true;
-    } else {
-      throw new Error(`Unknown argument: ${arg}`);
-    }
-  }
-
-  return args;
-}
-
-function main() {
-  const args = parseArgs(process.argv.slice(2));
-  const payload = args.inputJson ? readJson(args.inputJson) : {};
-
-  Object.assign(payload, args.payload);
-
-  const result = upsert(payload, path.resolve(args.db), args.dryRun);
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-}
-
-try {
-  main();
-} catch (error) {
-  process.stderr.write(`${error instanceof Error ? error.message : "Request failed"}\n`);
-  process.exitCode = 1;
-}
+const args=parse(process.argv.slice(2)); try { process.stdout.write(`${JSON.stringify(upsert(args.payload,args.db,args.dryRun),null,2)}\n`); } catch (error) { process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`); process.exit(1); }
