@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 import type { OpportunityDetail } from "../types";
-import { InteractionComposer, OpportunityDetailContent, TaskComposer } from "./OpportunityDetailPage";
+import { InteractionComposer, OpportunityDetailContent, TaskComposer, TrackerPanel } from "./OpportunityDetailPage";
 
 const base = {
   id: "opportunity-1",
@@ -47,6 +47,15 @@ const job: OpportunityDetail = {
 };
 
 describe("OpportunityDetailContent", () => {
+  it("uses the panel header/title contract for inline panels", () => {
+    const titles = ["Record interaction", "Add task", "Edit details", "Create linked job"];
+    const markup = titles.map((title) => renderToStaticMarkup(<TrackerPanel title={title}>Panel content</TrackerPanel>));
+
+    for (const [index, title] of titles.entries()) {
+      expect(markup[index]).toContain(`<header class="tracker-panel__header"><h2 class="tracker-panel__title">${title}</h2></header>`);
+    }
+  });
+
   it("renders connection context, activity, tasks, and actions", () => {
     const markup = renderToStaticMarkup(<OpportunityDetailContent detail={connection} onTaskAction={vi.fn()} />);
     expect(markup).toContain("Connection");
