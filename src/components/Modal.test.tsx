@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -9,11 +9,16 @@ import { Modal } from "./Modal";
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 type ModalOptions = {
+  children?: React.ReactNode;
   onClose?: () => void;
   size?: "compact" | "wide";
 };
 
-function mountModal({ onClose = vi.fn(), size }: ModalOptions = {}) {
+function mountModal({
+  children = <><input aria-label="Organization" /><button type="button">Save changes</button></>,
+  onClose = vi.fn(),
+  size
+}: ModalOptions = {}) {
   const trigger = document.createElement("button");
   trigger.textContent = "Open modal";
   const container = document.createElement("div");
@@ -25,13 +30,40 @@ function mountModal({ onClose = vi.fn(), size }: ModalOptions = {}) {
     root = createRoot(container);
     root.render(
       <Modal onClose={onClose} size={size} title="Edit opportunity">
-        <input aria-label="Organization" />
-        <button type="button">Save changes</button>
+        {children}
       </Modal>
     );
   });
 
   return { container, onClose, root: root!, trigger };
+}
+
+function mountDismissibleModal() {
+  const trigger = document.createElement("button");
+  trigger.textContent = "Open modal";
+  const container = document.createElement("div");
+  document.body.append(trigger, container);
+  trigger.focus();
+
+  let root: Root;
+  function DismissibleModal() {
+    const [isOpen, setIsOpen] = useState(true);
+    const close = () => setIsOpen(false);
+
+    return isOpen ? (
+      <Modal onClose={close} title="Edit opportunity">
+        <input aria-label="Organization" />
+        <button type="button" onClick={close}>Cancel</button>
+      </Modal>
+    ) : null;
+  }
+
+  act(() => {
+    root = createRoot(container);
+    root.render(<DismissibleModal />);
+  });
+
+  return { container, root: root!, trigger };
 }
 
 afterEach(() => {
@@ -56,7 +88,7 @@ describe("Modal", () => {
     act(() => wide.root.unmount());
   });
 
-  it("moves focus to the first focusable element on the animation frame", () => {
+  it("moves focus to the first meaningful content control on the animation frame", () => {
     const callbacks: FrameRequestCallback[] = [];
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       callbacks.push(callback);
@@ -64,11 +96,11 @@ describe("Modal", () => {
     });
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
     const { container, root } = mountModal();
-    const closeButton = container.querySelector(".modal__close") as HTMLElement;
+    const organizationInput = container.querySelector("input") as HTMLElement;
 
-    expect(document.activeElement).not.toBe(closeButton);
+    expect(document.activeElement).not.toBe(organizationInput);
     act(() => callbacks[0]?.(0));
-    expect(document.activeElement).toBe(closeButton);
+    expect(document.activeElement).toBe(organizationInput);
 
     act(() => root.unmount());
   });
@@ -101,16 +133,30 @@ describe("Modal", () => {
     act(() => root.unmount());
   });
 
-  it("closes once for Escape and backdrop presses", () => {
-    const onClose = vi.fn();
-    const { container, root } = mountModal({ onClose });
+  it.each([
+    ["Escape", ({ container }: ReturnType<typeof mountDismissibleModal>) => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" }));
+      return container;
+    }],
+    ["backdrop", ({ container }: ReturnType<typeof mountDismissibleModal>) => {
+      container.querySelector(".modal-backdrop")?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      return container;
+    }],
+    ["Cancel", ({ container }: ReturnType<typeof mountDismissibleModal>) => {
+      Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Cancel")?.click();
+      return container;
+    }]
+  ])("unmounts after %s and restores trigger focus and exact overflow", (_source, dismiss) => {
+    document.body.style.overflow = "scroll";
+    const modal = mountDismissibleModal();
 
-    act(() => document.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" })));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(document.body.style.overflow).toBe("hidden");
+    act(() => dismiss(modal));
 
-    act(() => container.querySelector(".modal-backdrop")?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
-    expect(onClose).toHaveBeenCalledTimes(2);
-    act(() => root.unmount());
+    expect(modal.container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.body.style.overflow).toBe("scroll");
+    expect(document.activeElement).toBe(modal.trigger);
+    act(() => modal.root.unmount());
   });
 
   it("restores trigger focus and the exact body overflow value on unmount", () => {
@@ -122,5 +168,19 @@ describe("Modal", () => {
 
     expect(document.body.style.overflow).toBe("scroll");
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it.each(["first", "second"])("keeps scrolling locked until the final overlapping modal unmounts when %s unmounts first", (firstToUnmount) => {
+    document.body.style.overflow = "scroll";
+    const first = mountModal();
+    const second = mountModal();
+
+    expect(document.body.style.overflow).toBe("hidden");
+    const [firstUnmounted, lastUnmounted] = firstToUnmount === "first" ? [first, second] : [second, first];
+    act(() => firstUnmounted.root.unmount());
+    expect(document.body.style.overflow).toBe("hidden");
+
+    act(() => lastUnmounted.root.unmount());
+    expect(document.body.style.overflow).toBe("scroll");
   });
 });

@@ -18,19 +18,27 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])"
 ].join(",");
 
+let activeModalCount = 0;
+let overflowBeforeModal = "";
+
 export function Modal({ children, onClose, size = "compact", title }: ModalProps) {
   const dialogRef = useRef<HTMLElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
-  const previousOverflow = useRef("");
   const titleId = useId();
 
   useEffect(() => {
     previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    previousOverflow.current = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    if (activeModalCount === 0) {
+      overflowBeforeModal = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+    activeModalCount += 1;
     const frame = window.requestAnimationFrame(() => {
-      const focusable = dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
-      (focusable ?? dialogRef.current)?.focus();
+      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? []);
+      const initialFocus = dialogRef.current?.querySelector<HTMLElement>("[data-autofocus]")
+        ?? focusable.find((element) => !element.classList.contains("modal__close"))
+        ?? focusable[0];
+      (initialFocus ?? dialogRef.current)?.focus();
     });
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -66,7 +74,10 @@ export function Modal({ children, onClose, size = "compact", title }: ModalProps
     return () => {
       window.cancelAnimationFrame(frame);
       document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = previousOverflow.current;
+      activeModalCount -= 1;
+      if (activeModalCount === 0) {
+        document.body.style.overflow = overflowBeforeModal;
+      }
       previousFocus.current?.focus();
     };
   }, [onClose]);
