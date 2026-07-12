@@ -228,7 +228,68 @@ export function changeOpportunityStatus(
 }
 export function addOpportunityActivity(id: string, input: OpportunityActivityInput, task?: OpportunityTaskInput | null): OpportunityDetail { ensureExists(id); const activity=normalizeActivity(input),now=nowIso(),db=getDatabase(); db.transaction(() => { const activityId=writeActivity(db,id,activity.type,activity.body,activity.occurredAt ?? now,activity.metadata); if(task) insertTask(db,id,normalizedTask({...task,sourceActivityId:activityId}),now); db.prepare("UPDATE opportunities SET updated_at=? WHERE id=?").run(now,id); })(); return getOpportunityDetail(id)!; }
 export function createOpportunityTask(id: string, input: OpportunityTaskInput): OpportunityDetail { ensureExists(id); const now=nowIso(),db=getDatabase(); db.transaction(() => { insertTask(db,id,normalizedTask(input),now); db.prepare("UPDATE opportunities SET updated_at=? WHERE id=?").run(now,id); })(); return getOpportunityDetail(id)!; }
-export function updateOpportunityTask(id: string, taskId: string, input: OpportunityTaskUpdateInput): OpportunityDetail { ensureExists(id); const db=getDatabase(), taskRow=db.prepare("SELECT * FROM opportunity_tasks WHERE id=? AND opportunity_id=?").get(taskId,id) as any; if(!taskRow) throw new Error("Task not found"); const task=mapTask(taskRow), item=record(input), now=nowIso(), nextState=item.state == null ? task.state : valueFrom<OpportunityTaskState>(item.state,taskStates,"Task state"), nextTitle=item.title == null ? task.title : required(item.title,"Task title"), nextDue=item.dueDate === undefined ? task.dueDate : date(item.dueDate,"Task due date"); if(task.state !== "open" && nextState !== task.state) throw new Error("Terminal task cannot change state"); const event = nextState === "completed" ? "task_completed" : nextState === "cancelled" ? "task_cancelled" : nextDue !== task.dueDate ? "task_rescheduled" : null; db.transaction(() => { db.prepare("UPDATE opportunity_tasks SET title=?,due_date=?,state=?,completed_at=?,updated_at=? WHERE id=?").run(nextTitle,nextDue,nextState,nextState === "completed" ? now : null,now,taskId); if(event) writeActivity(db,id,event,`Task ${event.replace("task_", "")}: ${nextTitle}`,now,{taskId,fromDueDate:task.dueDate,toDueDate:nextDue}); db.prepare("UPDATE opportunities SET updated_at=? WHERE id=?").run(now,id); })(); return getOpportunityDetail(id)!; }
+export function updateOpportunityTask(
+  id: string,
+  taskId: string,
+  input: OpportunityTaskUpdateInput
+): OpportunityDetail {
+  ensureExists(id);
+
+  const db = getDatabase();
+  const taskRow = db
+    .prepare("SELECT * FROM opportunity_tasks WHERE id=? AND opportunity_id=?")
+    .get(taskId, id) as {
+    id: string;
+    opportunity_id: string;
+    title: string;
+    due_date: string | null;
+    state: OpportunityTaskState;
+    source_activity_id: string | null;
+    completed_at: string | null;
+    created_at: string;
+    updated_at: string;
+  } | undefined;
+  if (!taskRow) throw new Error("Task not found");
+
+  const task = mapTask(taskRow);
+  const item = record(input);
+  const nextState =
+    item.state == null
+      ? task.state
+      : valueFrom<OpportunityTaskState>(item.state, taskStates, "Task state");
+  const nextTitle = item.title == null ? task.title : required(item.title, "Task title");
+  const nextDue = item.dueDate === undefined ? task.dueDate : date(item.dueDate, "Task due date");
+  if (task.state !== "open" && nextState !== task.state) {
+    throw new Error("Terminal task cannot change state");
+  }
+
+  const terminalTransition = task.state === "open" && nextState !== "open";
+  const event = terminalTransition
+    ? nextState === "completed"
+      ? "task_completed"
+      : "task_cancelled"
+    : nextDue !== task.dueDate
+      ? "task_rescheduled"
+      : null;
+  const now = nowIso();
+  const completedAt = terminalTransition && nextState === "completed" ? now : task.completedAt;
+
+  db.transaction(() => {
+    db.prepare(
+      "UPDATE opportunity_tasks SET title=?,due_date=?,state=?,completed_at=?,updated_at=? WHERE id=?"
+    ).run(nextTitle, nextDue, nextState, completedAt, now, taskId);
+    if (event) {
+      writeActivity(db, id, event, `Task ${event.replace("task_", "")}: ${nextTitle}`, now, {
+        taskId,
+        fromDueDate: task.dueDate,
+        toDueDate: nextDue
+      });
+    }
+    db.prepare("UPDATE opportunities SET updated_at=? WHERE id=?").run(now, id);
+  })();
+
+  return getOpportunityDetail(id)!;
+}
 export function createLinkedJobOpportunity(
   connectionId: string,
   input: JobOpportunityInput

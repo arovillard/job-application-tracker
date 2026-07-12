@@ -221,6 +221,29 @@ describe("SQLite opportunity storage", () => {
     expect(getOpportunityDetail(job.id)?.activities.filter((activity) => activity.type === "status_change")).toHaveLength(2);
   });
 
+  it("records terminal task events only on transitions and preserves completion timestamps", () => {
+    const job = createOpportunity({ type: "job", label: "Engineer", status: "applied" });
+    const completedTaskId = createOpportunityTask(job.id, { title: "Send portfolio" }).tasks[0]!.id;
+
+    updateOpportunityTask(job.id, completedTaskId, { state: "completed" });
+    const completedAt = getOpportunityDetail(job.id)?.tasks[0]?.completedAt;
+    updateOpportunityTask(job.id, completedTaskId, { title: "Send portfolio and work samples" });
+
+    expect(getOpportunityDetail(job.id)?.tasks[0]).toMatchObject({
+      state: "completed",
+      completedAt
+    });
+    expect(getOpportunityDetail(job.id)?.activities.filter((activity) => activity.type === "task_completed")).toHaveLength(1);
+    expect(() => updateOpportunityTask(job.id, completedTaskId, { state: "cancelled" })).toThrow(/terminal/i);
+
+    const cancelledTaskId = createOpportunityTask(job.id, { title: "Call recruiter" }).tasks.find((task) => task.id !== completedTaskId)!.id;
+    updateOpportunityTask(job.id, cancelledTaskId, { state: "cancelled" });
+    updateOpportunityTask(job.id, cancelledTaskId, { title: "Call recruiter next week" });
+
+    expect(getOpportunityDetail(job.id)?.activities.filter((activity) => activity.type === "task_cancelled")).toHaveLength(1);
+    expect(() => updateOpportunityTask(job.id, cancelledTaskId, { state: "completed" })).toThrow(/terminal/i);
+  });
+
   it("rejects invalid subtype, status, date, and non-job artifact input", () => {
     const connection = createOpportunity({ type: "connection", label: "Maya", status: "new" });
     expect(() => createOpportunity({ type: "job", label: "Engineer", status: "new" as "wishlist" })).toThrow(/status/i);
