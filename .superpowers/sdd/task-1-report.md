@@ -101,3 +101,32 @@ Result: no whitespace errors and no Task 1 product-file TypeScript errors. The f
 ### Remaining Concerns
 
 - The branch is not integration-ready until follow-on work migrates the legacy application routes, components, scripts, and their imports; repository-wide typecheck remains expected to fail until then.
+
+## Re-review Finding 2 Fix Pass
+
+### Changed Files
+
+- `src/lib/storage.ts`
+- `src/lib/storage.test.ts`
+- `.superpowers/sdd/task-1-report.md`
+
+### Commit
+
+- `bf7bee29f3d894556760e237b8067a18d8651eee` — `fix: preserve terminal task lifecycle history`
+
+### RED Verification
+
+`npm test -- src/lib/storage.test.ts`
+
+Result: failed 1 focused test because a permitted edit to a completed task rewrote its `completedAt` timestamp.
+
+### GREEN Verification
+
+`npm test -- src/lib/storage.test.ts`; `git diff --check`
+
+Result: passed: 1 test file, 10 tests; no whitespace errors.
+
+### Remaining Concerns
+
+- Follow-up migration activity behavior is intentionally unchanged pending the requested human decision.
+- Repository-wide typecheck remains blocked by out-of-scope legacy application consumers.
