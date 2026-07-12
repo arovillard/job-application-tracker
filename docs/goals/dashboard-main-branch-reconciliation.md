@@ -18,7 +18,7 @@ Reconcile the opportunities dashboard with the visual quality and information hi
 - [x] DMR-4 shared responsive CSS integration
 - [x] Focused checks and risk reviews
 - [x] Full non-browser verification
-- [ ] Final whole-branch review
+- [x] Final whole-branch review
 - [ ] User-owned localhost visual acceptance handoff
 
 ## Verification boundary
@@ -33,4 +33,5 @@ Codex will use component tests, static DOM/CSS assertions, type checks, and prod
 - DMR-1 review: approved with no findings
 - DMR-2/DMR-3 review: test gaps fixed and re-approved
 - DMR-4 review: approved; mobile CSS contract strengthened afterward
+- Final whole-branch review: approved after loading-status accessibility fix
 - Browser automation: not run by user request
