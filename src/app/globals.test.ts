@@ -78,4 +78,29 @@ describe("opportunity interface stylesheet", () => {
     const cssWithoutFinePointerTransforms = css.replace(/@media \(hover: hover\) and \(pointer: fine\)\s*\{[\s\S]*?\n\}/, "");
     expect(cssWithoutFinePointerTransforms).not.toMatch(/:[^,{]*(?:hover|active)[^{]*\{[^}]*transform:/s);
   });
+
+  it("aligns the creation form, detail workspace, menus, and dialogs with the WCE-8 visual baseline", () => {
+    for (const contract of [
+      ".app-shell--narrow { max-width: 1080px; }",
+      ".application-form { display: grid; gap: 24px; padding: 34px 44px 40px; }",
+      ".application-form__planning { background: color-mix(in srgb, var(--accent-soft) 58%, var(--surface));",
+      ".form-disclosure summary { align-items: center;",
+      ".detail-grid { align-items: start; display: grid; gap: 24px; grid-template-columns: minmax(0, 2fr) minmax(280px, 0.72fr); }",
+      ".next-action-card { background: linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 78%, var(--surface)) 0%, var(--surface) 100%);",
+      ".detail-actions-menu { position: relative; }",
+      ".detail-actions-menu [role=\"menu\"] {",
+      ".modal--compact { max-width: 560px; }",
+      ".modal--wide { max-width: 960px; }",
+      "overflow-y: auto;"
+    ]) {
+      expect(css).toContain(contract);
+    }
+
+    const mobileStart = css.indexOf("@media (max-width: 760px)");
+    const nextMediaStart = css.indexOf("@media", mobileStart + 1);
+    const mobileCss = css.slice(mobileStart, nextMediaStart === -1 ? undefined : nextMediaStart);
+
+    expect(mobileCss).toContain(".modal--wide { border-radius: var(--radius) var(--radius) 0 0; max-height: calc(100dvh - 16px); width: 100%; }");
+    expect(mobileCss).toMatch(/\.application-form__actions\s*\{[^}]*background:\s*var\(--surface\);[^}]*bottom:\s*0;[^}]*position:\s*sticky;[^}]*\}/s);
+  });
 });
