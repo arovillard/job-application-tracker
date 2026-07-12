@@ -128,11 +128,13 @@ describe("OpportunityTable", () => {
   });
 
   it("renders three accessible loading skeleton rows and an empty state that reuses the header creation control", () => {
-    const loadingMarkup = renderToStaticMarkup(<OpportunityTable opportunities={[]} loading />);
+    document.body.innerHTML = renderToStaticMarkup(<OpportunityTable opportunities={[]} loading />);
     const emptyMarkup = renderToStaticMarkup(<OpportunityTable opportunities={[]} />);
 
-    expect(loadingMarkup).toContain('aria-label="Loading opportunities"');
-    expect((loadingMarkup.match(/application-table__loading-row/g) ?? []).length).toBe(3);
+    const loadingStatus = document.querySelector('[role="status"]');
+    expect(loadingStatus?.textContent).toContain("Loading opportunities");
+    expect(loadingStatus?.getAttribute("aria-busy")).toBe("true");
+    expect(document.querySelectorAll(".application-table__loading-row")).toHaveLength(3);
     expect(emptyMarkup).toContain("Use New opportunity above");
     expect(emptyMarkup).not.toContain("new-opportunity-menu");
     expect(emptyMarkup).not.toContain('href="/opportunities/new"');

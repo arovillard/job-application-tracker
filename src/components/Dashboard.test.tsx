@@ -139,6 +139,9 @@ describe("Dashboard", () => {
 
     expect([...container.querySelectorAll("button")].find((button) => button.textContent === "All connection stages")?.getAttribute("aria-pressed")).toBe("true");
     expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Applied")).toBe(false);
+    click("All");
+
+    expect([...container.querySelectorAll("button")].find((button) => button.textContent === "Active")?.getAttribute("aria-pressed")).toBe("true");
     act(() => root.unmount());
   });
 

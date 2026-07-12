@@ -59,7 +59,8 @@ export function OpportunityTable({
 }) {
   if (loading) {
     return (
-      <div className="application-table application-table--loading" aria-busy="true" aria-label="Loading opportunities">
+      <div className="application-table application-table--loading" role="status" aria-live="polite" aria-busy="true">
+        <span className="sr-only">Loading opportunities</span>
         <div className="application-table__loading-row"><span /><span /><span /><span /></div>
         <div className="application-table__loading-row"><span /><span /><span /><span /></div>
         <div className="application-table__loading-row"><span /><span /><span /><span /></div>
