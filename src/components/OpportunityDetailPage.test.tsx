@@ -15,7 +15,7 @@ import { InteractionComposer, OpportunityDetailContent, OpportunityDetailPage, T
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 function jsonResponse(body: unknown, ok = true) { return { ok, status: ok ? 200 : 422, json: async () => body } as Response; }
-function change(control: HTMLInputElement | HTMLTextAreaElement, value: string) {
+function change(control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
   Object.getOwnPropertyDescriptor(Object.getPrototypeOf(control), "value")?.set?.call(control, value);
   control.dispatchEvent(new Event("input", { bubbles: true }));
   control.dispatchEvent(new Event("change", { bubbles: true }));
@@ -135,6 +135,12 @@ describe("OpportunityDetailContent", () => {
     expect(markup.indexOf('class="next-action-card"')).toBeLessThan(markup.indexOf('class="detail-list"'));
   });
 
+  it("keeps long job artifacts outside the two-column detail grid", () => {
+    const markup = renderToStaticMarkup(<OpportunityDetailContent detail={{ ...job, artifacts: [{ ...job.artifacts[0], title: "A very long application artifact title that must not widen the task sidebar" }] }} onTaskAction={vi.fn()} />);
+
+    expect(markup.indexOf("Application materials")).toBeGreaterThan(markup.indexOf('class="detail-side"'));
+  });
+
   it("renders interaction and task composers with application form hooks", () => {
     const interactionMarkup = renderToStaticMarkup(<InteractionComposer activityType="note" body="" occurredDate="" taskTitle="" taskDueDate="" onActivityTypeChange={vi.fn()} onBodyChange={vi.fn()} onOccurredDateChange={vi.fn()} onTaskTitleChange={vi.fn()} onTaskDueDateChange={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} />);
     const taskMarkup = renderToStaticMarkup(<TaskComposer taskTitle="" taskDueDate="" onTaskTitleChange={vi.fn()} onTaskDueDateChange={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} />);
@@ -211,7 +217,7 @@ describe("OpportunityDetailContent", () => {
     act(() => record.click());
     act(() => change(container.querySelector<HTMLTextAreaElement>("textarea")!, "Draft"));
     act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Cancel")!.click());
+    act(() => [...container.querySelector('[role="dialog"]')!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Cancel")!.click());
     await act(async () => { resolveRequest(jsonResponse({ ...connection, label: "Stale result" })); });
     expect(container.textContent).not.toContain("Stale result");
     expect(container.querySelector('[role="status"]')).toBeNull();
@@ -238,6 +244,48 @@ describe("OpportunityDetailContent", () => {
     await act(async () => { resolveFirst(jsonResponse({ ...connection, label: "Stale result" })); });
     expect(container.textContent).toContain("Newest result");
     expect(container.textContent).not.toContain("Stale result");
+    act(() => root.unmount());
+  });
+
+  it("keeps a task pending while a dialog opens and applies its result independently", async () => {
+    let resolveTask!: (value: Response) => void;
+    const taskRequest = new Promise<Response>((resolve) => { resolveTask = resolve; });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(taskRequest);
+    const { container, root } = mountDetail();
+    await flush();
+
+    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Complete")!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Record interaction")!.click());
+
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Complete")?.disabled).toBe(true);
+
+    await act(async () => { resolveTask(jsonResponse({ ...connection, label: "Task update applied" })); });
+
+    expect(container.textContent).toContain("Task update applied");
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Complete")?.disabled).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it("keeps the latest status response when status requests resolve out of order", async () => {
+    let resolveFirst!: (value: Response) => void;
+    let resolveSecond!: (value: Response) => void;
+    const first = new Promise<Response>((resolve) => { resolveFirst = resolve; });
+    const second = new Promise<Response>((resolve) => { resolveSecond = resolve; });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const { container, root } = mountDetail();
+    await flush();
+    const stage = container.querySelector<HTMLSelectElement>(".stage-select select")!;
+
+    act(() => change(stage, "outreach_planned"));
+    act(() => change(stage, "waiting"));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await act(async () => { resolveSecond(jsonResponse({ ...connection, label: "Latest status" })); });
+    await act(async () => { resolveFirst(jsonResponse({ ...connection, label: "Stale status" })); });
+
+    expect(container.textContent).toContain("Latest status");
+    expect(container.textContent).not.toContain("Stale status");
     act(() => root.unmount());
   });
 
@@ -273,6 +321,93 @@ describe("OpportunityDetailContent", () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(container.querySelector('[role="status"]')?.textContent).toBe("Linked job created");
     expect(routerState.push).toHaveBeenCalledWith("/opportunities/job-2");
+    act(() => root.unmount());
+  });
+
+  it("keeps a failed task dialog open with its draft and a dialog-scoped error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockResolvedValueOnce(jsonResponse({ error: "Task rejected" }, false));
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Add task")!.click());
+    act(() => change(container.querySelector<HTMLInputElement>("input[required]")!, "Send follow-up"));
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flush();
+
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Task rejected");
+    expect(container.querySelector<HTMLInputElement>("input[required]")?.value).toBe("Send follow-up");
+    act(() => root.unmount());
+  });
+
+  it("keeps a failed connection edit dialog open in edit mode", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockResolvedValueOnce(jsonResponse({ error: "Edit rejected" }, false));
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Edit details")!.click());
+    const name = [...container.querySelectorAll("label")].find((label) => label.textContent?.includes("Person's name"))!.querySelector("input")!;
+    act(() => change(name, "Maya Rivera"));
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flush();
+
+    expect(container.querySelector('[role="dialog"]')?.classList.contains("modal--wide")).toBe(true);
+    expect(container.textContent).toContain("Plan your Next move");
+    expect(container.textContent).not.toContain("Initial interaction");
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Edit rejected");
+    expect((name as HTMLInputElement).value).toBe("Maya Rivera");
+    act(() => root.unmount());
+  });
+
+  it("applies a successful edit and closes its dialog", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockResolvedValueOnce(jsonResponse({ ...connection, label: "Maya Rivera" }));
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Edit details")!.click());
+    const name = [...container.querySelectorAll("label")].find((label) => label.textContent?.includes("Person's name"))!.querySelector("input")!;
+    act(() => change(name, "Maya Rivera"));
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flush();
+
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.textContent).toContain("Maya Rivera");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("Details saved");
+    act(() => root.unmount());
+  });
+
+  it("keeps a failed linked-job draft open", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockResolvedValueOnce(jsonResponse({ error: "Linked job rejected" }, false));
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Create job opportunity")!.click());
+    const role = [...container.querySelectorAll("label")].find((label) => label.textContent?.includes("Role"))!.querySelector("input")!;
+    act(() => change(role, "Staff Engineer"));
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flush();
+
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Linked job rejected");
+    expect((role as HTMLInputElement).value).toBe("Staff Engineer");
+    act(() => root.unmount());
+  });
+
+  it("uses compact primary dialogs and restores the originating primary or More trigger", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(connection));
+    const { container, root } = mountDetail();
+    await flush();
+    const record = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Record interaction")!;
+    act(() => record.click());
+    expect(container.querySelector('[role="dialog"]')?.classList.contains("modal--compact")).toBe(true);
+    act(() => container.querySelector<HTMLButtonElement>(".modal__close")!.click());
+    expect(document.activeElement).toBe(record);
+
+    const more = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+    act(() => more.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Edit details")!.click());
+    expect(container.querySelector('[role="dialog"]')?.classList.contains("modal--wide")).toBe(true);
+    act(() => container.querySelector<HTMLButtonElement>(".modal__close")!.click());
+    expect(document.activeElement).toBe(more);
     act(() => root.unmount());
   });
 });
