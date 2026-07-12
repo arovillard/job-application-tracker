@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import type { JobOpportunityInput, OpportunityDetail, OpportunityType } from "../types";
+import type { OpportunityDetail, OpportunityType } from "../types";
 import { ConnectionOpportunityForm, type ConnectionCreationPayload } from "./ConnectionOpportunityForm";
-import { JobOpportunityForm } from "./JobOpportunityForm";
+import { JobOpportunityForm, type JobCreationPayload } from "./JobOpportunityForm";
 
 async function readError(response: Response) { const body = await response.json().catch(() => null) as { error?: string } | null; return body?.error ?? `Request failed with ${response.status}`; }
 
@@ -20,6 +20,8 @@ export function NewOpportunityPage() {
   const type = resolveOpportunityType(params.get("type"));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const create = async (body: unknown) => {
     setSaving(true); setError(null);
     try {
@@ -31,7 +33,7 @@ export function NewOpportunityPage() {
     finally { setSaving(false); }
   };
   return <main className="app-shell app-shell--narrow"><header className="app-header"><div><p className="app-header__eyebrow">New opportunity</p><h1 className="app-header__title">{type === "job" ? "Add a job" : "Add a connection"}</h1></div><Link className="button" href="/">Back to opportunities</Link></header>
-    {error ? <div className="notice notice--error">{error}</div> : null}
-    <section className="tracker-panel">{type === "job" ? <JobOpportunityForm isSubmitting={saving} onSubmit={(opportunity: JobOpportunityInput) => create({ opportunity })} /> : <ConnectionOpportunityForm isSubmitting={saving} onSubmit={(payload: ConnectionCreationPayload) => create(payload)} />}</section>
+    {error ? <div ref={errorRef} className="notice notice--error" role="alert" tabIndex={-1}>{error}</div> : null}
+    <section className="tracker-panel">{type === "job" ? <JobOpportunityForm isSubmitting={saving} onSubmit={(payload: JobCreationPayload) => create(payload)} /> : <ConnectionOpportunityForm isSubmitting={saving} onSubmit={(payload: ConnectionCreationPayload) => create(payload)} />}</section>
   </main>;
 }

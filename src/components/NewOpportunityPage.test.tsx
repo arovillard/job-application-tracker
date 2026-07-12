@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
-  useSearchParams: () => new URLSearchParams()
-}));
+const navigation = vi.hoisted(() => ({ useRouter: vi.fn(() => ({ push: vi.fn() })), useSearchParams: vi.fn(() => new URLSearchParams()) }));
+vi.mock("next/navigation", () => navigation);
 
 import {
   buildConnectionCreationPayload,
@@ -15,6 +15,24 @@ import {
 import { NewOpportunityPage, resolveOpportunityType } from "./NewOpportunityPage";
 
 describe("NewOpportunityPage", () => {
+  it("posts the job creation wrapper and focuses its alert when creation fails", async () => {
+    const push = vi.fn();
+    navigation.useRouter.mockReturnValue({ push });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422, json: async () => ({ error: "First task is invalid" }) }));
+    const container = document.createElement("div");
+    document.body.replaceChildren(container);
+    const root = createRoot(container);
+    await act(async () => { root.render(<NewOpportunityPage />); });
+    const form = container.querySelector("form")!;
+    await act(async () => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(fetch).toHaveBeenCalledWith("/api/opportunities", expect.objectContaining({ method: "POST", body: expect.stringContaining("initialTask") }));
+    const alert = container.querySelector('[role="alert"]') as HTMLElement;
+    expect(alert).not.toBeNull();
+    expect(alert.getAttribute("tabindex")).toBe("-1");
+    expect(document.activeElement).toBe(alert);
+    vi.unstubAllGlobals();
+    navigation.useRouter.mockReset();
+  });
   it("resolves unknown opportunity types to jobs", () => {
     expect(resolveOpportunityType(null)).toBe("job");
     expect(resolveOpportunityType("job")).toBe("job");
@@ -73,14 +91,14 @@ describe("NewOpportunityPage", () => {
 
     const inputFor = (label: string) => {
       const matchingLabel = Array.from(document.querySelectorAll("label")).find(
-        (candidate) => candidate.querySelector("span")?.textContent === label
+        (candidate) => candidate.querySelector("span")?.textContent?.startsWith(label)
       );
       return matchingLabel?.querySelector("input") ?? null;
     };
 
     expect(inputFor("Date")?.getAttribute("type")).toBe("date");
     expect(inputFor("Due date")?.getAttribute("type")).toBe("date");
-    expect(inputFor("Person's name")?.getAttribute("type")).toBe("text");
+    expect(inputFor("Person's name")?.type).toBe("text");
   });
 
   it("preserves submission time and null due date when optional dates are blank", () => {
