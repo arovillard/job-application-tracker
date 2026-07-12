@@ -46,7 +46,7 @@ describe("opportunity creation forms", () => {
     });
     expect(field(container, "Posting URL").value).toBe("https://example.com/job");
 
-    const edit = render(<JobOpportunityForm initialValue={{ type: "job", label: "Engineer", status: "applied", url: "https://example.com/job" }} onSubmit={(input: JobOpportunityInput) => undefined} />);
+    const edit = render(<JobOpportunityForm initialValue={{ type: "job", label: "Engineer", status: "applied", url: "https://example.com/job" }} onSubmit={() => undefined} />);
     expect(edit.querySelector("details")?.hasAttribute("open")).toBe(true);
     expect(field(edit, "First task")).toBeUndefined();
   });
@@ -125,5 +125,23 @@ describe("opportunity creation forms", () => {
     expect(identity.required).toBe(true);
     expect(identity.getAttribute("aria-describedby")).toBe("connection-label-helper");
     expect(document.getElementById("connection-label-helper")?.textContent).toContain("required");
+  });
+
+  it("emits the frozen presentation hooks for job and connection forms", () => {
+    for (const [Form, expectedIntro] of [
+      [JobOpportunityForm, "Job opportunity"],
+      [ConnectionOpportunityForm, "Connection opportunity"],
+    ] as const) {
+      const container = render(<Form onSubmit={vi.fn()} />);
+      const intro = container.querySelector(".application-form__intro");
+      const planning = container.querySelector("fieldset.application-form__planning");
+      const disclosure = container.querySelector("details.form-disclosure");
+
+      expect(intro?.querySelector("strong")?.textContent).toBe(expectedIntro);
+      expect(intro?.textContent).toContain("next move");
+      expect(planning?.querySelector("legend")?.textContent).toMatch(/next move/i);
+      expect(disclosure?.querySelector("summary")?.textContent).toContain("Optional");
+      expect(disclosure?.querySelector(".form-disclosure__grid")).not.toBeNull();
+    }
   });
 });
