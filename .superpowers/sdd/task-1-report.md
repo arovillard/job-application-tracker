@@ -14,7 +14,7 @@ DONE_WITH_CONCERNS
 
 ## Commits
 
-- Pending at report creation.
+- `36ec9261025b2b9240c971bf7a4ba7f84f75458c` — `feat: add opportunity domain and migration`
 
 ## RED Verification
 
