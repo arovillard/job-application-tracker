@@ -77,4 +77,4 @@ Result: verification passed lint, typecheck, and 12 test files / 52 tests. Produ
 - Runtime and shared CLI migrations now retain every legacy `next_action`, while still suppressing only typed follow-up tasks on rejected/archived jobs.
 - Permanent delete uses a DELETE-only response path that does not parse or assign `{ ok: true }` as detail state; tests cover success redirect and failure non-redirect.
 - Root lockfile package metadata now matches `package.json`.
-- Commit: pending creation.
+- Commit: `b48585b` — `fix: retain terminal next actions`.
