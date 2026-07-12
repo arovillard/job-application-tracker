@@ -259,7 +259,8 @@ export function updateOpportunityTask(
       : valueFrom<OpportunityTaskState>(item.state, taskStates, "Task state");
   const nextTitle = item.title == null ? task.title : required(item.title, "Task title");
   const nextDue = item.dueDate === undefined ? task.dueDate : date(item.dueDate, "Task due date");
-  if (task.state !== "open" && nextState !== task.state) {
+  const reopening = task.state !== "open" && nextState === "open";
+  if (task.state !== "open" && nextState !== task.state && !reopening) {
     throw new Error("Terminal task cannot change state");
   }
 
@@ -272,7 +273,11 @@ export function updateOpportunityTask(
       ? "task_rescheduled"
       : null;
   const now = nowIso();
-  const completedAt = terminalTransition && nextState === "completed" ? now : task.completedAt;
+  const completedAt = reopening
+    ? null
+    : terminalTransition && nextState === "completed"
+      ? now
+      : task.completedAt;
 
   db.transaction(() => {
     db.prepare(
