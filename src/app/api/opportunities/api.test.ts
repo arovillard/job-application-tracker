@@ -1,10 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { resetStorageForTests } from "../../../lib/storage";
+import { resetStorageForTests, upsertOpportunityArtifact } from "../../../lib/storage";
 import { GET as listOpportunities, POST as createOpportunity } from "./route";
 import {
   DELETE as deleteOpportunity,
@@ -16,6 +16,7 @@ import { POST as addActivity } from "./[id]/activities/route";
 import { POST as addTask } from "./[id]/tasks/route";
 import { PATCH as updateTask } from "./[id]/tasks/[taskId]/route";
 import { POST as createLinkedJob } from "./[id]/jobs/route";
+import { GET as getArtifactFile } from "./[id]/artifacts/[artifactId]/file/route";
 import type { ConnectionOpportunityInput, JobOpportunityInput, OpportunityDetail } from "../../../types";
 
 const connectionInput: ConnectionOpportunityInput = {
@@ -62,6 +63,10 @@ function context(id: string) {
 
 function taskContext(id: string, taskId: string) {
   return { params: Promise.resolve({ id, taskId }) };
+}
+
+function artifactContext(id: string, artifactId: string) {
+  return { params: Promise.resolve({ id, artifactId }) };
 }
 
 async function json<T>(response: Response) {
@@ -213,5 +218,35 @@ describe("opportunity API", () => {
       request("http://localhost/jobs", "POST", jobInput),
       context(archivedConnection.id)
     )).status).toBe(400);
+  });
+
+  it("serves artifacts only through their owning job opportunity", async () => {
+    const job = await create(jobInput);
+    const connection = await create(connectionInput);
+    const filePath = path.join(directory, "fit-analysis.md");
+    writeFileSync(filePath, "# Strong fit\n\nEvidence-backed analysis.");
+    const artifact = upsertOpportunityArtifact(job.id, {
+      type: "fit_analysis",
+      title: "Fit Analysis",
+      filePath,
+      contentType: "text/markdown"
+    });
+
+    const response = await getArtifactFile(
+      request("http://localhost/artifact"),
+      artifactContext(job.id, artifact.id)
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("text/markdown");
+    expect(await response.text()).toContain("Strong fit");
+
+    expect((await getArtifactFile(
+      request("http://localhost/artifact"),
+      artifactContext(connection.id, artifact.id)
+    )).status).toBe(400);
+    expect((await getArtifactFile(
+      request("http://localhost/artifact"),
+      artifactContext(job.id, "missing-artifact")
+    )).status).toBe(404);
   });
 });

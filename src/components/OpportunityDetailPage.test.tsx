@@ -38,7 +38,12 @@ const connection: OpportunityDetail = {
 const job: OpportunityDetail = {
   ...base, type: "job", label: "Engineering Manager", status: "applied",
   url: "https://example.com/job", source: "Acme careers", location: "Example City",
-  contact: "Maya Chen", appliedDate: "2026-07-09"
+  contact: "Maya Chen", appliedDate: "2026-07-09",
+  artifacts: [{
+    id: "artifact-1", opportunityId: "opportunity-1", type: "fit_analysis", title: "Fit Analysis",
+    filePath: "/tmp/fit-analysis.md", contentType: "text/markdown",
+    createdAt: "2026-07-11T12:00:00.000Z", updatedAt: "2026-07-11T12:00:00.000Z"
+  }]
 };
 
 describe("OpportunityDetailContent", () => {
@@ -58,6 +63,14 @@ describe("OpportunityDetailContent", () => {
     expect(markup).toContain("Job");
     expect(markup).toContain("Engineering Manager");
     expect(markup).toContain("Application materials");
+    expect(markup).toContain("Fit Analysis");
     expect(markup).not.toContain("Relationship strength");
+  });
+
+  it("renders origin links in both directions", () => {
+    const linkedJob = { ...job, id: "job-2", originOpportunityId: connection.id, origin: connection };
+    const connectionWithJob = { ...connection, originatedJobs: [linkedJob] };
+    expect(renderToStaticMarkup(<OpportunityDetailContent detail={linkedJob} onTaskAction={vi.fn()} />)).toContain("Maya Chen");
+    expect(renderToStaticMarkup(<OpportunityDetailContent detail={connectionWithJob} onTaskAction={vi.fn()} />)).toContain("Engineering Manager");
   });
 });
