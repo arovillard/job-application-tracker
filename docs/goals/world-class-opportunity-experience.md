@@ -22,8 +22,8 @@ Execute `docs/specs/world-class-opportunity-experience.md` through `docs/plans/w
 | WCE-5 Detail dialogs | WCE-1, WCE-2 | complete | `2b4033e..373cdc9`; 42 focused tests; Sol approved |
 | WCE-6 Task hierarchy | WCE-5 | complete | `bf33483..f55269f`; 31 tests; Sol approved |
 | WCE-7 Destructive safety | WCE-5 | complete | `0beeea8..c0b1086`; 43 tests; High-risk Sol approved |
-| WCE-8 Form/detail visuals | WCE-5, WCE-6, WCE-7 | in progress | form hooks `615c33f`; CSS pending |
-| WCE-9 Dashboard visuals | WCE-4, WCE-8 | pending | pending |
+| WCE-8 Form/detail visuals | WCE-5, WCE-6, WCE-7 | complete | `615c33f`, `bd87930`, `b7c6962`, `71285bd`; 58 focused tests; lint/typecheck; Sol approved |
+| WCE-9 Dashboard visuals | WCE-4, WCE-8 | in progress | task brief prepared; CSS-only integration |
 | WCE-10 Acceptance | WCE-1..9 | pending | pending |
 
 ## Decisions
@@ -33,7 +33,7 @@ Execute `docs/specs/world-class-opportunity-experience.md` through `docs/plans/w
 - Linked-job mode omits first-task controls and unwraps `payload.opportunity`.
 - Destructive workflows remain a separate High-risk reviewed task.
 - Residual Low: Pipeline pulse duplicates the terminal-status set; final review will reassess.
-- Residual Low: one non-failing unused-parameter lint warning exists in `OpportunityForms.test.tsx`.
+- WCE-8 separates sticky mobile page actions from stable modal footers and keeps dialog errors inside scrollable form bodies.
 
 ## Verification
 
