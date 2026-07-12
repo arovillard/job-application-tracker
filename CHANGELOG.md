@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Unified opportunities for job postings and professional connections.
+- Connection lifecycle, relationship strength, activity history, and actionable reminders.
+- Linked job opportunities originating from connections.
+
+### Changed
+
+- Existing applications migrate automatically to job opportunities while preserving IDs, history, tasks, and materials.
+- Public posting and artifact scripts now use opportunity records with one-release compatibility aliases.
+
 ## 0.1.5
 
 - Add `npm run artifacts:backfill` to link existing generated files to tracker records.

@@ -5,8 +5,8 @@ import { ThemeProvider } from "../components/ThemeProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Job Tracker",
-  description: "Local job application tracker"
+  title: "Opportunity Tracker",
+  description: "Local-first tracker for job opportunities and professional connections"
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

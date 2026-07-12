@@ -14,7 +14,6 @@ import { useTheme } from "./ThemeProvider";
 import { Toast } from "./Toast";
 
 type SortValue = "updated" | "organization" | "next-action" | "priority";
-type BroadStatus = "active" | "attention" | "closed" | "archived";
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 } as const;
 const CLOSED_STATUSES = new Set<OpportunityStatus>(["rejected", "dormant", "closed"]);
 

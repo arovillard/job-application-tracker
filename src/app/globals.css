@@ -483,8 +483,7 @@ kbd {
   .attention-strip__items, .attention-strip__skeleton { grid-column: 1 / -1; overflow-x: auto; }
   .pipeline-controls { padding: 13px 15px; }
   .pipeline-controls__filters { grid-template-columns: 1fr; }
-  .status-filter { flex-wrap: nowrap; margin: 0 -15px; overflow-x: auto; padding: 12px 15px 1px; scrollbar-width: none; }
-  .status-filter::-webkit-scrollbar { display: none; }
+  .status-filter { flex-wrap: wrap; margin: 0; overflow: visible; padding: 12px 0 1px; }
   .status-filter__button { flex: 0 0 auto; }
   .application-table { overflow: visible; }
   .application-table__table, .application-table__body, .application-table__row, .application-table__cell { display: block; min-width: 0; width: 100%; }

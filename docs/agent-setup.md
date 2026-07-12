@@ -1,6 +1,6 @@
 # Agent Setup Guide
 
-Use this when setting up Job Application Tracker for a new human on a new machine.
+Use this when setting up Opportunity Tracker for a new human on a new machine.
 
 ## Collect From The Human
 
@@ -86,12 +86,12 @@ npm run verify
 npm run dev
 ```
 
-## Application Workflow For Agents
+## Job Opportunity Workflow For Agents
 
 When the human says "help me apply to this job" and provides a public job link:
 
-1. Use `job-tracker-add-posting` to create or update the tracker record first.
-2. Verify the script output shows the expected company, role, URL, status, action, and note ids.
+1. Use `job-tracker-add-posting` to create or update the job opportunity first.
+2. Verify the script output shows `opportunity.type = job` and the expected organization, label, URL, status, action, and activity ids. Treat `application` as a deprecated compatibility alias.
 3. Use `job-application-resume` before creating resumes, outreach, cover letters, interview notes, or fit analyses.
 4. Use `JOBTRACKER_APPLICATIONS_DIR`, `JOBTRACKER_BASE_RESUME_PATH`, and `JOBTRACKER_LINKEDIN_URL` from `.env.local` when available.
 5. Do not submit applications, sign in, or use credentials for the human.
