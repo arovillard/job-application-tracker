@@ -1,140 +1,101 @@
-import { type Application, type ApplicationPriority, type ApplicationStatus, type FollowUpItem } from "../types";
+import type {
+  OpportunityPriority,
+  OpportunityStatus,
+  OpportunitySummary,
+  OpportunityType
+} from "../types";
 
-export type AttentionKind = "follow_up" | "next_action" | "missing_next_action";
+export type AttentionKind = "task" | "missing_next_action";
 
 export type DashboardAttentionItem = {
   id: string;
-  applicationId: string;
-  company: string;
-  role: string;
-  status: ApplicationStatus;
-  priority: ApplicationPriority;
-  kind: AttentionKind;
+  opportunityId: string;
+  type: OpportunityType;
   label: string;
+  organization: string | null;
+  status: OpportunityStatus;
+  priority: OpportunityPriority;
+  kind: AttentionKind;
+  actionLabel: string;
   dueDate: string | null;
   isOverdue: boolean;
 };
 
-export type DashboardInsights = {
-  attention: DashboardAttentionItem[];
-};
+export type DashboardInsights = { attention: DashboardAttentionItem[] };
 
-const ACTIVE_STATUSES = new Set<ApplicationStatus>(["applied", "interviewing", "offer"]);
-const CLOSED_STATUSES = new Set<ApplicationStatus>(["rejected", "archived"]);
-const PRIORITY_WEIGHT: Record<ApplicationPriority, number> = {
-  high: 0,
-  medium: 1,
-  low: 2
-};
+const JOB_FORWARD_STATUSES = new Set(["applied", "interviewing", "offer"]);
+const CONNECTION_FORWARD_STATUSES = new Set([
+  "new",
+  "outreach_planned",
+  "waiting",
+  "in_conversation",
+  "opportunity_identified"
+]);
+const PRIORITY_WEIGHT: Record<OpportunityPriority, number> = { high: 0, medium: 1, low: 2 };
 
 function dateKey(value: Date | string) {
-  if (typeof value === "string") {
-    return value.slice(0, 10);
-  }
-
+  if (typeof value === "string") return value.slice(0, 10);
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
-function isDue(date: string | null, today: string) {
-  return Boolean(date && date <= today);
+function requiresForwardMotion(opportunity: OpportunitySummary) {
+  return opportunity.type === "job"
+    ? JOB_FORWARD_STATUSES.has(opportunity.status)
+    : CONNECTION_FORWARD_STATUSES.has(opportunity.status);
 }
 
 function compareAttention(left: DashboardAttentionItem, right: DashboardAttentionItem) {
   if (left.dueDate && right.dueDate && left.dueDate !== right.dueDate) {
     return left.dueDate.localeCompare(right.dueDate);
   }
-
-  if (left.dueDate && !right.dueDate) {
-    return -1;
-  }
-
-  if (!left.dueDate && right.dueDate) {
-    return 1;
-  }
-
-  if (PRIORITY_WEIGHT[left.priority] !== PRIORITY_WEIGHT[right.priority]) {
-    return PRIORITY_WEIGHT[left.priority] - PRIORITY_WEIGHT[right.priority];
-  }
-
-  return left.company.localeCompare(right.company);
+  if (left.dueDate && !right.dueDate) return -1;
+  if (!left.dueDate && right.dueDate) return 1;
+  const priority = PRIORITY_WEIGHT[left.priority] - PRIORITY_WEIGHT[right.priority];
+  return priority || left.label.localeCompare(right.label);
 }
 
 export function getDashboardInsights(
-  applications: Application[],
-  followUps: FollowUpItem[],
+  opportunities: OpportunitySummary[],
   currentDate: Date | string = new Date()
 ): DashboardInsights {
   const today = dateKey(currentDate);
-  const applicationById = new Map(applications.map((application) => [application.id, application]));
-  const scheduledFollowUpApplicationIds = new Set(followUps.map((followUp) => followUp.applicationId));
   const attention: DashboardAttentionItem[] = [];
 
-  for (const followUp of followUps) {
-    const application = applicationById.get(followUp.applicationId);
-    const status = application?.status ?? followUp.application.status;
-
-    if (CLOSED_STATUSES.has(status) || !isDue(followUp.followUpDate, today)) {
-      continue;
-    }
-
-    attention.push({
-      id: `follow-up-${followUp.id}`,
-      applicationId: followUp.applicationId,
-      company: application?.company ?? followUp.application.company,
-      role: application?.role ?? followUp.application.role,
-      status,
-      priority: application?.priority ?? "medium",
-      kind: "follow_up",
-      label: followUp.body,
-      dueDate: followUp.followUpDate,
-      isOverdue: Boolean(followUp.followUpDate && followUp.followUpDate < today)
-    });
-  }
-
-  for (const application of applications) {
-    if (!ACTIVE_STATUSES.has(application.status)) {
-      continue;
-    }
-
-    if (isDue(application.nextActionDate, today)) {
+  for (const opportunity of opportunities) {
+    const task = opportunity.nextOpenTask;
+    if (task?.dueDate && task.dueDate <= today) {
       attention.push({
-        id: `next-action-${application.id}`,
-        applicationId: application.id,
-        company: application.company,
-        role: application.role,
-        status: application.status,
-        priority: application.priority,
-        kind: "next_action",
-        label: application.nextAction ?? "Complete next action",
-        dueDate: application.nextActionDate,
-        isOverdue: Boolean(application.nextActionDate && application.nextActionDate < today)
+        id: `task-${task.id}`,
+        opportunityId: opportunity.id,
+        type: opportunity.type,
+        label: opportunity.label,
+        organization: opportunity.organization,
+        status: opportunity.status,
+        priority: opportunity.priority,
+        kind: "task",
+        actionLabel: task.title,
+        dueDate: task.dueDate,
+        isOverdue: task.dueDate < today
       });
-    }
-
-    const hasScheduledWork = Boolean(
-      application.nextAction || application.nextActionDate || application.followUpDate || scheduledFollowUpApplicationIds.has(application.id)
-    );
-
-    if (!hasScheduledWork) {
+    } else if (!task && requiresForwardMotion(opportunity)) {
       attention.push({
-        id: `missing-next-action-${application.id}`,
-        applicationId: application.id,
-        company: application.company,
-        role: application.role,
-        status: application.status,
-        priority: application.priority,
+        id: `missing-next-action-${opportunity.id}`,
+        opportunityId: opportunity.id,
+        type: opportunity.type,
+        label: opportunity.label,
+        organization: opportunity.organization,
+        status: opportunity.status,
+        priority: opportunity.priority,
         kind: "missing_next_action",
-        label: "Set a next action",
+        actionLabel: "Set a next action",
         dueDate: null,
         isOverdue: false
       });
     }
   }
 
-  return {
-    attention: attention.sort(compareAttention)
-  };
+  return { attention: attention.sort(compareAttention) };
 }

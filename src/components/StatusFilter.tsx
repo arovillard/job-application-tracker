@@ -1,47 +1,29 @@
 "use client";
 
-import {
-  APPLICATION_STATUSES,
-  STATUS_LABELS,
-  type ApplicationStatus
-} from "../types";
-
-export type StatusFilterValue = ApplicationStatus | "all";
+export type StatusFilterOption = { value: string; label: string; count?: number };
 
 type StatusFilterProps = {
-  value: StatusFilterValue;
-  onChange: (value: StatusFilterValue) => void;
-  counts?: Partial<Record<StatusFilterValue, number>>;
+  value: string;
+  options: StatusFilterOption[];
+  onChange: (value: string) => void;
 };
 
-export function StatusFilter({ value, onChange, counts = {} }: StatusFilterProps) {
-  const options: Array<{ value: StatusFilterValue; label: string }> = [
-    { value: "all", label: "All" },
-    ...APPLICATION_STATUSES.map((status) => ({
-      value: status,
-      label: STATUS_LABELS[status]
-    }))
-  ];
-
+export function StatusFilter({ value, options, onChange }: StatusFilterProps) {
   return (
-    <div className="status-filter" role="group" aria-label="Filter applications by status">
-      {options.map((option) => {
-        const count = counts[option.value];
-
-        return (
-          <button
-            className="status-filter__button"
-            type="button"
-            key={option.value}
-            aria-pressed={value === option.value}
-            data-active={value === option.value ? "true" : "false"}
-            onClick={() => onChange(option.value)}
-          >
-            <span className="status-filter__label">{option.label}</span>
-            {count !== undefined ? <span className="status-filter__count">{count}</span> : null}
-          </button>
-        );
-      })}
+    <div className="status-filter" role="group" aria-label="Filter opportunities by status">
+      {options.map((option) => (
+        <button
+          className="status-filter__button"
+          type="button"
+          key={option.value}
+          aria-pressed={value === option.value}
+          data-active={value === option.value ? "true" : "false"}
+          onClick={() => onChange(option.value)}
+        >
+          <span className="status-filter__label">{option.label}</span>
+          {option.count !== undefined ? <span className="status-filter__count">{option.count}</span> : null}
+        </button>
+      ))}
     </div>
   );
 }

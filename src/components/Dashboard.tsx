@@ -5,99 +5,43 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { getDashboardInsights } from "../lib/dashboard";
-import {
-  APPLICATION_STATUSES,
-  STATUS_LABELS,
-  type Application,
-  type ApplicationDetail,
-  type ApplicationStatus,
-  type FollowUpItem
-} from "../types";
-import { ApplicationTable } from "./ApplicationTable";
+import { CONNECTION_STATUSES, JOB_STATUSES, type OpportunityDetail, type OpportunityStatus, type OpportunitySummary } from "../types";
 import { AttentionQueue } from "./AttentionQueue";
-import { StatusFilter, type StatusFilterValue } from "./StatusFilter";
+import { CONNECTION_STATUS_LABELS, JOB_STATUS_LABELS, OpportunityTable, statusLabel } from "./OpportunityTable";
+import { OpportunityTypeFilter, type OpportunityTypeFilterValue } from "./OpportunityTypeFilter";
+import { StatusFilter, type StatusFilterOption } from "./StatusFilter";
 import { useTheme } from "./ThemeProvider";
 import { Toast } from "./Toast";
 
-type PipelineFocus = "all" | "attention";
-type SortValue = "updated" | "company" | "next-action" | "priority";
-
-type ToastState = {
-  message: string;
-  actionLabel?: string;
-  onAction?: () => void;
-};
-
+type SortValue = "updated" | "organization" | "next-action" | "priority";
+type BroadStatus = "active" | "attention" | "closed" | "archived";
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 } as const;
+const CLOSED_STATUSES = new Set<OpportunityStatus>(["rejected", "dormant", "closed"]);
 
 async function readError(response: Response) {
   const body = (await response.json().catch(() => null)) as { error?: string } | null;
   return body?.error ?? `Request failed with ${response.status}`;
 }
 
-function buildStatusCounts(applications: Application[]) {
-  const counts: Partial<Record<StatusFilterValue, number>> = { all: applications.length };
-
-  for (const status of APPLICATION_STATUSES) {
-    counts[status] = applications.filter((application) => application.status === status).length;
-  }
-
-  return counts;
+function detailToSummary(detail: OpportunityDetail): OpportunitySummary {
+  return { ...detail, nextOpenTask: detail.tasks.find((task) => task.state === "open") ?? null };
 }
 
-function matchesSearch(application: Application, search: string) {
+function matchesSearch(opportunity: OpportunitySummary, search: string) {
   const query = search.trim().toLowerCase();
-
-  if (!query) {
-    return true;
-  }
-
-  return [
-    application.company,
-    application.role,
-    application.source,
-    application.location,
-    application.contact,
-    application.notes,
-    application.nextAction
-  ].some((value) => value?.toLowerCase().includes(query));
+  if (!query) return true;
+  const typeFields = opportunity.type === "job"
+    ? [opportunity.source, opportunity.location, opportunity.contact, opportunity.url]
+    : [opportunity.roleContext, opportunity.contactInfo, opportunity.meetingContext];
+  return [opportunity.label, opportunity.organization, opportunity.summary, ...typeFields]
+    .some((value) => value?.toLowerCase().includes(query));
 }
 
-function detailToApplication(detail: ApplicationDetail): Application {
-  return {
-    id: detail.id,
-    company: detail.company,
-    role: detail.role,
-    status: detail.status,
-    source: detail.source,
-    location: detail.location,
-    url: detail.url,
-    contact: detail.contact,
-    notes: detail.summary,
-    appliedDate: detail.appliedDate,
-    followUpDate: detail.followUpDate,
-    nextAction: detail.nextAction,
-    nextActionDate: detail.nextActionDate,
-    priority: detail.priority,
-    createdAt: detail.createdAt,
-    updatedAt: detail.updatedAt
-  };
-}
-
-function sortApplications(applications: Application[], sort: SortValue) {
-  return [...applications].sort((left, right) => {
-    if (sort === "company") {
-      return left.company.localeCompare(right.company);
-    }
-
-    if (sort === "next-action") {
-      return (left.nextActionDate ?? "9999-12-31").localeCompare(right.nextActionDate ?? "9999-12-31");
-    }
-
-    if (sort === "priority") {
-      return PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority];
-    }
-
+function sortOpportunities(opportunities: OpportunitySummary[], sort: SortValue) {
+  return [...opportunities].sort((left, right) => {
+    if (sort === "organization") return (left.organization ?? left.label).localeCompare(right.organization ?? right.label);
+    if (sort === "next-action") return (left.nextOpenTask?.dueDate ?? "9999-12-31").localeCompare(right.nextOpenTask?.dueDate ?? "9999-12-31");
+    if (sort === "priority") return PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority];
     return right.updatedAt.localeCompare(left.updatedAt);
   });
 }
@@ -108,256 +52,96 @@ function shouldIgnoreShortcut(target: EventTarget | null) {
 
 export function Dashboard() {
   const router = useRouter();
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [followUps, setFollowUps] = useState<FollowUpItem[]>([]);
-  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("all");
-  const [pipelineFocus, setPipelineFocus] = useState<PipelineFocus>("all");
+  const [opportunities, setOpportunities] = useState<OpportunitySummary[]>([]);
+  const [typeFilter, setTypeFilter] = useState<OpportunityTypeFilterValue>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("active");
   const [sort, setSort] = useState<SortValue>("updated");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<ToastState | null>(null);
+  const [toast, setToast] = useState<{ message: string; onAction?: () => void } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const pendingStatusRef = useRef(false);
   const { theme, setTheme } = useTheme();
 
   useEffect(() => {
     let active = true;
-
-    Promise.all([
-      fetch("/api/applications", { cache: "no-store" }).then(async (response) => {
-        if (!response.ok) {
-          throw new Error(await readError(response));
-        }
-        return (await response.json()) as Application[];
-      }),
-      fetch("/api/followups", { cache: "no-store" }).then(async (response) => {
-        if (!response.ok) {
-          throw new Error(await readError(response));
-        }
-        return (await response.json()) as FollowUpItem[];
-      })
-    ])
-      .then(([loadedApplications, loadedFollowUps]) => {
-        if (active) {
-          setApplications(loadedApplications);
-          setFollowUps(loadedFollowUps);
-        }
-      })
-      .catch((caught) => {
-        if (active) {
-          setError(caught instanceof Error ? caught.message : "Unable to load your pipeline");
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
+    fetch("/api/opportunities?archived=include", { cache: "no-store" })
+      .then(async (response) => { if (!response.ok) throw new Error(await readError(response)); return response.json() as Promise<OpportunitySummary[]>; })
+      .then((loaded) => { if (active) setOpportunities(loaded); })
+      .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : "Unable to load opportunities"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    const handleShortcut = (event: KeyboardEvent) => {
-      if (shouldIgnoreShortcut(event.target)) {
-        return;
-      }
-
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        searchRef.current?.focus();
-      }
-
-      if (event.key === "/") {
-        event.preventDefault();
-        searchRef.current?.focus();
-      }
-
-      if (event.key.toLowerCase() === "n") {
-        event.preventDefault();
-        router.push("/applications/new");
+    const handler = (event: KeyboardEvent) => {
+      if (shouldIgnoreShortcut(event.target)) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" || event.key === "/") {
+        event.preventDefault(); searchRef.current?.focus();
+      } else if (event.key.toLowerCase() === "n") {
+        event.preventDefault(); router.push("/opportunities/new");
       }
     };
-
-    window.addEventListener("keydown", handleShortcut);
-    return () => window.removeEventListener("keydown", handleShortcut);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, [router]);
 
-  const insights = useMemo(
-    () => getDashboardInsights(applications, followUps),
-    [applications, followUps]
-  );
-  const attentionApplicationIds = useMemo(
-    () => new Set(insights.attention.map((item) => item.applicationId)),
-    [insights.attention]
-  );
-  const filteredApplications = useMemo(() => {
-    const visible = applications.filter((application) => {
-      const statusMatches = statusFilter === "all" || application.status === statusFilter;
-      const focusMatches =
-        pipelineFocus === "all" ||
-        (pipelineFocus === "attention" && attentionApplicationIds.has(application.id));
+  const insights = useMemo(() => getDashboardInsights(opportunities), [opportunities]);
+  const attentionIds = useMemo(() => new Set(insights.attention.map((item) => item.opportunityId)), [insights]);
+  const filtered = useMemo(() => sortOpportunities(opportunities.filter((opportunity) => {
+    if (typeFilter !== "all" && opportunity.type !== typeFilter) return false;
+    const statusMatches = typeFilter === "all"
+      ? statusFilter === "attention" ? attentionIds.has(opportunity.id)
+        : statusFilter === "archived" ? opportunity.status === "archived"
+          : statusFilter === "closed" ? CLOSED_STATUSES.has(opportunity.status)
+            : opportunity.status !== "archived" && !CLOSED_STATUSES.has(opportunity.status)
+      : statusFilter === "all" || opportunity.status === statusFilter;
+    return statusMatches && matchesSearch(opportunity, search);
+  }), sort), [attentionIds, opportunities, search, sort, statusFilter, typeFilter]);
 
-      return statusMatches && focusMatches && matchesSearch(application, search);
-    });
+  const statusOptions = useMemo<StatusFilterOption[]>(() => {
+    if (typeFilter === "job") return [{ value: "all", label: "All job stages" }, ...JOB_STATUSES.map((status) => ({ value: status, label: JOB_STATUS_LABELS[status] }))];
+    if (typeFilter === "connection") return [{ value: "all", label: "All connection stages" }, ...CONNECTION_STATUSES.map((status) => ({ value: status, label: CONNECTION_STATUS_LABELS[status] }))];
+    return [
+      { value: "active", label: "Active" },
+      { value: "attention", label: "Needs attention", count: insights.attention.length },
+      { value: "closed", label: "Closed" },
+      { value: "archived", label: "Archived" }
+    ];
+  }, [insights.attention.length, typeFilter]);
 
-    return sortApplications(visible, sort);
-  }, [applications, attentionApplicationIds, pipelineFocus, search, sort, statusFilter]);
-  const statusCounts = useMemo(() => buildStatusCounts(applications), [applications]);
-
-  const updateStatus = async (
-    application: Application,
-    status: ApplicationStatus,
-    suppressUndo = false
-  ) => {
-    if (application.status === status || pendingStatusRef.current) {
-      return;
-    }
-
-    pendingStatusRef.current = true;
-    setPendingStatusId(application.id);
-    setError(null);
-
+  const updateStatus = async (opportunity: OpportunitySummary, status: OpportunityStatus, suppressUndo = false) => {
+    if (opportunity.status === status || pendingStatusRef.current) return;
+    pendingStatusRef.current = true; setPendingStatusId(opportunity.id); setError(null);
     try {
-      const response = await fetch(`/api/applications/${application.id}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status })
-      });
-
-      if (!response.ok) {
-        throw new Error(await readError(response));
-      }
-
-      const updated = detailToApplication((await response.json()) as ApplicationDetail);
-      setApplications((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-      setFollowUps((current) => current.map((item) => (
-        item.applicationId === updated.id
-          ? { ...item, application: { ...item.application, status: updated.status } }
-          : item
-      )));
-
-      if (!suppressUndo) {
-        setToast({
-          message: `${updated.company} moved to ${STATUS_LABELS[updated.status]}.`,
-          actionLabel: "Undo",
-          onAction: () => void updateStatus(updated, application.status, true)
-        });
-      }
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to update the stage");
-    } finally {
-      pendingStatusRef.current = false;
-      setPendingStatusId(null);
-    }
+      const response = await fetch(`/api/opportunities/${opportunity.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+      if (!response.ok) throw new Error(await readError(response));
+      const updated = detailToSummary(await response.json() as OpportunityDetail);
+      setOpportunities((current) => current.map((item) => item.id === updated.id ? updated : item));
+      if (!suppressUndo) setToast({ message: `${updated.label} moved to ${statusLabel(updated)}.`, onAction: () => void updateStatus(updated, opportunity.status, true) });
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to update stage"); }
+    finally { pendingStatusRef.current = false; setPendingStatusId(null); }
   };
 
-  const filterByStatus = (status: StatusFilterValue) => {
-    setPipelineFocus("all");
-    setStatusFilter(status);
-  };
-
-  return (
-    <main className="app-shell dashboard-shell">
-      <header className="dashboard-header">
-        <div className="dashboard-header__brand">
-          <span className="brand-mark" aria-hidden="true">J</span>
-          <span>Job Tracker</span>
-        </div>
-        <div className="dashboard-header__actions">
-          <span className="shortcut-hint"><kbd>⌘</kbd><kbd>K</kbd> Search</span>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
-            onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
-          >
-            {theme === "light" ? "◐" : "☼"}
-          </button>
-          <Link className="button button--primary" href="/applications/new">
-            <span aria-hidden="true">+</span> New application <kbd>N</kbd>
-          </Link>
-        </div>
-      </header>
-
-      {error ? <div className="notice notice--error" role="alert">{error}</div> : null}
-
-      <section className="pipeline-workspace" aria-labelledby="pipeline-title">
-        <div className="pipeline-workspace__header">
-          <div>
-            <p className="panel-heading__eyebrow">Pipeline</p>
-            <h2 id="pipeline-title">Your opportunities</h2>
-          </div>
-          <span className="pipeline-workspace__count">
-            {loading ? "Loading your pipeline" : `${filteredApplications.length} in view`}
-            {pendingStatusId ? " · Updating stage" : ""}
-          </span>
-        </div>
-        <div className="pipeline-controls">
-          <div className="pipeline-controls__filters">
-            <label className="search-field">
-              <span className="sr-only">Search opportunities</span>
-              <span className="search-field__icon" aria-hidden="true">⌕</span>
-              <input
-                className="search-field__input"
-                ref={searchRef}
-                type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search opportunities"
-              />
-            </label>
-            <label className="select-field">
-              <span className="sr-only">Sort applications</span>
-              <select value={sort} onChange={(event) => setSort(event.target.value as SortValue)}>
-                <option value="updated">Recently updated</option>
-                <option value="next-action">Next action date</option>
-                <option value="priority">Priority</option>
-                <option value="company">Company name</option>
-              </select>
-            </label>
-          </div>
-          <StatusFilter value={statusFilter} onChange={filterByStatus} counts={statusCounts} />
-        </div>
-        <AttentionQueue
-          items={insights.attention}
-          loading={loading}
-          onViewAll={() => {
-            setPipelineFocus("attention");
-            setStatusFilter("all");
-          }}
-        />
-        <ApplicationTable
-          applications={filteredApplications}
-          detailsHref={(application) => `/applications/${application.id}`}
-          loading={loading}
-          onStatusChange={updateStatus}
-          pendingStatusId={pendingStatusId}
-          emptyMessage={
-            search || pipelineFocus !== "all" || statusFilter !== "all"
-              ? "No opportunities match this view. Try clearing a filter or search term."
-              : "Your opportunities will appear here. Select New application to add the first one."
-          }
-        />
-      </section>
-
-      <Toast
-        message={toast?.message ?? null}
-        actionLabel={toast?.actionLabel}
-        onAction={() => {
-          if (!toast?.onAction || pendingStatusRef.current) {
-            return;
-          }
-          const action = toast.onAction;
-          setToast(null);
-          action();
-        }}
-        onDismiss={() => setToast(null)}
-      />
-    </main>
-  );
+  return <main className="app-shell dashboard-shell">
+    <header className="dashboard-header"><div className="dashboard-header__brand"><span className="brand-mark" aria-hidden="true">O</span><span>Opportunity Tracker</span></div>
+      <div className="dashboard-header__actions"><span className="shortcut-hint"><kbd>⌘</kbd><kbd>K</kbd> Search</span>
+        <button className="icon-button" type="button" aria-label="Toggle theme" onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}>{theme === "light" ? "◐" : "☼"}</button>
+        <Link className="button button--primary" href="/opportunities/new"><span aria-hidden="true">+</span> New opportunity <kbd>N</kbd></Link>
+      </div></header>
+    {error ? <div className="notice notice--error" role="alert">{error}</div> : null}
+    <section className="pipeline-workspace" aria-labelledby="pipeline-title">
+      <div className="pipeline-workspace__header"><div><p className="panel-heading__eyebrow">Workspace</p><h1 id="pipeline-title">Opportunities</h1></div><span className="pipeline-workspace__count">{loading ? "Loading opportunities" : `${filtered.length} in view`}</span></div>
+      <div className="pipeline-controls"><div className="pipeline-controls__filters">
+        <label className="search-field"><span className="sr-only">Search opportunities</span><input className="search-field__input" ref={searchRef} type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search people, companies, and roles" /></label>
+        <label className="select-field"><span className="sr-only">Sort opportunities</span><select value={sort} onChange={(event) => setSort(event.target.value as SortValue)}><option value="updated">Recently updated</option><option value="next-action">Next action date</option><option value="priority">Priority</option><option value="organization">Organization</option></select></label>
+      </div><OpportunityTypeFilter value={typeFilter} onChange={(value) => { setTypeFilter(value); setStatusFilter(value === "all" ? "active" : "all"); }} /></div>
+      <StatusFilter value={statusFilter} options={statusOptions} onChange={setStatusFilter} />
+      <AttentionQueue items={insights.attention} loading={loading} onViewAll={() => { setTypeFilter("all"); setStatusFilter("attention"); }} />
+      <OpportunityTable opportunities={filtered} loading={loading} pendingStatusId={pendingStatusId} onStatusChange={updateStatus} emptyMessage={search ? "No opportunities match this search." : "Create your first job or connection opportunity."} />
+    </section>
+    <Toast message={toast?.message ?? null} actionLabel={toast?.onAction ? "Undo" : undefined} onAction={() => { const action = toast?.onAction; setToast(null); action?.(); }} onDismiss={() => setToast(null)} />
+  </main>;
 }
