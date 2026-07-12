@@ -17,9 +17,9 @@ Execute `docs/specs/world-class-opportunity-experience.md` through `docs/plans/w
 | --- | --- | --- | --- |
 | WCE-1 Dialog primitive | none | complete | `6820b83..9c69802`; 10 tests; Sol approved |
 | WCE-2 Creation forms | none | complete | `f3f4152..e5ec6e0`; 18 tests; Sol approved |
-| WCE-3 Pipeline pulse | none | implemented | `10ea564`; 2 tests; review with WCE-4 |
-| WCE-4 Dashboard/table state | WCE-3 | in progress | pending |
-| WCE-5 Detail dialogs | WCE-1, WCE-2 | pending | pending |
+| WCE-3 Pipeline pulse | none | complete | `10ea564`; reviewed with WCE-4 |
+| WCE-4 Dashboard/table state | WCE-3 | complete | `d4fdb49..844a281`; 21 tests; Sol approved |
+| WCE-5 Detail dialogs | WCE-1, WCE-2 | in progress | pending |
 | WCE-6 Task hierarchy | WCE-5 | pending | pending |
 | WCE-7 Destructive safety | WCE-5 | pending | pending |
 | WCE-8 Form/detail visuals | WCE-5, WCE-6, WCE-7 | pending | pending |
@@ -32,6 +32,8 @@ Execute `docs/specs/world-class-opportunity-experience.md` through `docs/plans/w
 - No browser automation; user owns the explicit localhost visual pass.
 - Linked-job mode omits first-task controls and unwraps `payload.opportunity`.
 - Destructive workflows remain a separate High-risk reviewed task.
+- Residual Low: Pipeline pulse duplicates the terminal-status set; final review will reassess.
+- Residual Low: one non-failing unused-parameter lint warning exists in `OpportunityForms.test.tsx`.
 
 ## Verification
 
