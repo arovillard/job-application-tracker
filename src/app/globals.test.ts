@@ -115,6 +115,7 @@ describe("opportunity interface stylesheet", () => {
     const mobileCss = css.slice(mobileStart, nextMediaStart === -1 ? undefined : nextMediaStart);
 
     expect(mobileCss).toMatch(/\.modal\s*\{[^}]*max-height:\s*calc\(100dvh\s*-\s*16px\);[^}]*width:\s*100%;[^}]*\}/s);
-    expect(mobileCss).toMatch(/\.application-form__actions\s*\{[^}]*background:\s*var\(--surface\);[^}]*border-top:\s*1px\s+solid\s+var\(--line\);[^}]*position:\s*static;[^}]*\}/s);
+    expect(mobileCss).toMatch(/\.application-form__actions\s*\{[^}]*background:\s*var\(--surface\);[^}]*border-top:\s*1px\s+solid\s+var\(--line\);[^}]*bottom:\s*0;[^}]*position:\s*sticky;[^}]*\}/s);
+    expect(mobileCss).toContain(".modal .application-form__actions { position: static; }");
   });
 });

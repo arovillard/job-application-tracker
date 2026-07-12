@@ -545,7 +545,8 @@ kbd {
   .application-form__grid, .application-form__grid--planning { grid-template-columns: 1fr; }
   .application-form__field--wide { grid-column: auto; }
   .application-form__planning { padding: 18px 15px; }
-  .application-form__actions { background: var(--surface); border-top: 1px solid var(--line); flex-direction: column-reverse; margin: 0 -17px -18px; padding: 14px 17px max(17px, env(safe-area-inset-bottom)); position: static; }
+  .application-form__actions { background: var(--surface); border-top: 1px solid var(--line); bottom: 0; flex-direction: column-reverse; margin: 0 -17px -18px; padding: 14px 17px max(17px, env(safe-area-inset-bottom)); position: sticky; }
+  .modal .application-form__actions { position: static; }
   .application-form__actions .button, .application-form__actions .application-form__button { width: 100%; }
   .modal-backdrop { align-items: flex-end; padding: 8px; }
   .modal { border-radius: var(--radius) var(--radius) 0 0; max-height: calc(100dvh - 16px); width: 100%; }
