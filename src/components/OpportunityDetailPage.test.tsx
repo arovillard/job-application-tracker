@@ -76,6 +76,14 @@ afterEach(() => {
 });
 
 describe("OpportunityDetailContent", () => {
+  it("exposes the current opportunity status to the stage selector", () => {
+    const connectionMarkup = renderToStaticMarkup(<OpportunityDetailContent detail={connection} onTaskAction={vi.fn()} />);
+    const jobMarkup = renderToStaticMarkup(<OpportunityDetailContent detail={job} onTaskAction={vi.fn()} />);
+
+    expect(connectionMarkup).toContain('class="stage-select" data-status="in_conversation"');
+    expect(jobMarkup).toContain('class="stage-select" data-status="applied"');
+  });
+
   it("uses the panel header/title contract for inline panels", () => {
     const titles = ["Record interaction", "Add task", "Edit details", "Create linked job"];
     const markup = titles.map((title) => renderToStaticMarkup(<TrackerPanel title={title}>Panel content</TrackerPanel>));

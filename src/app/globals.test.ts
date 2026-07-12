@@ -137,6 +137,14 @@ describe("opportunity interface stylesheet", () => {
     }
   });
 
+  it("keeps retry controls at least 44px tall", () => {
+    const retryRule = css.match(/\.notice--error \.button, \.notice--error button\s*\{([^}]*)\}/)?.[1];
+    const minHeight = retryRule?.match(/min-height:\s*(\d+)px/)?.[1];
+
+    expect(retryRule).toBeDefined();
+    expect(Number(minHeight)).toBeGreaterThanOrEqual(44);
+  });
+
   it("gives every connection stage and activity marker a semantic or safe default", () => {
     for (const status of ["new", "outreach_planned", "waiting", "in_conversation", "opportunity_identified", "dormant", "closed", "archived"]) {
       expect(css).toContain(`.stage-select[data-status="${status}"]`);
@@ -166,5 +174,18 @@ describe("opportunity interface stylesheet", () => {
     expect(css).toContain(".status-filter__button:focus-visible");
     expect(css).toContain("@media (hover: hover) and (pointer: fine)");
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
+  });
+
+  it("uses restrained blue and amber connection accents in both themes", () => {
+    const lightTokens = css.match(/:root\s*\{([^}]*)\}/)?.[1];
+    const darkTokens = css.match(/:root\[data-theme="dark"\]\s*\{([^}]*)\}/)?.[1];
+
+    expect(lightTokens).toContain("--connection-planned: #3f6fb7;");
+    expect(lightTokens).toContain("--connection-introduction: #b56a16;");
+    expect(lightTokens).toContain("--connection-conversation: #168a9a;");
+    expect(darkTokens).toContain("--connection-planned: #8fb5ef;");
+    expect(darkTokens).toContain("--connection-introduction: #f0b66e;");
+    expect(darkTokens).toContain("--connection-conversation: #66cad5;");
+    expect(css).not.toMatch(/--connection-(?:planned|introduction):\s*#(?:705cc8|b5a7ff|b05c96|f3a3d5);/i);
   });
 });
