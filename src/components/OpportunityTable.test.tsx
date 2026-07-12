@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { OpportunitySummary } from "../types";
+import { CONNECTION_STATUSES, JOB_STATUSES, type OpportunitySummary } from "../types";
 import { OpportunityTable } from "./OpportunityTable";
 
 const job: OpportunitySummary = {
@@ -62,6 +64,17 @@ function renderTable(opportunities: OpportunitySummary[], pendingStatusId: strin
       onStatusChange={() => undefined}
     />
   );
+}
+
+function mountTable(onStatusChange = vi.fn()) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  let root: Root;
+  act(() => {
+    root = createRoot(container);
+    root.render(<OpportunityTable opportunities={[job, connection]} onStatusChange={onStatusChange} />);
+  });
+  return { container, onStatusChange, root: root! };
 }
 
 function rowFor(label: string) {
@@ -123,5 +136,28 @@ describe("OpportunityTable", () => {
     expect(emptyMarkup).toContain("Use New opportunity above");
     expect(emptyMarkup).not.toContain("new-opportunity-menu");
     expect(emptyMarkup).not.toContain('href="/opportunities/new"');
+  });
+
+  it("invokes onStatusChange with the row opportunity and selected stage", () => {
+    const { container, onStatusChange, root } = mountTable();
+    const select = container.querySelector<HTMLSelectElement>(".stage-select select")!;
+
+    act(() => {
+      select.value = "offer";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(onStatusChange).toHaveBeenCalledWith(job, "offer");
+    act(() => root.unmount());
+  });
+
+  it("renders complete, distinct status options for job and connection rows", () => {
+    const { container, root } = mountTable();
+    const optionValues = [...container.querySelectorAll<HTMLSelectElement>(".stage-select select")]
+      .map((select) => [...select.options].map((option) => option.value));
+
+    expect(optionValues).toEqual([JOB_STATUSES, CONNECTION_STATUSES]);
+    expect(optionValues[0]).not.toEqual(optionValues[1]);
+    act(() => root.unmount());
   });
 });

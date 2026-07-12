@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { OpportunityDetail, OpportunitySummary } from "../types";
 const themeState = vi.hoisted(() => ({ theme: "light" as "light" | "dark", setTheme: vi.fn() }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
@@ -23,7 +24,26 @@ function mountDashboard() {
     root = createRoot(container);
     root.render(<Dashboard />);
   });
-  return { root: root! };
+  return { container, root: root! };
+}
+
+const job: OpportunitySummary = {
+  id: "job-1", type: "job", label: "Platform Engineer", organization: "Acme Corp", status: "applied", priority: "high", summary: null, originOpportunityId: null,
+  createdAt: "2026-07-01T00:00:00.000Z", updatedAt: "2026-07-11T08:00:00.000Z", url: null, source: null, location: "Remote", contact: null, appliedDate: null, nextOpenTask: null
+};
+const connection: OpportunitySummary = {
+  id: "connection-1", type: "connection", label: "Maya Chen", organization: null, status: "in_conversation", priority: "medium", summary: null, originOpportunityId: null,
+  createdAt: "2026-07-02T00:00:00.000Z", updatedAt: "2026-07-12T08:00:00.000Z", roleContext: "Engineering leader", contactInfo: null, meetingContext: null, relationshipStrength: "strong", lastInteractionAt: null, nextOpenTask: null
+};
+
+function jsonResponse(body: unknown) {
+  return { ok: true, json: async () => body } as Response;
+}
+
+async function flushDashboard() {
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 afterEach(() => {
@@ -88,6 +108,60 @@ describe("Dashboard", () => {
       }
     }
 
+    act(() => root.unmount());
+  });
+
+  it("sorts loaded opportunities by most recently updated by default", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([job, connection]));
+    const { container, root } = mountDashboard();
+
+    await flushDashboard();
+
+    expect([...container.querySelectorAll(".application-table__primary")].map((element) => element.textContent)).toEqual([
+      "Maya Chen", "Platform Engineer"
+    ]);
+    act(() => root.unmount());
+  });
+
+  it("resets the status filter when switching between job and connection views", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([job, connection]));
+    const { container, root } = mountDashboard();
+
+    await flushDashboard();
+    const click = (label: string) => act(() => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === label)?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    click("Jobs");
+    expect([...container.querySelectorAll("button")].find((button) => button.textContent === "All job stages")?.getAttribute("aria-pressed")).toBe("true");
+    click("Applied");
+    click("Connections");
+
+    expect([...container.querySelectorAll("button")].find((button) => button.textContent === "All connection stages")?.getAttribute("aria-pressed")).toBe("true");
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Applied")).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it("sends the selected stage in the status PATCH request", async () => {
+    const updated: OpportunityDetail = { ...job, status: "offer", tasks: [], activities: [], artifacts: [], origin: null, originatedJobs: [] };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse([job]))
+      .mockResolvedValueOnce(jsonResponse(updated));
+    const { container, root } = mountDashboard();
+
+    await flushDashboard();
+    const select = container.querySelector<HTMLSelectElement>(".stage-select select")!;
+    act(() => {
+      select.value = "offer";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await flushDashboard();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/opportunities/job-1/status", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "offer" })
+    });
     act(() => root.unmount());
   });
 });
