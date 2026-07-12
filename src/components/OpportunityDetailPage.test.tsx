@@ -549,4 +549,120 @@ describe("OpportunityDetailContent", () => {
     await act(async () => { resolveLateDelete(jsonResponse({})); });
     expect(routerState.push).toHaveBeenCalledTimes(1);
   });
+
+  it.each(["stage-first", "archive-first"])("keeps archive when a prior stage request resolves %s", async (resolutionOrder) => {
+    let resolveStage!: (value: Response) => void;
+    let resolveArchive!: (value: Response) => void;
+    const stageRequest = new Promise<Response>((resolve) => { resolveStage = resolve; });
+    const archiveRequest = new Promise<Response>((resolve) => { resolveArchive = resolve; });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(stageRequest).mockReturnValueOnce(archiveRequest);
+    const { container, root } = mountDetail();
+    await flush();
+
+    act(() => change(container.querySelector<HTMLSelectElement>(".stage-select select")!, "waiting"));
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Archive")!.click());
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    const responses = {
+      stage: () => resolveStage(jsonResponse({ ...connection, status: "waiting" })),
+      archive: () => resolveArchive(jsonResponse({ ...connection, status: "archived" }))
+    };
+    await act(async () => { responses[resolutionOrder === "stage-first" ? "stage" : "archive"](); });
+    await act(async () => { responses[resolutionOrder === "stage-first" ? "archive" : "stage"](); });
+
+    expect(container.querySelector<HTMLSelectElement>(".stage-select select")?.value).toBe("archived");
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("does not start a stage request while archive is pending", async () => {
+    let resolveArchive!: (value: Response) => void;
+    const archiveRequest = new Promise<Response>((resolve) => { resolveArchive = resolve; });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(archiveRequest);
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Archive")!.click());
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+
+    act(() => change(container.querySelector<HTMLSelectElement>(".stage-select select")!, "waiting"));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => { resolveArchive(jsonResponse({ ...connection, status: "archived" })); });
+    act(() => root.unmount());
+  });
+
+  it("keeps the first archive response active after a duplicate submission", async () => {
+    let resolveArchive!: (value: Response) => void;
+    const archiveRequest = new Promise<Response>((resolve) => { resolveArchive = resolve; });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(archiveRequest);
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Archive")!.click());
+    const form = container.querySelector<HTMLFormElement>("form")!;
+    act(() => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => { resolveArchive(jsonResponse({ ...connection, status: "archived" })); });
+    expect(container.querySelector<HTMLSelectElement>(".stage-select select")?.value).toBe("archived");
+    act(() => root.unmount());
+  });
+
+  it("keeps a failed delete confirmation open with its error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockResolvedValueOnce(jsonResponse({ error: "Delete rejected" }, false));
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Delete permanently")!.click());
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flush();
+
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Delete rejected");
+    expect(routerState.push).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it("ignores an archive result that arrives after unmount", async () => {
+    let resolveArchive!: (value: Response) => void;
+    const archiveRequest = new Promise<Response>((resolve) => { resolveArchive = resolve; });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(archiveRequest);
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Archive")!.click());
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() => root.unmount());
+    await act(async () => { resolveArchive(jsonResponse({ ...connection, status: "archived" })); });
+    expect(routerState.push).not.toHaveBeenCalled();
+  });
+
+  it("does not dismiss a pending destructive confirmation", async () => {
+    let resolveArchive!: (value: Response) => void;
+    const archiveRequest = new Promise<Response>((resolve) => { resolveArchive = resolve; });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(archiveRequest);
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Archive")!.click());
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    const dialog = () => container.querySelector('[role="dialog"]');
+    const cancel = [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Cancel")!;
+
+    act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(dialog()).not.toBeNull();
+    act(() => container.querySelector<HTMLElement>(".modal-backdrop")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    expect(dialog()).not.toBeNull();
+    act(() => container.querySelector<HTMLButtonElement>(".modal__close")!.click());
+    expect(dialog()).not.toBeNull();
+    expect(cancel.disabled).toBe(true);
+    act(() => cancel.click());
+    expect(dialog()).not.toBeNull();
+
+    await act(async () => { resolveArchive(jsonResponse({ ...connection, status: "archived" })); });
+    act(() => root.unmount());
+  });
 });
