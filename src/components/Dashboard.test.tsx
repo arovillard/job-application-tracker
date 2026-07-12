@@ -10,7 +10,11 @@ const themeState = vi.hoisted(() => ({ theme: "light" as "light" | "dark", setTh
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("./ThemeProvider", () => ({ useTheme: () => themeState }));
-vi.mock("./Toast", () => ({ Toast: () => null }));
+const toastState = vi.hoisted(() => ({ props: null as { message: string | null; actionLabel?: string; onAction?: () => void } | null }));
+vi.mock("./Toast", () => ({ Toast: (props: { message: string | null; actionLabel?: string; onAction?: () => void }) => {
+  toastState.props = props;
+  return null;
+} }));
 
 import { Dashboard } from "./Dashboard";
 
@@ -40,6 +44,16 @@ function jsonResponse(body: unknown) {
   return { ok: true, json: async () => body } as Response;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 async function flushDashboard() {
   await act(async () => {
     await Promise.resolve();
@@ -49,6 +63,7 @@ async function flushDashboard() {
 afterEach(() => {
   vi.restoreAllMocks();
   themeState.theme = "light";
+  toastState.props = null;
   document.body.innerHTML = "";
 });
 
@@ -123,6 +138,23 @@ describe("Dashboard", () => {
     act(() => root.unmount());
   });
 
+  it("sorts loaded opportunities by the selected sort mode", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([job, connection]));
+    const { container, root } = mountDashboard();
+
+    await flushDashboard();
+    const sort = container.querySelector<HTMLSelectElement>(".select-field select")!;
+    act(() => {
+      sort.value = "organization";
+      sort.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect([...container.querySelectorAll(".application-table__primary")].map((element) => element.textContent)).toEqual([
+      "Platform Engineer", "Maya Chen"
+    ]);
+    act(() => root.unmount());
+  });
+
   it("resets the status filter when switching between job and connection views", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([job, connection]));
     const { container, root } = mountDashboard();
@@ -165,6 +197,51 @@ describe("Dashboard", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: "offer" })
     });
+    act(() => root.unmount());
+  });
+
+  it("locks every stage control during a mutation and exposes an undo action after success", async () => {
+    const update = deferred<Response>();
+    const updated: OpportunityDetail = { ...job, status: "offer", tasks: [], activities: [], artifacts: [], origin: null, originatedJobs: [] };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse([job, connection]))
+      .mockReturnValueOnce(update.promise)
+      .mockResolvedValueOnce(jsonResponse({ ...updated, status: "applied" }));
+    const { container, root } = mountDashboard();
+
+    await flushDashboard();
+    const selectFor = (label: string) => {
+      const row = [...container.querySelectorAll("tr")]
+        .find((candidate) => candidate.querySelector(".application-table__primary")?.textContent === label);
+      if (!row) throw new Error(`Missing row for ${label}`);
+      const select = row.querySelector<HTMLSelectElement>(".stage-select select");
+      if (!select) throw new Error(`Missing stage select for ${label}`);
+      return select;
+    };
+    const jobSelect = selectFor("Platform Engineer");
+    const connectionSelect = selectFor("Maya Chen");
+    act(() => {
+      jobSelect.value = "offer";
+      jobSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    act(() => {
+      connectionSelect.value = "waiting";
+      connectionSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(jobSelect.disabled).toBe(true);
+    expect(connectionSelect.disabled).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => { update.resolve(jsonResponse(updated)); });
+    await flushDashboard();
+
+    expect(toastState.props?.message).toContain("Platform Engineer moved to Offer.");
+    expect(toastState.props?.actionLabel).toBe("Undo");
+    expect(toastState.props?.onAction).toEqual(expect.any(Function));
+    act(() => toastState.props?.onAction?.());
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/opportunities/job-1/status", expect.objectContaining({
+      body: JSON.stringify({ status: "applied" })
+    }));
     act(() => root.unmount());
   });
 
@@ -223,13 +300,21 @@ describe("Dashboard", () => {
     act(() => root.unmount());
   });
 
-  it("explains filtered empty results and clears every filter", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([job]));
+  it("explains search-empty results and clears search, type, and status filters together", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([job, connection]));
     const { container, root } = mountDashboard();
 
     await flushDashboard();
+    const search = container.querySelector<HTMLInputElement>(".search-field__input")!;
     act(() => {
-      [...container.querySelectorAll("button")].find((button) => button.textContent === "Closed")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "missing");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Jobs")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Offer")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(container.textContent).toContain("No opportunities match this search or filter.");
@@ -237,7 +322,53 @@ describe("Dashboard", () => {
     act(() => clear.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
     expect([...container.querySelectorAll("button")].find((button) => button.textContent === "Active")?.getAttribute("aria-pressed")).toBe("true");
-    expect(container.querySelector(".application-table__primary")?.textContent).toBe("Platform Engineer");
+    expect([...container.querySelectorAll(".application-table__primary")].map((element) => element.textContent)).toHaveLength(2);
+    expect(container.querySelector<HTMLInputElement>(".search-field__input")?.value).toBe("");
+    act(() => root.unmount());
+  });
+
+  it("ignores stale repeated retry responses after the latest retry succeeds", async () => {
+    const staleRetry = deferred<Response>();
+    const latestRetry = deferred<Response>();
+    vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new Error("Network unavailable"))
+      .mockReturnValueOnce(staleRetry.promise)
+      .mockReturnValueOnce(latestRetry.promise);
+    const { container, root } = mountDashboard();
+
+    await flushDashboard();
+    const retry = [...container.querySelectorAll("button")].find((button) => button.textContent === "Retry")!;
+    act(() => {
+      retry.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      retry.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => latestRetry.resolve(jsonResponse([connection])));
+    await act(async () => staleRetry.resolve(jsonResponse([job])));
+
+    expect([...container.querySelectorAll(".application-table__primary")].map((element) => element.textContent)).toEqual(["Maya Chen"]);
+    act(() => root.unmount());
+  });
+
+  it("shows the latest retry failure even when an earlier retry resolves later", async () => {
+    const staleRetry = deferred<Response>();
+    const latestRetry = deferred<Response>();
+    vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new Error("Network unavailable"))
+      .mockReturnValueOnce(staleRetry.promise)
+      .mockReturnValueOnce(latestRetry.promise);
+    const { container, root } = mountDashboard();
+
+    await flushDashboard();
+    const retry = [...container.querySelectorAll("button")].find((button) => button.textContent === "Retry")!;
+    act(() => {
+      retry.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      retry.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => latestRetry.reject(new Error("Latest retry failed")));
+    await act(async () => staleRetry.resolve(jsonResponse([job])));
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Latest retry failed");
+    expect(container.querySelector(".application-table")).toBeNull();
     act(() => root.unmount());
   });
 });

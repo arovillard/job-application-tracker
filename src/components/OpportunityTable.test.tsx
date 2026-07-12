@@ -169,6 +169,7 @@ describe("OpportunityTable", () => {
 
     expect([...document.querySelectorAll("th")].every((header) => header.getAttribute("scope") === "col")).toBe(true);
     const posting = document.querySelector<HTMLAnchorElement>('a[aria-label="View posting for Platform Engineer"]');
+    expect(posting?.className).toBe("application-table__link");
     expect(posting?.getAttribute("href")).toBe("https://jobs.example.test/platform");
     expect(posting?.getAttribute("target")).toBe("_blank");
     expect(posting?.getAttribute("rel")).toBe("noreferrer");

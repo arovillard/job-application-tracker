@@ -67,27 +67,41 @@ export function Dashboard() {
   const loadRequestRef = useRef(0);
   const { theme, setTheme } = useTheme();
 
+  const fetchOpportunities = useCallback(async () => {
+    const response = await fetch("/api/opportunities?archived=include", { cache: "no-store" });
+    if (!response.ok) throw new Error(await readError(response));
+    return response.json() as Promise<OpportunitySummary[]>;
+  }, []);
+
   const loadOpportunities = useCallback(async () => {
     const requestId = ++loadRequestRef.current;
     setLoadError(null);
     setLoading(true);
     try {
-      const response = await fetch("/api/opportunities?archived=include", { cache: "no-store" });
-      if (!response.ok) throw new Error(await readError(response));
-      const loaded = await response.json() as OpportunitySummary[];
+      const loaded = await fetchOpportunities();
       if (mountedRef.current && requestId === loadRequestRef.current) setOpportunities(loaded);
     } catch (caught) {
       if (mountedRef.current && requestId === loadRequestRef.current) setLoadError(caught instanceof Error ? caught.message : "Unable to load opportunities");
     } finally {
       if (mountedRef.current && requestId === loadRequestRef.current) setLoading(false);
     }
-  }, []);
+  }, [fetchOpportunities]);
 
   useEffect(() => {
     mountedRef.current = true;
-    void loadOpportunities();
+    const requestId = ++loadRequestRef.current;
+    void fetchOpportunities()
+      .then((loaded) => {
+        if (mountedRef.current && requestId === loadRequestRef.current) setOpportunities(loaded);
+      })
+      .catch((caught) => {
+        if (mountedRef.current && requestId === loadRequestRef.current) setLoadError(caught instanceof Error ? caught.message : "Unable to load opportunities");
+      })
+      .finally(() => {
+        if (mountedRef.current && requestId === loadRequestRef.current) setLoading(false);
+      });
     return () => { mountedRef.current = false; };
-  }, [loadOpportunities]);
+  }, [fetchOpportunities]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {

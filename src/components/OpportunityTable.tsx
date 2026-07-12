@@ -103,7 +103,7 @@ export function OpportunityTable({
                 {opportunity.type === "job"
                   ? opportunity.location ? <span className="application-table__tertiary">{opportunity.location}</span> : null
                   : <span className="application-table__tertiary">{`${opportunity.relationshipStrength[0].toUpperCase()}${opportunity.relationshipStrength.slice(1)} relationship`}</span>}
-                {opportunity.type === "job" && opportunity.url ? <a href={opportunity.url} target="_blank" rel="noreferrer" aria-label={`View posting for ${opportunity.label}`}>View posting</a> : null}
+                {opportunity.type === "job" && opportunity.url ? <a className="application-table__link" href={opportunity.url} target="_blank" rel="noreferrer" aria-label={`View posting for ${opportunity.label}`}>View posting</a> : null}
               </div></td>
               <td className="application-table__cell" data-label="Stage">
                 {onStatusChange ? <label className="stage-select" data-status={opportunity.status}>
