@@ -34,9 +34,6 @@ describe("opportunity interface stylesheet", () => {
 
   it("keeps the dashboard control hierarchy and table geometry aligned with main", () => {
     for (const contract of [
-      ".pipeline-filter-rail",
-      "overflow-x: auto",
-      "flex-wrap: nowrap",
       "grid-template-columns: minmax(220px, 1fr) auto",
       "padding: 22px 24px 18px",
       "min-width: 770px",
@@ -48,6 +45,16 @@ describe("opportunity interface stylesheet", () => {
     }
 
     expect(css).toMatch(/\.application-table__loading-row\s*\{[^}]*grid-template-columns:\s*1\.3fr\s+0\.7fr\s+1fr\s+0\.5fr[^}]*\}/s);
+  });
+
+  it("keeps the mobile pipeline filter rail horizontally scrollable without wrapping its filters", () => {
+    const mobileStart = css.indexOf("@media (max-width: 760px)");
+    const nextMediaStart = css.indexOf("@media", mobileStart + 1);
+    const mobileCss = css.slice(mobileStart, nextMediaStart === -1 ? undefined : nextMediaStart);
+
+    expect(mobileStart).toBeGreaterThanOrEqual(0);
+    expect(mobileCss).toMatch(/\.pipeline-filter-rail\s*\{[^}]*overflow-x:\s*auto;[^}]*overscroll-behavior-x:\s*contain;[^}]*\}/s);
+    expect(mobileCss).toMatch(/\.pipeline-filter-rail \.opportunity-type-filter, \.pipeline-filter-rail \.status-filter\s*\{[^}]*flex-wrap:\s*nowrap;[^}]*\}/s);
   });
 
   it("limits transform feedback to fine hover pointers and preserves reduced motion", () => {
