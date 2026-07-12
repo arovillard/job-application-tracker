@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 import type { OpportunityDetail } from "../types";
-import { OpportunityDetailContent } from "./OpportunityDetailPage";
+import { InteractionComposer, OpportunityDetailContent, TaskComposer } from "./OpportunityDetailPage";
 
 const base = {
   id: "opportunity-1",
@@ -78,6 +78,33 @@ describe("OpportunityDetailContent", () => {
   it("renders task rescheduling controls", () => {
     const markup = renderToStaticMarkup(<OpportunityDetailContent detail={job} onTaskAction={vi.fn()} />);
     expect(markup).toContain("Reschedule");
+  });
+
+  it("renders the aligned detail structure with activity before materials", () => {
+    const markup = renderToStaticMarkup(<OpportunityDetailContent detail={job} onTaskAction={vi.fn()} />);
+    expect(markup).toContain('class="detail-nav__back"');
+    expect(markup).toContain('class="detail-main"');
+    expect(markup).toContain('class="detail-side"');
+    expect(markup).toContain('class="next-action-card"');
+    expect(markup).toContain('class="tracker-panel__header"');
+    expect(markup).toContain('class="detail-list"');
+    expect(markup.indexOf("Activity history")).toBeLessThan(markup.indexOf("Application materials"));
+    expect(markup.indexOf('class="next-action-card"')).toBeLessThan(markup.indexOf('class="detail-list"'));
+  });
+
+  it("renders interaction and task composers with application form hooks", () => {
+    const interactionMarkup = renderToStaticMarkup(<InteractionComposer activityType="note" body="" occurredDate="" taskTitle="" taskDueDate="" onActivityTypeChange={vi.fn()} onBodyChange={vi.fn()} onOccurredDateChange={vi.fn()} onTaskTitleChange={vi.fn()} onTaskDueDateChange={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} />);
+    const taskMarkup = renderToStaticMarkup(<TaskComposer taskTitle="" taskDueDate="" onTaskTitleChange={vi.fn()} onTaskDueDateChange={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} />);
+    expect(interactionMarkup).toContain('class="application-form"');
+    expect(interactionMarkup).toContain('class="application-form__input"');
+    expect(interactionMarkup).toContain('class="application-form__select"');
+    expect(interactionMarkup).toContain('class="application-form__textarea"');
+    expect(interactionMarkup).toContain('class="application-form__actions"');
+    expect(interactionMarkup).toContain('type="date"');
+    expect(taskMarkup).toContain('class="application-form"');
+    expect(taskMarkup).toContain('class="application-form__input"');
+    expect(taskMarkup).toContain('class="application-form__actions"');
+    expect(taskMarkup).toContain('type="date"');
   });
 
   it("renders origin links in both directions", () => {
