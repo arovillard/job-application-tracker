@@ -20,6 +20,29 @@ afterEach(() => {
 });
 
 describe("updateApplicationConfig", () => {
+  it.each(["applications", "./applications", ""])("stores %p as the portable default", (value) => {
+    const root = fixture();
+    const result = updateApplicationConfig(root, { applicationsDirectory: value });
+    expect(readFileSync(path.join(root, ".env.local"), "utf8"))
+      .toContain('JOBTRACKER_APPLICATIONS_DIR="./applications"');
+    expect(result.applicationsDirectory).toEqual({ configured: true, path: path.join(root, "applications") });
+  });
+
+  it("preserves a custom absolute applications directory", () => {
+    const root = fixture();
+    const target = path.join(os.tmpdir(), "jobtracker-custom-applications");
+    updateApplicationConfig(root, { applicationsDirectory: target });
+    expect(readFileSync(path.join(root, ".env.local"), "utf8"))
+      .toContain(`JOBTRACKER_APPLICATIONS_DIR="${target}"`);
+  });
+
+  it("rejects /applications before writing", () => {
+    const root = fixture();
+    expect(() => updateApplicationConfig(root, { applicationsDirectory: "/applications" }))
+      .toThrow(/\.\/applications/);
+    expect(existsSync(path.join(root, ".env.local"))).toBe(false);
+  });
+
   it("preserves unrelated values and makes Google Docs the sole resume source", () => {
     const root = fixture();
     writeFileSync(path.join(root, ".env.local"), [

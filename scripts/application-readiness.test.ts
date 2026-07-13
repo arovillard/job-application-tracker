@@ -34,6 +34,15 @@ afterEach(() => {
 });
 
 describe("readApplicationConfig", () => {
+  it.each([undefined, ""])('defaults applications directory for %s', (configured) => {
+    const root = fixture();
+    if (configured !== undefined) {
+      writeFileSync(path.join(root, ".env.local"), 'JOBTRACKER_APPLICATIONS_DIR=""\n');
+    }
+    expect(readApplicationConfig(root, {}).applicationsDirectory)
+      .toBe(path.join(root, "applications"));
+  });
+
   it("parses dotenv without evaluation and applies known environment overrides", () => {
     const root = fixture();
     writeFileSync(path.join(root, ".env.local"), [
@@ -60,7 +69,8 @@ describe("evaluateApplicationReadiness", () => {
     expect(result).toMatchObject({ schemaVersion: 1, status: "needs_input", projectRoot: root });
     expect(result.resume.kind).toBe("none");
     expect(result.blockingIssues).toContain("resume_missing");
-    expect(result.blockingIssues).toContain("applications_directory_unconfigured");
+    expect(result.applicationsDirectory).toEqual({ path: path.join(root, "applications"), exists: true, writable: true });
+    expect(result.blockingIssues).not.toContain("applications_directory_unconfigured");
     expect(result.warnings).toContain("profile_missing");
   });
 
@@ -146,14 +156,21 @@ describe("evaluateApplicationReadiness", () => {
     expect(result.database).toEqual({ path: path.join(root, "data", "jobs.sqlite"), parentExists: true, parentWritable: true });
   });
 
-  it("treats an explicitly empty applications directory as missing user input", () => {
+  it("defaults an explicitly empty applications directory", () => {
     const root = fixture();
     writeFileSync(path.join(root, ".env.local"), 'JOBTRACKER_APPLICATIONS_DIR=""\n');
     const result = evaluateApplicationReadiness({ projectRoot: root, processEnv: {} });
     expect(result.status).toBe("needs_input");
-    expect(result.applicationsDirectory).toEqual({ path: "", exists: false, writable: false });
-    expect(result.blockingIssues).toContain("applications_directory_unconfigured");
-    expect(result.blockingIssues).not.toContain("applications_directory_not_ignored");
+    expect(result.applicationsDirectory).toEqual({ path: path.join(root, "applications"), exists: true, writable: true });
+    expect(result.blockingIssues).not.toContain("applications_directory_unconfigured");
+  });
+
+  it("blocks an ambiguous root applications directory", () => {
+    const root = fixture();
+    writeFileSync(path.join(root, ".env.local"), 'JOBTRACKER_APPLICATIONS_DIR="/applications"\n');
+    const result = evaluateApplicationReadiness({ projectRoot: root, processEnv: {} });
+    expect(result.status).toBe("blocked");
+    expect(result.blockingIssues).toContain("applications_directory_ambiguous");
   });
 
   it("blocks when the applications directory exists without write permission", () => {

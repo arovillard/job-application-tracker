@@ -30,6 +30,8 @@ const SETUP_CONFIG_KEYS = Object.freeze({
   providerNote: "JOBTRACKER_AI_PROVIDER"
 });
 
+const DEFAULT_APPLICATIONS_DIRECTORY = "./applications";
+
 const REQUIRED_SKILLS = Object.freeze([
   "job-application-resume",
   "job-application-workflow",
@@ -71,6 +73,29 @@ function resolveConfigPath(projectRoot, value) {
   return path.isAbsolute(selected) ? path.normalize(selected) : path.resolve(projectRoot, selected);
 }
 
+function isAmbiguousApplicationsDirectory(target) {
+  const normalized = path.normalize(target);
+  return path.dirname(normalized) === path.parse(normalized).root
+    && path.basename(normalized).toLowerCase() === "applications";
+}
+
+export function resolveApplicationsDirectory(projectRoot, value = "") {
+  const selected = String(value ?? "").trim() || DEFAULT_APPLICATIONS_DIRECTORY;
+  const resolved = resolveConfigPath(path.resolve(projectRoot), selected);
+  if (isAmbiguousApplicationsDirectory(resolved)) {
+    throw new Error('applicationsDirectory cannot be "/applications". Use "./applications" for the repository folder or choose a different absolute path.');
+  }
+  return resolved;
+}
+
+function normalizeApplicationsDirectory(projectRoot, value) {
+  const selected = String(value ?? "").trim() || DEFAULT_APPLICATIONS_DIRECTORY;
+  const resolved = resolveApplicationsDirectory(projectRoot, selected);
+  return resolved === path.join(path.resolve(projectRoot), "applications")
+    ? DEFAULT_APPLICATIONS_DIRECTORY
+    : path.isAbsolute(selected) ? path.normalize(selected) : selected;
+}
+
 function readConfigFile(projectRoot) {
   const filename = path.join(projectRoot, ".env.local");
   if (!existsSync(filename)) return { values: {}, error: null };
@@ -96,7 +121,10 @@ export function readApplicationConfig(projectRoot, processEnv = process.env) {
   if (error) throw new Error(`Unable to read ${path.join(absoluteRoot, ".env.local")}: ${error.message}`);
   const merged = mergeKnownEnvironment(values, processEnv ?? {});
   return {
-    applicationsDirectory: resolveConfigPath(absoluteRoot, merged.JOBTRACKER_APPLICATIONS_DIR ?? ""),
+    applicationsDirectory: resolveConfigPath(
+      absoluteRoot,
+      String(merged.JOBTRACKER_APPLICATIONS_DIR ?? "").trim() || DEFAULT_APPLICATIONS_DIRECTORY
+    ),
     baseResumeUrl: String(merged.JOBTRACKER_BASE_RESUME_URL ?? "").trim(),
     baseResumePath: resolveConfigPath(absoluteRoot, merged.JOBTRACKER_BASE_RESUME_PATH ?? ""),
     profileUrl: String(merged.JOBTRACKER_LINKEDIN_URL ?? "").trim(),
@@ -310,7 +338,8 @@ export function evaluateApplicationReadiness({
   const applicationsWritable = applicationsExists
     && Boolean(applicationsInspection.stats.mode & 0o222)
     && canAccess(applicationsPath, constants.W_OK);
-  if (!applicationsConfigured) blockingIssues.push("applications_directory_unconfigured");
+  if (isAmbiguousApplicationsDirectory(applicationsPath)) blockingIssues.push("applications_directory_ambiguous");
+  else if (!applicationsConfigured) blockingIssues.push("applications_directory_unconfigured");
   else if (applicationsInspection.state === "permission_denied") blockingIssues.push("applications_directory_permission_denied");
   else if (applicationsInspection.state === "error") blockingIssues.push("applications_directory_inspection_failed");
   else if (!applicationsExists) blockingIssues.push("applications_directory_unavailable");
@@ -391,9 +420,6 @@ function validateInput(input, allowedKeys) {
   if (input.baseResumePath && !localResumeKind(input.baseResumePath)) {
     throw new Error("baseResumePath must identify a DOCX, PDF, Markdown, or text file.");
   }
-  if (Object.prototype.hasOwnProperty.call(input, "applicationsDirectory") && !input.applicationsDirectory.trim()) {
-    throw new Error("applicationsDirectory cannot be empty.");
-  }
   if (input.profileUrl) {
     try {
       const url = new URL(input.profileUrl);
@@ -468,6 +494,9 @@ function updateConfig(projectRoot, input, allowedKeys, operations) {
   const original = existsSync(envPath) ? read(envPath, "utf8") : "";
   const parsed = parseDotenv(original);
   const normalized = { ...input };
+  if (Object.prototype.hasOwnProperty.call(input, "applicationsDirectory")) {
+    normalized.applicationsDirectory = normalizeApplicationsDirectory(root, input.applicationsDirectory);
+  }
   if (input.baseResumeUrl) normalized.baseResumePath = "";
   if (input.baseResumePath) normalized.baseResumeUrl = "";
   if (input.baseResumeUrl === "" && input.baseResumePath === "") {
