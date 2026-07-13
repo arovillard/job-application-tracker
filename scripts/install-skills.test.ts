@@ -23,6 +23,17 @@ afterEach(() => {
 });
 
 describe("agent skill packaging", () => {
+  it("documents fresh-session readiness and Google Docs preference", () => {
+    const readme = readFileSync(path.join(projectRoot, "README.md"), "utf8");
+    const setup = readFileSync(path.join(projectRoot, "docs", "agent-setup.md"), "utf8");
+
+    for (const content of [readme, setup]) {
+      expect(content).toContain("JOBTRACKER_BASE_RESUME_URL");
+      expect(content).toContain("Google Doc");
+      expect(content.toLowerCase()).toContain("fresh session");
+    }
+  });
+
   it("ships Claude project skills alongside Codex skills", () => {
     for (const skillName of skillNames) {
       const codexSkillPath = path.join(projectRoot, "skills", skillName, "SKILL.md");

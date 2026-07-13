@@ -9,16 +9,31 @@ Required:
 - Node.js and npm.
 - A local folder for this project.
 - A local folder for generated application materials.
-- A base resume file if they want AI-tailored resumes or fit analyses.
-- A public profile URL, usually LinkedIn, if they want the AI agent to use profile context.
+- A base resume source if they want AI-tailored resumes or fit analyses. A private Google Doc connected to the agent is preferred; DOCX is the best file fallback, and PDF is supported with less reliable formatting.
 - Codex or Claude Code, with the user's AI provider configured outside this repo.
 
 Optional:
 
 - A custom SQLite database path. The default is `data/jobtracker.sqlite`.
-- Google Docs or Drive access if the user wants application materials delivered there.
+- A public profile URL, usually LinkedIn. It improves context but is not required.
 
 This repo does not store API keys, provider credentials, private resumes, generated application dossiers, or the user's live SQLite database.
+
+## Starting A Fresh Agent Session
+
+Open this repository in Codex or Claude Code and say:
+
+```text
+help me apply
+```
+
+That is the primary application entrypoint. Repository instructions—not prior chat memory—tell a fresh session to check your workspace before handling a job link. The agent asks only for missing or invalid details, then says:
+
+> Your application workspace is ready. Your master resume is configured and will not be modified. Send me a job-posting link when you're ready.
+
+A private Google Doc connected through the agent is the preferred master resume. The agent reads it through your signed-in Google connection, never asks you to make it public, and creates a role-specific copy instead of editing the master. DOCX is the preferred local fallback. PDF also works, but matching its formatting consistently can be difficult.
+
+A local fresh session reuses the ignored `.env.local` and local files, then validates them again. A cloud checkout does not receive those private files, so it will ask for the Google Doc or an uploaded/local resume again. Google access may also need to be reconnected in a new host session.
 
 ## Quick Start
 
@@ -56,8 +71,8 @@ Do the following in order:
 4. Install project dependencies with npm install.
 5. Ask me for the information the app needs:
    - The folder where generated application materials should be stored.
-   - My latest resume file. If I upload it in this chat, save it locally and use that path; otherwise ask me for the file path.
-   - My public LinkedIn profile URL or other public profile URL.
+   - My private Google Docs resume URL first. If I do not use Google Docs, ask for a DOCX or PDF path instead.
+   - My public LinkedIn profile URL or other public profile URL, if I want to provide one.
    - Whether my AI provider is already configured in this agent.
 6. Do not ask me to paste API keys or secrets into this repository. Use this agent's secure provider setup flow if credentials are needed.
 7. Run npm run setup and provide the answers I gave you, or write .env.local from .env.example using those values.
@@ -65,7 +80,7 @@ Do the following in order:
 9. Run npm run verify and npm run build. Fix any setup issue that prevents them from passing.
 10. Start the app with npm run dev and tell me the local URL.
 11. Confirm that .env.local, the SQLite database, my resume, and generated application materials are private and not committed to Git.
-12. Finish by telling me setup is complete and that you are ready for the first job posting link. When I provide a job link, create or update the tracker record first, then prepare the application materials, fit analysis, and outreach/referral drafts.
+12. Finish by telling me setup is complete. For application work, I will open the repository and say "help me apply"; validate readiness before asking for or processing a job link.
 ```
 
 ## Configuration
@@ -76,6 +91,7 @@ Important settings:
 
 - `JOBTRACKER_DB_PATH`: SQLite file used by the app and tracker skill.
 - `JOBTRACKER_APPLICATIONS_DIR`: where generated resumes, fit analyses, outreach drafts, and posting PDFs should go.
+- `JOBTRACKER_BASE_RESUME_URL`: preferred private Google Docs master resume URL. Access stays in the connected host agent.
 - `JOBTRACKER_BASE_RESUME_PATH`: optional reference resume for AI-generated materials.
 - `JOBTRACKER_LINKEDIN_URL`: optional public profile URL for AI context.
 - `JOBTRACKER_AI_PROVIDER`: optional human-readable note; configure credentials through the AI tool, not this file.
@@ -97,6 +113,8 @@ Existing databases migrate automatically and transactionally. Application IDs, t
 
 Generated resumes, fit analyses, and outreach drafts should stay as files in `JOBTRACKER_APPLICATIONS_DIR`. The tracker links those material types to a job opportunity and displays them on its detail page. Markdown files are rendered as Markdown, and resume PDFs are shown with an inline PDF viewer. The file remains the source of truth; SQLite stores only the file path and metadata. Connection opportunities cannot own application artifacts.
 
+When the agent creates a tailored Google Doc, it also saves a local PDF or DOCX snapshot in the company application folder and registers that local snapshot with the tracker. The Google Docs link is returned separately; the configured master remains unchanged.
+
 For existing installs with files already in the application-materials folder, run a one-time backfill after pulling the update:
 
 ```bash
@@ -113,6 +131,7 @@ The skills are packaged for both supported agents:
 - Claude Code project skills live in `.claude/skills/`.
 
 - `job-tracker-add-posting`: extracts public posting facts, creates or updates a job opportunity, avoids duplicate organization+role records, and records update activities.
+- `job-application-workflow`: checks readiness, gathers only missing setup details, and coordinates tracker intake before application materials.
 - `job-application-resume`: creates tailored application materials and a candid fit analysis from verified user source material.
 
 Install or refresh them with:

@@ -2,18 +2,34 @@
 
 Use this when setting up Opportunity Tracker for a new human on a new machine.
 
+## Start Application Work
+
+The nontechnical entrypoint is not an npm command. Open the repository in Codex or Claude Code and say:
+
+```text
+help me apply
+```
+
+In a fresh session, repository instructions route the request through `job-application-workflow`; the flow does not rely on earlier chat memory. It runs readiness before asking for or processing a job link and, when no link is present, finishes with:
+
+> Your application workspace is ready. Your master resume is configured and will not be modified. Send me a job-posting link when you're ready.
+
+A local fresh session can reuse ignored `.env.local` references and local files after revalidation. A cloud checkout does not contain that private state and asks for the resume source again. A new host session may also require the user to reconnect Google Drive.
+
 ## Collect From The Human
 
 Ask for these values before configuring the project:
 
 1. Where should the project live?
 2. Where should generated application materials be stored?
-3. What base resume file should be used for application-materials work?
-4. What public profile URL, such as LinkedIn, should be used as profile context?
+3. What private Google Docs master resume should be used? If they prefer a file, ask for DOCX first or PDF as a supported fallback with a formatting warning.
+4. What public profile URL, such as LinkedIn, should be used as optional profile context?
 5. Are they using Codex, Claude Code, or both?
 6. Is their AI provider already configured in the host agent?
 
 Do not ask the human to paste API keys or credentials into this repository. If the host agent has a secure provider setup flow, use that flow.
+
+Google Docs is preferred because the agent can preserve formatting while creating a role-specific copy. Use the host's connected Google capability to verify the exact private document; never ask the human to make it public. The configured master is read-only and must not be modified.
 
 ## Agent-Owned Install Contract
 
@@ -23,7 +39,7 @@ When the human asks the agent to own installation end to end, complete the setup
 2. Install missing prerequisites with the system package manager, or ask before using administrator privileges.
 3. Clone `https://github.com/arovillard/job-application-tracker` into the requested project folder, or update the existing local copy.
 4. Install dependencies with `npm install`.
-5. Collect the application-materials folder, latest resume file or path, public profile URL, and AI-provider status.
+5. Collect the application-materials folder, Google Docs resume URL or DOCX/PDF fallback, optional public profile URL, and AI-provider status.
 6. Run `npm run setup`, or write `.env.local` from `.env.example` using the collected values.
 7. Run `npm run skills:install`.
 8. If the human already has generated files in the application-materials folder, run `npm run artifacts:backfill`.
@@ -54,6 +70,23 @@ npm run setup
 ```
 
 If you already collected the human's answers, you may write `.env.local` directly using `.env.example` as the template.
+
+The preferred resume setting is `JOBTRACKER_BASE_RESUME_URL`. `JOBTRACKER_BASE_RESUME_PATH` remains compatible for DOCX, PDF, Markdown, or text sources. A missing resume prevents tailored materials; a missing profile produces only a warning.
+
+Agents can inspect readiness without exposing resume contents or credentials:
+
+```bash
+node scripts/check-application-readiness.mjs
+```
+
+To safely update only application-profile references while preserving unrelated `.env.local` entries and comments:
+
+```bash
+printf '%s\n' '{"baseResumeUrl":"https://docs.google.com/document/d/DOCUMENT_ID/edit"}' |
+  node scripts/configure-application-profile.mjs --input-json -
+```
+
+The configuration command accepts only `applicationsDirectory`, `baseResumeUrl`, `baseResumePath`, and `profileUrl`; it does not accept provider credentials.
 
 4. Install the packaged Codex and Claude skills:
 
@@ -88,12 +121,13 @@ npm run dev
 
 ## Job Opportunity Workflow For Agents
 
-When the human says "help me apply to this job" and provides a public job link:
+When the human expresses application intent, with or without a public job link:
 
-1. Use `job-tracker-add-posting` to create or update the job opportunity first.
-2. Verify the script output shows `opportunity.type = job` and the expected organization, label, URL, status, action, and activity ids. Treat `application` as a deprecated compatibility alias.
-3. Use `job-application-resume` before creating resumes, outreach, cover letters, interview notes, or fit analyses.
-4. Use `JOBTRACKER_APPLICATIONS_DIR`, `JOBTRACKER_BASE_RESUME_PATH`, and `JOBTRACKER_LINKEDIN_URL` from `.env.local` when available.
-5. Do not submit applications, sign in, or use credentials for the human.
+1. Use `job-application-workflow` and run `check-application-readiness.mjs` before processing the link.
+2. For a Google Doc, verify private connected access and create a role-specific copy; offer DOCX when access is unavailable and warn that PDF formatting is less reliable.
+3. Use `job-tracker-add-posting` to create or update the job opportunity first, then verify its type, organization, label, URL, status, action, and activity ids.
+4. Use `job-application-resume` only after tracker verification, with the readiness result's exact database and applications paths.
+5. When a tailored Google Doc is created, export a local PDF or DOCX snapshot before registering the `resume` artifact. Return the Google Docs link separately and never modify the master.
+6. Treat a missing profile as a warning, not a blocker. Do not submit applications, sign in, make a document public, or use credentials for the human.
 
 If sources disagree about whether a posting is open, keep the tracker record active unless the human confirms it should be archived.
