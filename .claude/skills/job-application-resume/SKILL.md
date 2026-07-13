@@ -5,12 +5,16 @@ description: Create tailored resumes, reach-out messages, fit assessments, inter
 
 # Job Application Resume
 
+## Input Contract
+
+Require a verified opportunity ID before starting material work. When no coordinating readiness result is supplied, run and parse `node scripts/check-application-readiness.mjs` from the repository root before creating files. Continue only when `status` is `ready` and both the returned absolute `database.path` and absolute `applicationsDirectory.path` are present; never infer either path from process defaults. If readiness is not ready, stop material work and report the missing or blocking issue. If the selected source requires an external Google access check, confirm access through the host before reading or copying it.
+
 ## Core Workflow
 
 Use this workflow for every new job-specific application.
 
 1. Identify the company name and role title from the posting or user request.
-2. Use the coordinating readiness result before creating files:
+2. Use the coordinating or directly established readiness result before creating files:
    - Use the exact absolute `applicationsDirectory.path`; pass it as `--applications-dir` to applicable material commands and never silently fall back.
    - Prefer `JOBTRACKER_BASE_RESUME_URL` when it identifies an accessible Google Doc.
    - Treat the configured source as a read-only master and create a role-specific copy.

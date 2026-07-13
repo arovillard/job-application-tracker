@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const projectRoot = path.resolve(__dirname, "..");
 const workflow = readFileSync(path.join(projectRoot, "skills/job-application-workflow/SKILL.md"), "utf8");
+const resumeSkill = readFileSync(path.join(projectRoot, "skills/job-application-resume/SKILL.md"), "utf8");
+const readySentence = "Your application workspace is ready. Your master resume is configured and will not be modified. Send me a job-posting link when you're ready.";
 
 let tempDir: string;
 
@@ -51,6 +53,23 @@ describe("job application workflow contract", () => {
     expect(agents).toContain("$job-application-workflow");
     expect(claude).toContain(".claude/skills/job-application-workflow/SKILL.md");
     expect(claude).toContain("/job-application-workflow");
+  });
+
+  it("makes direct resume invocation establish the same readiness contract", () => {
+    expect(resumeSkill).toContain("When no coordinating readiness result is supplied");
+    expect(resumeSkill).toContain("run and parse `node scripts/check-application-readiness.mjs`");
+    expect(resumeSkill).toContain("verified opportunity ID");
+    expect(resumeSkill).toContain("absolute `database.path`");
+    expect(resumeSkill).toContain("absolute `applicationsDirectory.path`");
+  });
+
+  it("uses the exact no-link ready sentence", () => {
+    const agents = readFileSync(path.join(projectRoot, "AGENTS.md"), "utf8");
+    const claude = readFileSync(path.join(projectRoot, "CLAUDE.md"), "utf8");
+
+    expect(workflow).toContain(readySentence);
+    expect(agents).toContain(readySentence);
+    expect(claude).toContain(readySentence);
   });
 
   it("real tracker commands stay on the supplied custom database", () => {
