@@ -57,7 +57,8 @@ describe("OpportunityTaskList", () => {
   it("keeps the primary action and optional task groups in one Actions card", () => {
     const markup = renderToStaticMarkup(<OpportunityTaskList tasks={[task("primary", "Send follow-up", "2026-07-15")]} today="2026-07-12" onAction={vi.fn()} />);
 
-    expect(markup).toContain('<section class="next-action-card actions-card"><header class="tracker-panel__header"><div><p class="panel-heading__eyebrow">Momentum</p><h2 class="tracker-panel__title">Actions</h2></div>');
+    expect(markup).toContain('<section class="next-action-card actions-card"');
+    expect(markup).toContain('<h2 class="tracker-panel__title">Actions</h2>');
     expect(markup).toContain('class="task-item task-item--primary"');
     expect(markup).toContain('class="task-item__eyebrow">Up next</span>');
     expect(markup).toContain('class="task-item__reschedule"');
@@ -70,5 +71,23 @@ describe("OpportunityTaskList", () => {
     const markup = renderToStaticMarkup(<OpportunityTaskList tasks={[task("history", "Previous call", null, "cancelled")]} onAction={vi.fn()} />);
 
     expect(markup).toContain("Set a next action");
+  });
+
+  it("marks an attention-targeted task and exposes stable focus targets", () => {
+    const markup = renderToStaticMarkup(<OpportunityTaskList
+      attentionTaskId="target"
+      tasks={[
+        task("primary", "Earlier task", "2026-07-13"),
+        task("target", "Targeted task", "2026-07-13")
+      ]}
+      today="2026-07-13"
+      onAction={vi.fn()}
+    />);
+
+    expect(markup).toContain('id="opportunity-actions"');
+    expect(markup).toContain('id="opportunity-task-target"');
+    expect(markup).toContain('task-item--attention');
+    expect(markup).toContain('tabindex="-1"');
+    expect(markup.match(/task-item--attention/g)).toHaveLength(1);
   });
 });
