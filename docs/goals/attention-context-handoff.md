@@ -36,9 +36,14 @@ CLI-routed agents below are independent external processes. Their usage is not g
 ### ACH-2 — Contextual presentation and targetable task rows
 
 - Dependencies: ACH-1 approved
-- Owner: unassigned
+- Owner: external `terra-worker` process
 - Write set: `src/components/OpportunityAttentionBanner.tsx`, `src/components/OpportunityAttentionBanner.test.tsx`, `src/components/OpportunityTaskList.tsx`, `src/components/OpportunityTaskList.test.tsx`
-- Status: pending
+- Status: complete
+- Commit range: `521fc2e..ffa0c72`
+- Tests: TDD red confirmed; focused suite passed 2 files / 9 tests; `npm run typecheck` passed; `git diff --check` passed; controller independently reran the same checks.
+- Review: fresh Sol review approved ACH-2 with no Critical or Important findings. One Minor residual notes that static-render tests do not directly dispatch callbacks or assert ref attachment/pending-state interaction; ACH-3 integration coverage remains mandatory.
+- Terra routing: dispatch `ach2-terra-implement-1`; prompt `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach2-terra-worker.prompt.md`; detailed report `.superpowers/sdd/task-ACH-2-report.md`; runner report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach2-terra-run.report.md`; requested/observed `gpt-5.6-terra`; role `terra-worker`; effort `medium`; sandbox `workspace-write`; phase verified; telemetry reported; exit 0; 631783 dispatch tokens; 188487ms.
+- Sol routing: dispatch `ach2-sol-review-1`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach2-sol-review.report.md`; requested/observed `gpt-5.6-sol`; role `sol-reviewer`; effort `medium`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 186644 dispatch tokens; 86385ms.
 
 ### ACH-3 — Route and detail-page attention orchestration
 
@@ -67,5 +72,7 @@ CLI-routed agents below are independent external processes. Their usage is not g
 - Implementation writers are serialized.
 - No schema, storage, API route, dependency, authentication, authorization, private-file, application-submission, or master-resume change is authorized.
 - ACH-1's worker sandbox could not lock the common Git index or write a detailed report outside its workspace; the controller recovered the verified event evidence, reran deterministic checks, and created the scoped commit. No code blocker remained.
+- ACH-2's worker sandbox likewise could not lock the common Git index; the controller independently verified the scoped work and created the commit.
 - The final 44px attention-link guarantee remains assigned to ACH-4 exactly as approved; it is not waived.
+- ACH-2 Minor residual: interaction dispatch/ref assertions are deferred to integration coverage and final review; no product-code defect was identified.
 - No blockers.
