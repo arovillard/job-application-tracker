@@ -10,7 +10,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => routerState }));
 vi.mock("next/link", () => ({ default: (props: ComponentProps<"a">) => <a {...props} /> }));
 
 import type { OpportunityDetail } from "../types";
-import { InteractionComposer, OpportunityDetailContent, OpportunityDetailPage, TaskComposer, TrackerPanel } from "./OpportunityDetailPage";
+import { InteractionComposer, OpportunityDetailContent, OpportunityDetailPage, OpportunitySnapshot, TaskComposer, TrackerPanel } from "./OpportunityDetailPage";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -76,6 +76,27 @@ afterEach(() => {
 });
 
 describe("OpportunityDetailContent", () => {
+  it("uses a compact command header before the workspace", () => {
+    const markup = renderToStaticMarkup(<OpportunityDetailContent detail={connection} onTaskAction={vi.fn()} />);
+
+    expect(markup).toContain('class="detail-command"');
+    expect(markup).toContain('class="detail-command__top"');
+    expect(markup).toContain('class="detail-command__identity"');
+    expect(markup).toContain('class="detail-command__controls"');
+    expect(markup).toMatch(/detail-command[\s\S]*detail-action-bar[\s\S]*stage-select[\s\S]*Opportunity workspace/);
+  });
+
+  it("shows only useful connection facts and one contextual empty prompt", () => {
+    const markup = renderToStaticMarkup(<OpportunitySnapshot detail={{ ...connection, roleContext: null, contactInfo: null, meetingContext: null, lastInteractionAt: null, originatedJobs: [] }} onEdit={vi.fn()} />);
+
+    expect(markup).toContain("About this connection");
+    expect(markup).toContain('class="snapshot-badge">');
+    expect(markup).toContain("Add context to make future follow-ups easier.");
+    expect(markup).toContain("Edit details");
+    expect(markup).not.toContain("Not set");
+    expect(markup).not.toContain("Role or context");
+  });
+
   it("exposes the current opportunity status to the stage selector", () => {
     const connectionMarkup = renderToStaticMarkup(<OpportunityDetailContent detail={connection} onTaskAction={vi.fn()} />);
     const jobMarkup = renderToStaticMarkup(<OpportunityDetailContent detail={job} onTaskAction={vi.fn()} />);
@@ -125,7 +146,7 @@ describe("OpportunityDetailContent", () => {
     expect(actionBar).not.toContain("Edit details");
     expect(actionBar).not.toContain("Archive");
     expect(actionBar).not.toContain("Delete permanently");
-    expect(markup).toContain("Contact information");
+    expect(markup).toContain("Contact");
     expect(markup).toContain("Last interaction");
   });
 
@@ -136,8 +157,8 @@ describe("OpportunityDetailContent", () => {
     expect(markup).toContain("Application materials");
     expect(markup).toContain("Fit Analysis");
     expect(markup).toContain("Priority");
-    expect(markup).toContain("Posting URL");
-    expect(markup).toContain("Applied date");
+    expect(markup).toContain("Posting");
+    expect(markup).toContain("Applied");
     expect(markup).not.toContain("Relationship strength");
   });
 
@@ -151,11 +172,11 @@ describe("OpportunityDetailContent", () => {
     expect(markup).toContain('class="detail-nav__back"');
     expect(markup).toContain('class="detail-main"');
     expect(markup).toContain('class="detail-side"');
-    expect(markup).toContain('class="next-action-card"');
+    expect(markup).toContain('class="next-action-card actions-card"');
     expect(markup).toContain('class="tracker-panel__header"');
-    expect(markup).toContain('class="detail-list"');
+    expect(markup).toContain('class="detail-list detail-list--compact"');
     expect(markup.indexOf("Activity history")).toBeLessThan(markup.indexOf("Application materials"));
-    expect(markup.indexOf('class="next-action-card"')).toBeLessThan(markup.indexOf('class="detail-list"'));
+    expect(markup.indexOf('class="next-action-card actions-card"')).toBeLessThan(markup.indexOf('class="detail-list detail-list--compact"'));
   });
 
   it("keeps activity and materials as detail-main siblings while dialogs stay outside the grid", async () => {
@@ -197,15 +218,24 @@ describe("OpportunityDetailContent", () => {
   it("renders interaction and task composers with application form hooks", () => {
     const interactionMarkup = renderToStaticMarkup(<InteractionComposer activityType="note" body="" occurredDate="" taskTitle="" taskDueDate="" onActivityTypeChange={vi.fn()} onBodyChange={vi.fn()} onOccurredDateChange={vi.fn()} onTaskTitleChange={vi.fn()} onTaskDueDateChange={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} />);
     const taskMarkup = renderToStaticMarkup(<TaskComposer taskTitle="" taskDueDate="" onTaskTitleChange={vi.fn()} onTaskDueDateChange={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} />);
-    expect(interactionMarkup).toContain('class="application-form"');
+    expect(interactionMarkup).toContain('class="application-form interaction-form"');
     expect(interactionMarkup).toContain('class="application-form__input"');
     expect(interactionMarkup).toContain('class="application-form__select"');
     expect(interactionMarkup).toContain('class="application-form__textarea"');
     expect(interactionMarkup).toContain('class="application-form__body"');
+    expect(interactionMarkup).toContain('class="application-form interaction-form"');
+    expect(interactionMarkup).toContain('class="application-form__grid interaction-form__meta"');
+    expect(interactionMarkup).toContain('class="application-form__field interaction-form__narrative"');
+    expect(interactionMarkup).toContain('class="interaction-form__followup"');
+    expect(interactionMarkup).toContain("Plan the follow-up");
+    expect(interactionMarkup).toContain("Capture the conversation, context, and anything worth remembering…");
     expect(interactionMarkup).toContain('class="application-form__actions"');
     expect(interactionMarkup).toMatch(/application-form__body[\s\S]*application-form__actions/);
     expect(interactionMarkup).toContain('type="date"');
-    expect(taskMarkup).toContain('class="application-form"');
+    expect(taskMarkup).toContain('class="application-form task-composer-form"');
+    expect(taskMarkup).toContain('class="application-form task-composer-form"');
+    expect(taskMarkup).toContain('class="task-composer-form__intro"');
+    expect(taskMarkup).toContain("Make the next move concrete");
     expect(taskMarkup).toContain('class="application-form__input"');
     expect(taskMarkup).toContain('class="application-form__body"');
     expect(taskMarkup).toContain('class="application-form__actions"');
@@ -530,7 +560,7 @@ describe("OpportunityDetailContent", () => {
     act(() => root.unmount());
   });
 
-  it("opens named archive and danger delete confirmations from More, then Cancel restores More", async () => {
+  it("opens named archive and danger delete confirmations from More, then the safe action restores More", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(connection));
     const { container, root } = mountDetail();
     await flush();
@@ -540,15 +570,17 @@ describe("OpportunityDetailContent", () => {
     act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Archive")!.click());
     const archiveDialog = container.querySelector('[role="dialog"]')!;
     expect(archiveDialog.textContent).toContain("Archive Maya Chen");
+    expect(archiveDialog.querySelector(".confirmation-form--archive")).not.toBeNull();
     expect(archiveDialog.querySelector(".application-form__body")?.nextElementSibling?.classList.contains("application-form__actions")).toBe(true);
-    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.textContent).toBe("Archive");
-    act(() => [...container.querySelector('[role="dialog"]')!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Cancel")!.click());
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.textContent).toBe("Archive opportunity");
+    act(() => [...container.querySelector('[role="dialog"]')!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Keep active")!.click());
     expect(document.activeElement).toBe(more);
 
     act(() => more.click());
     act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Delete permanently")!.click());
     const deleteDialog = container.querySelector('[role="dialog"]')!;
     expect(deleteDialog.textContent).toContain("Delete Maya Chen permanently");
+    expect(deleteDialog.querySelector(".confirmation-form--danger")).not.toBeNull();
     expect(deleteDialog.querySelector(".application-form__body")?.nextElementSibling?.classList.contains("application-form__actions")).toBe(true);
     expect(deleteDialog.querySelector<HTMLButtonElement>('button[type="submit"]')?.classList.contains("button--danger")).toBe(true);
     act(() => root.unmount());
@@ -698,7 +730,7 @@ describe("OpportunityDetailContent", () => {
     act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Archive")!.click());
     act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     const dialog = () => container.querySelector('[role="dialog"]');
-    const cancel = [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Cancel")!;
+    const cancel = [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Keep active")!;
 
     act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
     expect(dialog()).not.toBeNull();

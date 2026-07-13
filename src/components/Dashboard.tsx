@@ -158,7 +158,7 @@ export function Dashboard() {
         <NewOpportunityMenu />
       </div></header>
     {loadError ? <section className="notice notice--error" role="alert"><p>{loadError}</p><button type="button" onClick={() => void loadOpportunities()}>Retry</button></section> : <section className="pipeline-workspace" aria-labelledby="pipeline-title">
-      <div className="pipeline-workspace__header"><div><p className="panel-heading__eyebrow">Pipeline</p><h2 id="pipeline-title">Your opportunities</h2></div><span className="pipeline-workspace__count">{loading ? "Loading your pipeline" : `${filtered.length} in view`}{pendingStatusId ? " · Updating stage" : ""}</span></div>
+      <div className="pipeline-workspace__header"><div className="pipeline-title-lockup"><p className="panel-heading__eyebrow">Pipeline</p><span className="pipeline-title-lockup__divider" aria-hidden="true">·</span><h2 id="pipeline-title">Your opportunities</h2></div><span className="pipeline-workspace__count">{loading ? "Loading your pipeline" : `${filtered.length} in view`}{pendingStatusId ? " · Updating stage" : ""}</span></div>
       {!loading ? <PipelinePulse opportunities={opportunities} attentionCount={insights.attention.length} /> : null}
       {mutationError ? <div className="notice notice--error" role="alert">{mutationError}</div> : null}
       <div className="pipeline-controls"><div className="pipeline-controls__filters">

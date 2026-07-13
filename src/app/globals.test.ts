@@ -196,4 +196,40 @@ describe("opportunity interface stylesheet", () => {
     expect(darkTokens).toContain("--connection-conversation: #66cad5;");
     expect(css).not.toMatch(/--connection-(?:planned|introduction):\s*#(?:705cc8|b5a7ff|b05c96|f3a3d5);/i);
   });
+
+  it("compacts dashboard/detail hierarchy and gives the primary task a designed action layout", () => {
+    expect(css).toMatch(/\.pipeline-title-lockup\s*\{[^}]*align-items:\s*baseline;[^}]*display:\s*flex;[^}]*\}/s);
+    expect(css).toMatch(/\.detail-shell\s*\{[^}]*padding-top:\s*28px;[^}]*\}/s);
+    expect(css).toMatch(/\.detail-shell \.app-header\s*\{[^}]*margin-bottom:\s*18px;[^}]*min-height:\s*0;[^}]*\}/s);
+    expect(css).toMatch(/\.task-item--primary\s*\{[^}]*display:\s*grid;[^}]*gap:\s*18px;[^}]*\}/s);
+    expect(css).toMatch(/\.task-item__reschedule\s*\{[^}]*border-top:\s*1px solid var\(--line\);[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;[^}]*\}/s);
+    expect(css).toMatch(/\.task-item__reschedule input\s*\{[^}]*min-height:\s*44px;[^}]*\}/s);
+    expect(css).toMatch(/\.detail-command\s*\{[^}]*display:\s*grid;[^}]*margin-bottom:\s*20px;[^}]*\}/s);
+    expect(css).toMatch(/\.detail-command \.app-header\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;[^}]*margin:\s*0;[^}]*\}/s);
+    expect(css).toMatch(/\.detail-command__controls\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*row-reverse;[^}]*\}/s);
+    expect(css).toMatch(/\.actions-card__other\s*\{[^}]*border-top:\s*1px solid var\(--line\);[^}]*\}/s);
+    expect(css).toMatch(/\.snapshot-card \.detail-list div\s*\{[^}]*grid-template-columns:\s*minmax\(0, 0\.8fr\) minmax\(0, 1fr\);[^}]*\}/s);
+    expect(css).toMatch(/\.snapshot-card__edit\s*\{[^}]*width:\s*100%;[^}]*\}/s);
+  });
+
+  it("contains modal field focus rings within scrollable form boundaries", () => {
+    expect(css).toMatch(/\.modal \.application-form__body\s*\{[^}]*margin:\s*-4px;[^}]*padding:\s*4px;[^}]*scroll-padding:\s*4px;[^}]*\}/s);
+    expect(css).toMatch(/\.modal \.application-form__input:focus-visible,[\s\S]*?\.modal \.application-form__textarea:focus-visible\s*\{[^}]*border-color:\s*var\(--accent\);[^}]*outline:\s*2px solid[^;]+;[^}]*outline-offset:\s*-2px;[^}]*\}/s);
+  });
+
+  it("gives the interaction composer compact metadata, narrative emphasis, and an optional follow-up surface", () => {
+    expect(css).toMatch(/\.interaction-form__meta\s*\{[^}]*align-items:\s*end;[^}]*\}/s);
+    expect(css).toMatch(/\.interaction-form__narrative \.application-form__textarea\s*\{[^}]*min-height:\s*150px;[^}]*\}/s);
+    expect(css).toMatch(/\.interaction-form__followup\s*\{[^}]*background:\s*linear-gradient[^;]+;[^}]*border-radius:\s*14px;[^}]*padding:\s*18px;[^}]*\}/s);
+    expect(css).toMatch(/\.interaction-form \.application-form__actions\s*\{[^}]*border-top:\s*1px solid var\(--line\);[^}]*\}/s);
+  });
+
+  it("applies one polished modal system with task and confirmation variants", () => {
+    expect(css).toMatch(/\.modal-backdrop\s*\{[^}]*backdrop-filter:\s*blur\(6px\);[^}]*\}/s);
+    expect(css).toMatch(/\.modal::before\s*\{[^}]*background:\s*linear-gradient[^;]+;[^}]*height:\s*3px;[^}]*\}/s);
+    expect(css).toMatch(/\.modal__header\s*\{[^}]*background:\s*linear-gradient[^;]+;[^}]*padding:\s*20px 24px 18px;[^}]*\}/s);
+    expect(css).toMatch(/\.task-composer-form__intro\s*\{[^}]*border-radius:\s*12px;[^}]*display:\s*grid;[^}]*\}/s);
+    expect(css).toMatch(/\.confirmation-form__message\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\);[^}]*\}/s);
+    expect(css).toContain(".confirmation-form--danger .confirmation-form__symbol");
+  });
 });

@@ -73,6 +73,8 @@ describe("Dashboard", () => {
 
     expect(markup).toContain("Pipeline");
     expect(markup).toContain('<h2 id="pipeline-title">Your opportunities</h2>');
+    expect(markup).toContain('class="pipeline-title-lockup"');
+    expect(markup).toContain('class="pipeline-title-lockup__divider" aria-hidden="true">·</span>');
     expect(markup).toContain('class="search-field__icon"');
     expect(markup).toContain('aria-label="Filter opportunities"');
     expect(markup).not.toContain("Workspace");

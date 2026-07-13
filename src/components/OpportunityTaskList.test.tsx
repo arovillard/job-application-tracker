@@ -35,7 +35,7 @@ describe("OpportunityTaskList", () => {
     expect(overdue).toContain("Overdue · 2026-07-11");
     expect(dueToday).toContain("Due today · 2026-07-12");
     expect(noDate).toContain("No due date");
-    expect(overdue).toContain("Next action");
+    expect(overdue).toContain("Up next");
   });
 
   it("keeps remaining open tasks visible without duplicating the primary and collapses history", () => {
@@ -46,18 +46,24 @@ describe("OpportunityTaskList", () => {
     ]} today="2026-07-12" onAction={vi.fn()} />);
 
     expect(markup.match(/<strong>Send follow-up<\/strong>/g)).toHaveLength(1);
-    expect(markup).toContain("Tasks");
+    expect(markup).toContain("Actions");
+    expect(markup).toContain("Other tasks");
     expect(markup).toContain("Schedule call");
-    expect(markup).toContain("Task history (1)");
-    expect(markup).toContain("<details>");
+    expect(markup).toContain("Completed and cancelled (1)");
+    expect(markup).toContain('<details class="actions-card__history">');
     expect(markup).not.toContain("<details open=\"\">");
   });
 
-  it("places the task list directly inside the next-action card and keeps Tasks separate", () => {
+  it("keeps the primary action and optional task groups in one Actions card", () => {
     const markup = renderToStaticMarkup(<OpportunityTaskList tasks={[task("primary", "Send follow-up", "2026-07-15")]} today="2026-07-12" onAction={vi.fn()} />);
 
-    expect(markup).toContain('<section class="next-action-card"><header class="tracker-panel__header"><h2 class="tracker-panel__title">Next action</h2></header><div class="task-list">');
-    expect(markup).toContain('<section class="tracker-panel"><header class="tracker-panel__header"><h2 class="tracker-panel__title">Tasks</h2>');
+    expect(markup).toContain('<section class="next-action-card actions-card"><header class="tracker-panel__header"><div><p class="panel-heading__eyebrow">Momentum</p><h2 class="tracker-panel__title">Actions</h2></div>');
+    expect(markup).toContain('class="task-item task-item--primary"');
+    expect(markup).toContain('class="task-item__eyebrow">Up next</span>');
+    expect(markup).toContain('class="task-item__reschedule"');
+    expect(markup).toContain("Move due date");
+    expect(markup).not.toContain('<h2 class="tracker-panel__title">Tasks</h2>');
+    expect(markup).not.toContain("Other tasks");
   });
 
   it("offers an add-task CTA when no open task exists", () => {
