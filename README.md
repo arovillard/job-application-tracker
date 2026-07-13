@@ -122,23 +122,24 @@ Relative values are relative to the repository and remain portable when the repo
 For an existing install, keep the database and files synchronized when changing the application-materials folder:
 
 1. Stop the running development server.
-2. Move the existing application-materials contents into the new folder.
-3. Safely update `JOBTRACKER_APPLICATIONS_DIR` in `.env.local`, or preserve unrelated settings and comments with:
+2. Before moving anything, verify that the destination company folders and files do not already exist. If any collision exists, abort and report it; do not merge, replace, or overwrite files.
+3. Move the existing application-materials contents into the new folder.
+4. Safely update `JOBTRACKER_APPLICATIONS_DIR` in `.env.local`, or preserve unrelated settings and comments with:
 
    ```bash
    printf '%s\n' '{"applicationsDirectory":"/absolute/new/path"}' |
      npm run application:configure -- --input-json -
    ```
 
-4. Register the moved files and remove broken local links:
+5. Register the moved files and remove broken local links:
 
    ```bash
-   npm run artifacts:backfill -- --applications-dir "/absolute/new/path"
+   npm run artifacts:backfill
    ```
 
-5. Restart the app with `npm run dev`.
+6. Restart the app with `npm run dev`.
 
-The backfill registers recognized files from the new location and removes visible artifact links whose local files no longer exist. It is safe to rerun.
+`npm run artifacts:backfill` loads `.env.local`, including the configured database and application-materials paths. Use `npm run artifacts:backfill -- --applications-dir "/absolute/new/path"` only when an explicit one-off applications-directory override is needed. The backfill registers recognized files from the new location and removes visible artifact links whose local files no longer exist. It is safe to rerun.
 
 ## Opportunities
 
@@ -165,7 +166,7 @@ For existing installs with files already in the application-materials folder, ru
 npm run artifacts:backfill
 ```
 
-The backfill scans `JOBTRACKER_APPLICATIONS_DIR` or `./applications`, matches first-level folders to company names in the tracker, and links recognized fit analyses, outreach messages, and resumes. It is safe to rerun; existing links are updated rather than duplicated, and visible artifact links to missing local files are removed.
+The backfill loads `JOBTRACKER_DB_PATH` and `JOBTRACKER_APPLICATIONS_DIR` from `.env.local`, falling back to `data/jobtracker.sqlite` and `./applications`. Explicit `--db` and `--applications-dir` arguments override that configuration. It matches first-level folders to company names in the tracker and links recognized fit analyses, outreach messages, and resumes. It is safe to rerun; existing links are updated rather than duplicated, and visible artifact links to missing local files are removed.
 
 ## Agent Skills
 

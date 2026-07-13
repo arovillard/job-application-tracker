@@ -125,6 +125,18 @@ describe("job application workflow contract", () => {
     }
   });
 
+  it("documents configured backfill and collision-safe folder moves", () => {
+    const readme = readFileSync(path.join(projectRoot, "README.md"), "utf8");
+    const setup = readFileSync(path.join(projectRoot, "docs", "agent-setup.md"), "utf8");
+
+    for (const content of [readme, setup]) {
+      expect(content).toContain("`npm run artifacts:backfill` loads `.env.local`");
+      expect(content.toLowerCase()).toContain("destination company folders and files do not already exist");
+      expect(content.toLowerCase()).toContain("abort and report");
+      expect(content.toLowerCase()).toContain("do not merge, replace, or overwrite");
+    }
+  });
+
   it("keeps agents from reinterpreting the default as a root path", () => {
     const agents = readFileSync(path.join(projectRoot, "AGENTS.md"), "utf8");
     const claude = readFileSync(path.join(projectRoot, "CLAUDE.md"), "utf8");

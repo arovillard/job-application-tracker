@@ -135,16 +135,19 @@ npm run artifacts:backfill
 When changing the application-materials folder after setup:
 
 1. Stop the running server.
-2. Move the existing application-materials contents to the new folder.
-3. Update `.env.local` safely, or pipe the override through the allowlisted configuration command:
+2. Before moving anything, verify that the destination company folders and files do not already exist. If any collision exists, abort and report it; do not merge, replace, or overwrite files.
+3. Move the existing application-materials contents to the new folder.
+4. Update `.env.local` safely, or pipe the override through the allowlisted configuration command:
 
    ```bash
    printf '%s\n' '{"applicationsDirectory":"/absolute/new/path"}' |
      npm run application:configure -- --input-json -
    ```
 
-4. Run `npm run artifacts:backfill -- --applications-dir "/absolute/new/path"`. This registers recognized moved files and removes visible artifact links whose local files are missing.
-5. Restart with `npm run dev`.
+5. Run `npm run artifacts:backfill`. This registers recognized moved files and removes visible artifact links whose local files are missing.
+6. Restart with `npm run dev`.
+
+`npm run artifacts:backfill` loads `.env.local`, including the configured database and application-materials paths. Explicit `--db` and `--applications-dir` arguments override that configuration; use `npm run artifacts:backfill -- --applications-dir "/absolute/new/path"` only for an intentional one-off override.
 
 6. Verify the project:
 
