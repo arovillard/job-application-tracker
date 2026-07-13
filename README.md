@@ -8,12 +8,12 @@ Required:
 
 - Node.js and npm.
 - A local folder for this project.
-- A local folder for generated application materials.
 - A base resume source if they want AI-tailored resumes or fit analyses. A private Google Doc connected to the agent is preferred; DOCX is the best file fallback, and PDF is supported with less reliable formatting.
 - Codex or Claude Code, with the user's AI provider configured outside this repo.
 
 Optional:
 
+- A custom application-materials folder. The default is `./applications` inside the repository.
 - A custom SQLite database path. The default is `data/jobtracker.sqlite`.
 - A public profile URL, usually LinkedIn. It improves context but is not required.
 
@@ -54,7 +54,7 @@ npm run setup
 npm run dev
 ```
 
-Open the local URL printed by Next.js. By default the app uses `data/jobtracker.sqlite`; the file is created automatically.
+Open the local URL printed by Next.js. By default the app uses `data/jobtracker.sqlite` and stores generated materials in `./applications`; both are created automatically when needed.
 
 For a non-interactive default setup:
 
@@ -71,7 +71,7 @@ Please set up Opportunity Tracker for me end to end.
 
 Repository: https://github.com/arovillard/job-application-tracker
 Preferred project folder: [tell the agent where to clone it, or ask me]
-Preferred application materials folder: [tell the agent where generated resumes, analyses, and outreach drafts should go, or ask me]
+Optional application materials override: [leave blank to use ./applications, or provide a custom relative or absolute path]
 AI agent: [Codex, Claude Code, or both]
 
 Do the following in order:
@@ -81,7 +81,7 @@ Do the following in order:
 3. Clone the repository into the project folder, or update the existing local copy if it is already there.
 4. Install project dependencies with npm install.
 5. Ask me for the information the app needs:
-   - The folder where generated application materials should be stored.
+   - Do not ask for an application-materials folder unless I requested an override; otherwise keep the ./applications default.
    - My private Google Docs resume URL first. If I do not use Google Docs, ask for a DOCX or PDF path instead.
    - My public LinkedIn profile URL or other public profile URL, if I want to provide one.
    - Whether my AI provider is already configured in this agent.
@@ -101,11 +101,44 @@ Do the following in order:
 Important settings:
 
 - `JOBTRACKER_DB_PATH`: SQLite file used by the app and tracker skill.
-- `JOBTRACKER_APPLICATIONS_DIR`: where generated resumes, fit analyses, outreach drafts, and posting PDFs should go.
+- `JOBTRACKER_APPLICATIONS_DIR`: where generated resumes, fit analyses, outreach drafts, and posting PDFs should go. Missing or blank values use `./applications`.
 - `JOBTRACKER_BASE_RESUME_URL`: preferred private Google Docs master resume URL. Access stays in the connected host agent.
 - `JOBTRACKER_BASE_RESUME_PATH`: optional reference resume for AI-generated materials.
 - `JOBTRACKER_LINKEDIN_URL`: optional public profile URL for AI context.
 - `JOBTRACKER_AI_PROVIDER`: optional human-readable note; configure credentials through the AI tool, not this file.
+
+Application-materials paths can use the repository-local default, a custom relative folder, or a custom absolute folder:
+
+```dotenv
+JOBTRACKER_APPLICATIONS_DIR="./applications"
+JOBTRACKER_APPLICATIONS_DIR="./private-output"
+JOBTRACKER_APPLICATIONS_DIR="<user-home>/Documents/job-application-materials"
+```
+
+Relative values are relative to the repository and remain portable when the repository moves. Absolute values are useful when materials must live elsewhere. `/applications` is a root-level path, not another spelling of `applications`; do not use it for the repository-local default.
+
+### Changing The Folder After Setup
+
+For an existing install, keep the database and files synchronized when changing the application-materials folder:
+
+1. Stop the running development server.
+2. Move the existing application-materials contents into the new folder.
+3. Safely update `JOBTRACKER_APPLICATIONS_DIR` in `.env.local`, or preserve unrelated settings and comments with:
+
+   ```bash
+   printf '%s\n' '{"applicationsDirectory":"/absolute/new/path"}' |
+     npm run application:configure -- --input-json -
+   ```
+
+4. Register the moved files and remove broken local links:
+
+   ```bash
+   npm run artifacts:backfill -- --applications-dir "/absolute/new/path"
+   ```
+
+5. Restart the app with `npm run dev`.
+
+The backfill registers recognized files from the new location and removes visible artifact links whose local files no longer exist. It is safe to rerun.
 
 ## Opportunities
 
@@ -132,7 +165,7 @@ For existing installs with files already in the application-materials folder, ru
 npm run artifacts:backfill
 ```
 
-The backfill scans `JOBTRACKER_APPLICATIONS_DIR` or `./applications`, matches first-level folders to company names in the tracker, and links recognized fit analyses, outreach messages, and resumes. It is safe to rerun; existing links are updated rather than duplicated, and unsupported artifact links are removed.
+The backfill scans `JOBTRACKER_APPLICATIONS_DIR` or `./applications`, matches first-level folders to company names in the tracker, and links recognized fit analyses, outreach messages, and resumes. It is safe to rerun; existing links are updated rather than duplicated, and visible artifact links to missing local files are removed.
 
 ## Agent Skills
 

@@ -64,7 +64,11 @@ describe("agent skill packaging", () => {
           "check-application-readiness.mjs",
           "job-tracker-add-posting",
           "job-application-resume",
-          "master resume"
+          "master resume",
+          "Use `./applications` by default",
+          "Do not ask for an application-materials path unless the human wants an override",
+          "Preserve relative input exactly as relative input",
+          "never reinterpret `applications` as `/applications`"
         ]) {
           expect(codexSkill).toContain(required);
           expect(claudeSkill).toContain(required);

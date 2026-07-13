@@ -7,6 +7,8 @@ description: Coordinate application readiness, reusable application-profile conf
 
 Own orchestration only. Work from the repository root and keep the readiness result available throughout the workflow.
 
+Use `./applications` by default; it resolves to the repository's `applications/` folder. Do not ask for an application-materials path unless the human wants an override. Preserve relative input exactly as relative input, so relative values remain relative, and never reinterpret `applications` as `/applications`.
+
 ## Required Sequence
 
 1. Locate the repository root containing `.env.example` and `scripts/check-application-readiness.mjs`. If the source coordinator is present but a personal skill copy is missing, continue with this repository source and offer to run the appropriate skill installer when authorized.

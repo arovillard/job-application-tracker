@@ -13,7 +13,7 @@ When the user expresses application intent—with or without a job link—or pri
 When setting up this project for a new user or new machine:
 
 1. Read `README.md` and `docs/agent-setup.md`.
-2. Collect the user's project location, application-materials directory, private Google Docs URL first, DOCX/PDF fallback when needed, optional public profile context, whether they use Codex, Claude Code, or both, and whether their AI provider is configured in the host agent.
+2. Collect the user's project location, private Google Docs URL first, DOCX/PDF fallback when needed, optional public profile context, whether they use Codex, Claude Code, or both, and whether their AI provider is configured in the host agent. Use `./applications` by default and do not ask for an application-materials path unless the user wants an override. Relative values must remain relative; never reinterpret `applications` as `/applications`.
 3. Do not collect API keys or secrets in this repository; use the host agent's secure provider setup flow when needed.
 4. For agent-owned installs, check `git`, `node`, and `npm`; install missing prerequisites with the system package manager or ask before using administrator privileges.
 5. Run `npm install`, `npm run setup`, `npm run skills:install`, `npm run verify`, and `npm run build`.

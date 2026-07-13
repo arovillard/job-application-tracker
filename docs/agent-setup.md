@@ -34,11 +34,13 @@ Fresh local sessions reload these values. For Codex Cloud, configure the same na
 Ask for these values before configuring the project:
 
 1. Where should the project live?
-2. Where should generated application materials be stored?
+2. Do they want generated application materials somewhere other than `./applications`? Do not ask for an application-materials path unless they want an override.
 3. What private Google Docs master resume should be used? If they prefer a file, ask for DOCX first or PDF as a supported fallback with a formatting warning.
 4. What public profile URL, such as LinkedIn, should be used as optional profile context?
 5. Are they using Codex, Claude Code, or both?
 6. Is their AI provider already configured in the host agent?
+
+Use `./applications` by default. Relative paths are relative to the repository and must remain relative in saved configuration. Never reinterpret `applications` as `/applications`; the latter is a root-level path and is rejected as an accidental default.
 
 Do not ask the human to paste API keys or credentials into this repository. If the host agent has a secure provider setup flow, use that flow.
 
@@ -52,7 +54,7 @@ When the human asks the agent to own installation end to end, complete the setup
 2. Install missing prerequisites with the system package manager, or ask before using administrator privileges.
 3. Clone `https://github.com/arovillard/job-application-tracker` into the requested project folder, or update the existing local copy.
 4. Install dependencies with `npm install`.
-5. Collect the application-materials folder, Google Docs resume URL or DOCX/PDF fallback, optional public profile URL, and AI-provider status.
+5. Keep the `./applications` default unless the human requested an application-materials override; collect the Google Docs resume URL or DOCX/PDF fallback, optional public profile URL, and AI-provider status.
 6. Run `npm run setup`, or write `.env.local` from `.env.example` using the collected values.
 7. Run `npm run skills:install`.
 8. If the human already has generated files in the application-materials folder, run `npm run artifacts:backfill`.
@@ -101,6 +103,16 @@ printf '%s\n' '{"baseResumeUrl":"https://docs.google.com/document/d/DOCUMENT_ID/
 
 The configuration command accepts only `applicationsDirectory`, `baseResumeUrl`, `baseResumePath`, and `profileUrl`; it does not accept provider credentials.
 
+`JOBTRACKER_APPLICATIONS_DIR` may use the repository-local default, a custom relative path, or a custom absolute path:
+
+```dotenv
+JOBTRACKER_APPLICATIONS_DIR="./applications"
+JOBTRACKER_APPLICATIONS_DIR="./private-output"
+JOBTRACKER_APPLICATIONS_DIR="<user-home>/Documents/job-application-materials"
+```
+
+Relative values are relative to the repository. Preserve them as entered rather than converting them to absolute paths in `.env.local`.
+
 4. Install the packaged Codex and Claude skills:
 
 ```bash
@@ -119,6 +131,20 @@ npm run skills:install:claude
 ```bash
 npm run artifacts:backfill
 ```
+
+When changing the application-materials folder after setup:
+
+1. Stop the running server.
+2. Move the existing application-materials contents to the new folder.
+3. Update `.env.local` safely, or pipe the override through the allowlisted configuration command:
+
+   ```bash
+   printf '%s\n' '{"applicationsDirectory":"/absolute/new/path"}' |
+     npm run application:configure -- --input-json -
+   ```
+
+4. Run `npm run artifacts:backfill -- --applications-dir "/absolute/new/path"`. This registers recognized moved files and removes visible artifact links whose local files are missing.
+5. Restart with `npm run dev`.
 
 6. Verify the project:
 

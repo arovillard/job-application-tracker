@@ -108,6 +108,35 @@ describe("job application workflow contract", () => {
     }
   });
 
+  it("documents the repository-local default and existing-install migration", () => {
+    const readme = readFileSync(path.join(projectRoot, "README.md"), "utf8");
+    const setup = readFileSync(path.join(projectRoot, "docs", "agent-setup.md"), "utf8");
+
+    for (const content of [readme, setup]) {
+      for (const required of [
+        "./applications",
+        "relative to the repository",
+        "npm run artifacts:backfill",
+        "--applications-dir",
+        "restart"
+      ]) {
+        expect(content.toLowerCase()).toContain(required.toLowerCase());
+      }
+    }
+  });
+
+  it("keeps agents from reinterpreting the default as a root path", () => {
+    const agents = readFileSync(path.join(projectRoot, "AGENTS.md"), "utf8");
+    const claude = readFileSync(path.join(projectRoot, "CLAUDE.md"), "utf8");
+
+    for (const content of [agents, claude, workflow]) {
+      expect(content).toContain("./applications");
+      expect(content.toLowerCase()).toContain("do not ask");
+      expect(content.toLowerCase()).toContain("remain relative");
+      expect(content).toContain("/applications");
+    }
+  });
+
   it("uses the exact no-link ready sentence", () => {
     const agents = readFileSync(path.join(projectRoot, "AGENTS.md"), "utf8");
     const claude = readFileSync(path.join(projectRoot, "CLAUDE.md"), "utf8");
