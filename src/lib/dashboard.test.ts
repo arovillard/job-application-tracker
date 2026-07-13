@@ -83,11 +83,12 @@ describe("getDashboardInsights", () => {
     expect(insights.attention.map((item) => ({
       opportunityId: item.opportunityId,
       kind: item.kind,
+      taskId: item.taskId,
       dueDate: item.dueDate
     }))).toEqual([
-      { opportunityId: "connection-due", kind: "task", dueDate: "2026-07-08" },
-      { opportunityId: "job-due", kind: "task", dueDate: "2026-07-09" },
-      { opportunityId: "connection-new", kind: "missing_next_action", dueDate: null }
+      { opportunityId: "connection-due", kind: "task", taskId: "connection-task", dueDate: "2026-07-08" },
+      { opportunityId: "job-due", kind: "task", taskId: "job-task", dueDate: "2026-07-09" },
+      { opportunityId: "connection-new", kind: "missing_next_action", taskId: null, dueDate: null }
     ]);
   });
 

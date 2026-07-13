@@ -4,10 +4,11 @@ import type {
   OpportunitySummary,
   OpportunityType
 } from "../types";
+import { opportunityIsAttentionEligible, opportunityRequiresForwardMotion } from "./opportunity-attention";
 
 export type AttentionKind = "task" | "missing_next_action";
 
-export type DashboardAttentionItem = {
+type DashboardAttentionBase = {
   id: string;
   opportunityId: string;
   type: OpportunityType;
@@ -15,24 +16,25 @@ export type DashboardAttentionItem = {
   organization: string | null;
   status: OpportunityStatus;
   priority: OpportunityPriority;
-  kind: AttentionKind;
-  actionLabel: string;
-  dueDate: string | null;
-  isOverdue: boolean;
 };
+
+export type DashboardAttentionItem = DashboardAttentionBase & ({
+  kind: "task";
+  taskId: string;
+  actionLabel: string;
+  dueDate: string;
+  isOverdue: boolean;
+} | {
+  kind: "missing_next_action";
+  taskId: null;
+  actionLabel: string;
+  dueDate: null;
+  isOverdue: false;
+});
 
 export type DashboardInsights = { attention: DashboardAttentionItem[] };
 
-const JOB_FORWARD_STATUSES = new Set(["applied", "interviewing", "offer"]);
-const CONNECTION_FORWARD_STATUSES = new Set([
-  "new",
-  "outreach_planned",
-  "waiting",
-  "in_conversation",
-  "opportunity_identified"
-]);
 const PRIORITY_WEIGHT: Record<OpportunityPriority, number> = { high: 0, medium: 1, low: 2 };
-const TERMINAL_STATUSES = new Set(["rejected", "archived", "dormant", "closed"]);
 
 function dateKey(value: Date | string) {
   if (typeof value === "string") return value.slice(0, 10);
@@ -40,12 +42,6 @@ function dateKey(value: Date | string) {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function requiresForwardMotion(opportunity: OpportunitySummary) {
-  return opportunity.type === "job"
-    ? JOB_FORWARD_STATUSES.has(opportunity.status)
-    : CONNECTION_FORWARD_STATUSES.has(opportunity.status);
 }
 
 function compareAttention(left: DashboardAttentionItem, right: DashboardAttentionItem) {
@@ -66,7 +62,7 @@ export function getDashboardInsights(
   const attention: DashboardAttentionItem[] = [];
 
   for (const opportunity of opportunities) {
-    if (TERMINAL_STATUSES.has(opportunity.status)) continue;
+    if (!opportunityIsAttentionEligible(opportunity)) continue;
     const task = opportunity.nextOpenTask;
     if (task?.dueDate && task.dueDate <= today) {
       attention.push({
@@ -78,11 +74,12 @@ export function getDashboardInsights(
         status: opportunity.status,
         priority: opportunity.priority,
         kind: "task",
+        taskId: task.id,
         actionLabel: task.title,
         dueDate: task.dueDate,
         isOverdue: task.dueDate < today
       });
-    } else if (!task && requiresForwardMotion(opportunity)) {
+    } else if (!task && opportunityRequiresForwardMotion(opportunity)) {
       attention.push({
         id: `missing-next-action-${opportunity.id}`,
         opportunityId: opportunity.id,
@@ -92,6 +89,7 @@ export function getDashboardInsights(
         status: opportunity.status,
         priority: opportunity.priority,
         kind: "missing_next_action",
+        taskId: null,
         actionLabel: "Set a next action",
         dueDate: null,
         isOverdue: false
