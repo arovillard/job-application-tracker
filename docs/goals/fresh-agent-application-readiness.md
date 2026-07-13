@@ -16,9 +16,9 @@
 | Task | Dependencies | Owner | Write set | Status | Tests | Review |
 |---|---|---|---|---|---|---|
 | AR-1 | None | `/root/ar1_worker` | Readiness/config scripts and tests, `.env.example`, `package.json` | complete | 33 focused; full verify 212 tests | Clean re-review; commits `952fc0d`, `01644b0` |
-| AR-2 | AR-1 | pending terra-worker | `scripts/setup-user.mjs`, `scripts/setup-user.test.ts` | ready | pending | Medium immediate review |
-| AR-3 | AR-1 | pending terra-worker | Skills, root instructions, workflow/install tests | ready | pending | Medium wave review |
-| AR-4 | AR-2, AR-3 | pending terra-worker | `README.md`, `docs/agent-setup.md`, documentation assertion | blocked | pending | Low wave review |
+| AR-2 | AR-1 | `/root/ar2_worker` | `scripts/setup-user.mjs`, `scripts/setup-user.test.ts` | complete | 36 focused tests | Approved, 0 findings; commit `9c86042` |
+| AR-3 | AR-1 | `/root/agent_evidence` reactivated as worker | Skills, root instructions, workflow/install tests | complete | 9 focused tests; skill validation and parity clean | Clean re-review; commits `a153130`, `66834f4` |
+| AR-4 | AR-2, AR-3 | pending terra-worker | `README.md`, `docs/agent-setup.md`, documentation assertion | ready | pending | Low wave review |
 | AR-5 | AR-1–AR-4 | Root Sol | Verification only | blocked | pending | Final Sol review |
 
 ## Decisions
@@ -36,4 +36,9 @@
 - AR-1 initial commit: `952fc0d`.
 - AR-1 review: changes required for output-ignore proof, permission-error status mapping, and mode `0000` preservation.
 - AR-1 fix commit: `01644b0`; re-review approved with zero findings.
-- Current blockers: none for AR-2 or AR-3.
+- AR-2 and AR-3 dispatched concurrently with disjoint approved write sets.
+- Collaboration thread cap required reactivating the completed read-only evidence agent for AR-3; it had made no prior writes.
+- AR-2 approved with zero findings at `9c86042`.
+- AR-3 initial commit `a153130`; fix required for direct resume-skill preflight and exact no-link copy.
+- AR-3 fix commit `66834f4`; re-review approved with zero findings.
+- Current blockers: none for AR-4.
