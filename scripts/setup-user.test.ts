@@ -5,6 +5,8 @@ import path from "node:path";
 import { afterEach, expect, it } from "vitest";
 
 // @ts-expect-error JavaScript production module intentionally has no declaration file.
+import { evaluateApplicationReadiness } from "./lib/application-readiness.mjs";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
 import { buildResumeConfig, runSetup } from "./setup-user.mjs";
 
 const roots: string[] = [];
@@ -12,7 +14,13 @@ const roots: string[] = [];
 function fixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), "jobtracker-setup-"));
   roots.push(root);
+  execFileSync("git", ["init", "--quiet"], { cwd: root });
+  writeFileSync(path.join(root, ".gitignore"), "applications/*\n");
   return root;
+}
+
+function ignoreDirectory(root: string, relativePath: string) {
+  writeFileSync(path.join(root, ".gitignore"), `applications/*\n${relativePath.replace(/\/$/, "")}/\n`);
 }
 
 afterEach(() => {
@@ -36,6 +44,7 @@ it("falls back to a local file", () => {
 
 it("writes the complete trusted setup contract without exposing credential fields", async () => {
   const root = fixture();
+  ignoreDirectory(root, "private-output");
   writeFileSync(path.join(root, ".env.local"), [
     "# keep this comment",
     'UNRELATED_SETTING="keep-me"',
@@ -84,6 +93,52 @@ it("creates and stores the repository-local applications default", async () => {
   expect(existsSync(path.join(root, "applications"))).toBe(true);
   expect(readFileSync(path.join(root, ".env.local"), "utf8"))
     .toContain('JOBTRACKER_APPLICATIONS_DIR="./applications"');
+});
+
+it("creates an already ignored relative override that passes readiness privacy checks", async () => {
+  const root = fixture();
+  ignoreDirectory(root, "private-output");
+
+  await runSetup({
+    projectRoot: root,
+    answers: {
+      dbPath: "./data/jobtracker.sqlite",
+      applicationsDir: "./private-output",
+      googleDocUrl: "",
+      localPath: "",
+      linkedInUrl: "",
+      aiProvider: ""
+    },
+    installSkills: false
+  });
+
+  expect(existsSync(path.join(root, "private-output"))).toBe(true);
+  expect(readFileSync(path.join(root, ".env.local"), "utf8"))
+    .toContain('JOBTRACKER_APPLICATIONS_DIR="./private-output"');
+  const readiness = evaluateApplicationReadiness({ projectRoot: root, processEnv: {} });
+  expect(readiness.applicationsDirectory.path).toBe(path.join(root, "private-output"));
+  expect(readiness.blockingIssues).not.toContain("applications_directory_not_ignored");
+});
+
+it("rejects an unignored relative override before changing setup files", async () => {
+  const root = fixture();
+
+  await expect(runSetup({
+    projectRoot: root,
+    answers: {
+      dbPath: "./data/jobtracker.sqlite",
+      applicationsDir: "./private-output",
+      googleDocUrl: "",
+      localPath: "",
+      linkedInUrl: "",
+      aiProvider: ""
+    },
+    installSkills: false
+  })).rejects.toThrow(/private-output\/.*\.gitignore.*external absolute path/i);
+
+  expect(existsSync(path.join(root, ".env.local"))).toBe(false);
+  expect(existsSync(path.join(root, "data"))).toBe(false);
+  expect(existsSync(path.join(root, "private-output"))).toBe(false);
 });
 
 it("rejects /applications without changing setup files", async () => {

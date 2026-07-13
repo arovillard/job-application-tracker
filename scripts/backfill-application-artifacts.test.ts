@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -126,6 +126,27 @@ describe("backfill-application-artifacts CLI", () => {
     try {
       expect(verified.prepare("SELECT id, type, file_path FROM opportunity_artifacts").all())
         .toEqual([{ id: "cover", type: "cover_letter", file_path: externalFile }]);
+    } finally { verified.close(); }
+  });
+  it("fails and preserves artifact links when path inspection raises a non-missing error", () => {
+    mkdirSync(applicationsDir, { recursive: true });
+    const loopPath = path.join(tempDir, "artifact-loop.pdf");
+    symlinkSync(path.basename(loopPath), loopPath);
+    const db = new Database(dbPath);
+    try {
+      db.exec("CREATE TABLE opportunity_artifacts (id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, file_path TEXT NOT NULL, content_type TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(opportunity_id, type, file_path), FOREIGN KEY(opportunity_id) REFERENCES opportunities(id) ON DELETE CASCADE)");
+      db.prepare("INSERT INTO opportunity_artifacts VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run("loop", "job-id", "resume", "Loop Resume", loopPath, "application/pdf", "2026-01-01", "2026-01-01");
+    } finally { db.close(); }
+
+    const message = captureFailure(() => run());
+
+    expect(message).toContain(`Unable to inspect artifact path "${loopPath}"`);
+    expect(message).toContain("ELOOP");
+    const verified = new Database(dbPath, { readonly: true });
+    try {
+      expect(verified.prepare("SELECT id, file_path FROM opportunity_artifacts").all())
+        .toEqual([{ id: "loop", file_path: loopPath }]);
     } finally { verified.close(); }
   });
   it("rolls back stale-link deletion when registration fails", () => {

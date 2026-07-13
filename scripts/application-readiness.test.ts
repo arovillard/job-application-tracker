@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 
 // @ts-expect-error JavaScript production module intentionally has no declaration file.
-import { evaluateApplicationReadiness, readApplicationConfig } from "./lib/application-readiness.mjs";
+import { evaluateApplicationReadiness, readApplicationConfig, validateApplicationsDirectoryPrivacy } from "./lib/application-readiness.mjs";
 
 const roots: string[] = [];
 
@@ -59,6 +59,22 @@ describe("readApplicationConfig", () => {
     expect(config.applicationsDirectory).toBe(path.join(root, "from-process"));
     expect(config.baseResumePath).toBe(path.join(root, "$(touch should-not-exist).docx"));
     expect(config).not.toHaveProperty("UNRELATED_SECRET");
+  });
+});
+
+describe("validateApplicationsDirectoryPrivacy", () => {
+  it("escapes Git glob metacharacters in the suggested exact ignore rule", () => {
+    const root = fixture();
+
+    expect(() => validateApplicationsDirectoryPrivacy(root, "./private[1]"))
+      .toThrow('Add the exact rule "/private\\[1\\]/"');
+  });
+
+  it("rejects the repository root without suggesting an ineffective ignore rule", () => {
+    const root = fixture();
+
+    expect(() => validateApplicationsDirectoryPrivacy(root, "."))
+      .toThrow(/repository root.*\.\/applications.*external absolute path/i);
   });
 });
 
@@ -171,6 +187,7 @@ describe("evaluateApplicationReadiness", () => {
     const result = evaluateApplicationReadiness({ projectRoot: root, processEnv: {} });
     expect(result.status).toBe("blocked");
     expect(result.blockingIssues).toContain("applications_directory_ambiguous");
+    expect(result.blockingIssues).not.toContain("applications_directory_not_ignored");
   });
 
   it("blocks when the applications directory exists without write permission", () => {

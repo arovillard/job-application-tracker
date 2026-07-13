@@ -5,7 +5,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { resolveApplicationsDirectory, updateSetupConfig } from "./lib/application-readiness.mjs";
+import { updateSetupConfig, validateApplicationsDirectoryPrivacy } from "./lib/application-readiness.mjs";
 import { installAllSkills } from "./lib/install-skills.mjs";
 
 const modulePath = fileURLToPath(import.meta.url);
@@ -74,7 +74,7 @@ export async function runSetup({ projectRoot, answers, installSkills }) {
   const root = path.resolve(projectRoot);
   const dbPath = resolveUserPath(answers.dbPath, "", root);
   const applicationsInput = String(answers.applicationsDir ?? "").trim() || "./applications";
-  const applicationsDir = resolveApplicationsDirectory(root, applicationsInput);
+  const applicationsDir = validateApplicationsDirectoryPrivacy(root, applicationsInput);
   const resume = buildResumeConfig({
     googleDocUrl: answers.googleDocUrl,
     localPath: resolveUserPath(answers.localPath, "", root)

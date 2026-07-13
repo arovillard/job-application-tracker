@@ -208,6 +208,27 @@ function isGitIgnored(projectRoot, target, directory = false) {
   }
 }
 
+export function validateApplicationsDirectoryPrivacy(projectRoot, target) {
+  const root = path.resolve(projectRoot);
+  const resolved = resolveApplicationsDirectory(root, target);
+  if (!isInside(root, resolved) || isGitIgnored(root, resolved, true)) return resolved;
+
+  const relative = path.relative(canonicalPath(root), canonicalPath(resolved)).split(path.sep).join("/");
+  if (!relative) {
+    throw new Error(
+      "The repository root cannot be used as the applications directory. "
+      + "Use ./applications, another ignored repository subdirectory, or an external absolute path."
+    );
+  }
+  const literalRelative = relative.replace(/[\\*?[\]]/g, "\\$&");
+  const ignoreRule = `/${literalRelative.replace(/\/$/, "")}/`;
+  throw new Error(
+    `Repository-local applications directory "${resolved}" is not ignored by Git. `
+    + `Add the exact rule "${ignoreRule}" to .gitignore or .git/info/exclude before setup, then retry, `
+    + "or choose an external absolute path."
+  );
+}
+
 function allSkillsExist(root) {
   return REQUIRED_SKILLS.every((name) => existsSync(path.join(root, "skills", name, "SKILL.md")));
 }
@@ -344,8 +365,12 @@ export function evaluateApplicationReadiness({
   else if (applicationsInspection.state === "error") blockingIssues.push("applications_directory_inspection_failed");
   else if (!applicationsExists) blockingIssues.push("applications_directory_unavailable");
   else if (!applicationsWritable) blockingIssues.push("applications_directory_unwritable");
-  if (applicationsConfigured && isInside(absoluteRoot, applicationsPath) && !isGitIgnored(absoluteRoot, applicationsPath, true)) {
-    blockingIssues.push("applications_directory_not_ignored");
+  if (applicationsConfigured && !isAmbiguousApplicationsDirectory(applicationsPath)) {
+    try {
+      validateApplicationsDirectoryPrivacy(absoluteRoot, applicationsPath);
+    } catch {
+      blockingIssues.push("applications_directory_not_ignored");
+    }
   }
 
   const databaseParent = path.dirname(config.databasePath);

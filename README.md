@@ -117,6 +117,8 @@ JOBTRACKER_APPLICATIONS_DIR="<user-home>/Documents/job-application-materials"
 
 Relative values are relative to the repository and remain portable when the repository moves. Absolute values are useful when materials must live elsewhere. `/applications` is a root-level path, not another spelling of `applications`; do not use it for the repository-local default.
 
+A custom relative folder must already be ignored by Git before setup runs. Add an exact repository-root rule such as `/private-output/` to `.gitignore` or the local `.git/info/exclude`, then rerun setup, or choose an external absolute path. Setup validates this prerequisite but does not modify either ignore file. The default `./applications` continues to work because `applications/*` is already ignored by this repository.
+
 ### Changing The Folder After Setup
 
 For an existing install, keep the database and files synchronized when changing the application-materials folder:

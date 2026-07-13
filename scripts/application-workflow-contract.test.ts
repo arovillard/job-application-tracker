@@ -125,6 +125,18 @@ describe("job application workflow contract", () => {
     }
   });
 
+  it("documents the Git-ignore prerequisite for custom relative applications folders", () => {
+    const readme = readFileSync(path.join(projectRoot, "README.md"), "utf8");
+    const setup = readFileSync(path.join(projectRoot, "docs", "agent-setup.md"), "utf8");
+
+    for (const content of [readme, setup]) {
+      expect(content.toLowerCase()).toContain("custom relative");
+      expect(content.toLowerCase()).toContain("already be ignored by git");
+      expect(content).toContain(".gitignore");
+      expect(content.toLowerCase()).toContain("external absolute path");
+    }
+  });
+
   it("documents configured backfill and collision-safe folder moves", () => {
     const readme = readFileSync(path.join(projectRoot, "README.md"), "utf8");
     const setup = readFileSync(path.join(projectRoot, "docs", "agent-setup.md"), "utf8");
