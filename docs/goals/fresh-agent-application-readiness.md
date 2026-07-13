@@ -19,7 +19,7 @@
 | AR-2 | AR-1 | `/root/ar2_worker` | `scripts/setup-user.mjs`, `scripts/setup-user.test.ts` | complete | 36 focused tests | Approved, 0 findings; commit `9c86042` |
 | AR-3 | AR-1 | `/root/agent_evidence` reactivated as worker | Skills, root instructions, workflow/install tests | complete | 9 focused tests; skill validation and parity clean | Clean re-review; commits `a153130`, `66834f4` |
 | AR-4 | AR-2, AR-3 | `/root/proposal_review` reactivated as worker | `README.md`, `docs/agent-setup.md`, documentation assertion | complete | 3 focused tests | Approved, 0 findings; commit `ebe5624` |
-| AR-5 | AR-1–AR-4 | Root Sol | Verification and bounded final fixes | final re-review pending | 51 focused; 228 full; post-fix build passed | Final fix commit `b4d5555` |
+| AR-5 | AR-1–AR-4 | Root Sol | Verification and bounded final fixes | final approval pending | 52 focused; 229 full; latest build passed | Root fix commit `647c8b6` |
 
 ## Decisions
 
@@ -57,4 +57,7 @@
 - Fresh post-fix `npm run verify`: lint/typecheck clean; 24 files and 228 tests passed.
 - Fresh post-fix production build passed; generated `next-env.d.ts` change was removed again.
 - Post-fix direct posting scenario D passed: readiness-derived absolute DB path, explicit upsert, verified output, no unintended materials.
-- Current blocker: Sol final re-review.
+- Sol re-review found one remaining direct-intake edge case: unreadable configuration could synthesize a default DB with a writable parent.
+- Root Sol added a RED contract regression, then commit `647c8b6` explicitly blocks configuration/database issues while enumerating only ignorable material issues.
+- Fresh root verification: 13 affected tests and 229 full tests passed; production build passed; provider parity and diff checks passed.
+- Current blocker: final Sol approval.
