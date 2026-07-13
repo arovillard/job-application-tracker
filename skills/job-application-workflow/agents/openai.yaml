@@ -1,0 +1,4 @@
+interface:
+  display_name: "Job Application Workflow"
+  short_description: "Get ready and apply from a job link"
+  default_prompt: "Use $job-application-workflow to check my application readiness and help me apply for a job."

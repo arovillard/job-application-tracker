@@ -1,13 +1,12 @@
 # Job Application Workflow
 
-When the user says "help me apply to this job" and provides a job link:
+When the user expresses application intent—with or without a job link—or primarily sends a public job-posting URL:
 
-1. Use `/job-tracker-add-posting` to add or update the job in the local tracker.
-2. Verify the tracker script output before creating application materials.
-3. Use `/job-application-resume` before doing application-materials work.
-4. Do not create duplicate tracker records for the same company and role; update the existing record and add a note explaining source/status changes.
-5. If sources disagree about whether a posting is open, keep the tracker record active unless the user confirms it should be archived.
-6. Do not submit applications or use credentials on the user's behalf.
+1. Read and follow the repository source coordinator at `.claude/skills/job-application-workflow/SKILL.md` first, even if the personal installed copy is absent. Invoke `/job-application-workflow` when available.
+2. Complete readiness before processing a supplied link. The coordinator may offer to refresh personal skills after repository-source routing succeeds.
+3. Preserve this exact ready message for the no-link path: “Your application workspace is ready. Your master resume is configured and will not be modified. Send me a job-posting link when you’re ready.”
+4. Do not route unrelated repository development work through the application workflow.
+5. Do not submit applications, use credentials, make private documents public, or modify the user's master resume.
 
 # New User Setup Workflow
 

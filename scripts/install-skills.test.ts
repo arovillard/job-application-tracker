@@ -6,7 +6,11 @@ import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const projectRoot = path.resolve(__dirname, "..");
-const skillNames = ["job-application-resume", "job-tracker-add-posting"];
+const skillNames = [
+  "job-application-resume",
+  "job-application-workflow",
+  "job-tracker-add-posting"
+];
 
 let tempDir: string;
 
@@ -40,6 +44,17 @@ describe("agent skill packaging", () => {
       if (skillName === "job-tracker-add-posting") {
         expect(codexSkill).toContain("Confirm opportunity.type is job.");
         expect(claudeSkill).toContain("Confirm opportunity.type is job.");
+      }
+      if (skillName === "job-application-workflow") {
+        for (const required of [
+          "check-application-readiness.mjs",
+          "job-tracker-add-posting",
+          "job-application-resume",
+          "master resume"
+        ]) {
+          expect(codexSkill).toContain(required);
+          expect(claudeSkill).toContain(required);
+        }
       }
     }
   });

@@ -1,6 +1,6 @@
 ---
 name: job-tracker-add-posting
-description: Add or update a public job posting in a local Next.js/SQLite JobTracker app. Use when the user provides a job posting URL and asks to add it to the tracker, help apply to the job, start an application workflow, or prepare application materials before using job-application-resume. Handles public posting extraction, duplicate company+role checks, direct SQLite upsert, source/status update notes, and verified readback.
+description: Add or update a public job posting in a local Next.js/SQLite JobTracker app. Use for a direct request such as "add this posting," or to record, refresh, or inspect a specific public posting in the tracker. Handles posting extraction, duplicate company+role checks, explicit database-path upsert, source/status update notes, and verified readback. Broad application intent belongs to job-application-workflow.
 ---
 
 # Job Tracker Add Posting
@@ -9,9 +9,9 @@ Use this skill before application-materials work whenever a public job posting s
 
 ## Required Order
 
-1. Read `.env.local` when present and note `JOBTRACKER_DB_PATH`.
+1. Obtain the absolute database path from the coordinating readiness result or an explicit user-provided path.
 2. Extract posting facts from the public job URL.
-3. Add or update the tracker record with `node scripts/upsert-job-posting.mjs`.
+3. Add or update the tracker record with `node scripts/upsert-job-posting.mjs --db "/absolute/database/path"`. Never rely on the script's process defaults.
 4. Verify the script output shows the expected opportunity, URL, status, and action.
 5. If the user is applying or wants interview-ready materials, invoke `job-application-resume` after the tracker record is verified.
 
@@ -37,6 +37,7 @@ Run the bundled project script from the JobTracker project root.
 
 ```bash
 node scripts/upsert-job-posting.mjs \
+  --db "/absolute/database/path" \
   --company "Company Name" \
   --role "Role Title" \
   --url "https://example.com/job" \
@@ -61,7 +62,7 @@ For complex quoting, pass JSON through stdin:
 
 ```bash
 printf '%s\n' '{"company":"Company","role":"Role","url":"https://example.com/job","posting_state":"open"}' |
-  node scripts/upsert-job-posting.mjs --input-json - --reactivate
+  node scripts/upsert-job-posting.mjs --db "/absolute/database/path" --input-json - --reactivate
 ```
 
 ## Verification
@@ -78,7 +79,7 @@ If the script fails or the DB shape is unclear, read `references/schema.md`. Pre
 
 ## Companion Resume Workflow
 
-When the user says "help me apply to this job" or asks for application materials:
+When a coordinating application workflow invokes this skill:
 
 1. Use this skill first and verify the tracker record.
 2. Then use `job-application-resume` with the same public posting URL and the verified tracker context.

@@ -1,6 +1,6 @@
 ---
 name: job-application-resume
-description: Create tailored job-application resumes, reach-out messages, and application dossiers for specific job postings. Use when the user asks for a resume, resume customization, cover or reach-out message, fit assessment, interview prep, or application materials for a particular company or job posting; create a company folder and a Markdown qualification analysis for each new job application.
+description: Create tailored resumes, reach-out messages, fit assessments, interview preparation, and application dossiers after a specific job opportunity has been recorded and verified. Use for direct material-only work with an existing verified opportunity; broad application intent and new posting URLs belong to job-application-workflow.
 ---
 
 # Job Application Resume
@@ -10,16 +10,18 @@ description: Create tailored job-application resumes, reach-out messages, and ap
 Use this workflow for every new job-specific application.
 
 1. Identify the company name and role title from the posting or user request.
-2. Read local user configuration before creating files:
-   - Prefer `JOBTRACKER_APPLICATIONS_DIR` from `.env.local` or the process environment.
-   - Prefer `JOBTRACKER_BASE_RESUME_PATH` as the source resume when it is set.
+2. Use the coordinating readiness result before creating files:
+   - Use the exact absolute `applicationsDirectory.path`; pass it as `--applications-dir` to applicable material commands and never silently fall back.
+   - Prefer `JOBTRACKER_BASE_RESUME_URL` when it identifies an accessible Google Doc.
+   - Treat the configured source as a read-only master and create a role-specific copy.
+   - Fall back to `JOBTRACKER_BASE_RESUME_PATH`; prefer DOCX and warn for PDF reconstruction.
    - Prefer `JOBTRACKER_LINKEDIN_URL` as profile context when it is set and public.
    - If required source material is missing, ask the human for it before drafting.
-3. Create `<applications-dir>/<Company Name>/`. If no applications directory is configured, use `applications/<Company Name>/` under the current project. If the folder already exists, preserve it and add role-specific files without overwriting unrelated work.
+3. Create `<applications-dir>/<Company Name>/` under the exact configured applications directory. If the folder already exists, preserve it and add role-specific files without overwriting unrelated work.
 4. Tailor the resume and any reach-out message from verified source material. Do not invent production AI, SDK, API, management, revenue, or customer claims that are not supported by the user's source materials.
 5. Create a Markdown fit analysis inside the company folder before final delivery.
-6. Register generated application-material files with the tracker record using `node scripts/register-application-artifact.mjs` so the app can display them on the application detail page.
-7. If the user wants Google Docs output, deliver the resume as a Google Doc and include the Google Docs link in the final response. Keep local QA artifacts out of the final answer unless requested.
+6. Verify every generated local file exists, then register it with the tracker record using `node scripts/register-application-artifact.mjs --db "/absolute/database/path"`. Use the readiness result's absolute database path for every tracker/artifact command; never rely on process defaults.
+7. For a tailored Google Doc, save or export a local PDF or DOCX snapshot before registering the `resume` artifact. Return the Docs link separately. If snapshot or registration fails, do not claim tracker resume registration succeeded.
 
 ## Human Context To Collect
 
@@ -53,6 +55,7 @@ After creating or updating an application-material file, link it to the existing
 
 ```bash
 node scripts/register-application-artifact.mjs \
+  --db "/absolute/database/path" \
   --opportunity-id "VERIFIED_OPPORTUNITY_ID" \
   --type fit_analysis \
   --title "Fit Analysis" \
