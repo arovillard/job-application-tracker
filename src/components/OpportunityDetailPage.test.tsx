@@ -10,7 +10,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => routerState }));
 vi.mock("next/link", () => ({ default: (props: ComponentProps<"a">) => <a {...props} /> }));
 
 import type { OpportunityDetail } from "../types";
-import { InteractionComposer, OpportunityDetailContent, OpportunityDetailPage, OpportunitySnapshot, TaskComposer, TrackerPanel } from "./OpportunityDetailPage";
+import { InteractionComposer, OpportunityDetailContent, OpportunityDetailPage, OpportunitySnapshot, TASK_ACTION_STATUS, TaskComposer, TrackerPanel } from "./OpportunityDetailPage";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -20,11 +20,11 @@ function change(control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElem
   control.dispatchEvent(new Event("input", { bubbles: true }));
   control.dispatchEvent(new Event("change", { bubbles: true }));
 }
-function mountDetail() {
+function mountDetail(props: Partial<ComponentProps<typeof OpportunityDetailPage>> = {}) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   let root: Root;
-  act(() => { root = createRoot(container); root.render(<OpportunityDetailPage opportunityId="opportunity-1" />); });
+  act(() => { root = createRoot(container); root.render(<OpportunityDetailPage opportunityId="opportunity-1" today="2026-07-13" {...props} />); });
   return { container, root: root! };
 }
 async function flush() { await act(async () => { await Promise.resolve(); }); }
@@ -73,6 +73,214 @@ afterEach(() => {
   vi.restoreAllMocks();
   routerState.push.mockReset();
   document.body.innerHTML = "";
+});
+
+describe("attention arrival orchestration", () => {
+  it("focuses an active attention arrival and moves review focus to its task", async () => {
+    const due = { ...connection.tasks[0], dueDate: "2026-07-13" };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [due] }));
+    const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: due.id } });
+    await flush();
+    const banner = container.querySelector<HTMLElement>(".attention-context--active")!;
+    expect(document.activeElement).toBe(banner);
+    expect(banner.textContent).toContain("Send portfolio");
+    act(() => [...banner.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Review options")!.click());
+    expect(document.activeElement?.id).toBe(`opportunity-task-${due.id}`);
+    expect(document.activeElement?.classList.contains("task-item--attention")).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it("completes from the attention surface, announces resolution, and preserves focus", async () => {
+    let resolveComplete!: (value: Response) => void;
+    const completeRequest = new Promise<Response>((resolve) => { resolveComplete = resolve; });
+    const due = { ...connection.tasks[0], dueDate: "2026-07-13" };
+    const completed = { ...due, state: "completed" as const, completedAt: "2026-07-13T12:00:00.000Z" };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [due] })).mockReturnValueOnce(completeRequest);
+    const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: due.id } });
+    await flush();
+    const complete = container.querySelector<HTMLButtonElement>(".attention-context .button--primary")!;
+    act(() => { complete.click(); complete.click(); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(complete.disabled).toBe(true);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(`/api/opportunities/opportunity-1/tasks/${due.id}`);
+    await act(async () => { resolveComplete(jsonResponse({ ...connection, tasks: [completed] })); });
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("Action completed");
+    expect(container.textContent).toContain("This attention item is no longer active");
+    expect(document.activeElement).toBe(container.querySelector(".attention-context--resolved"));
+    act(() => root.unmount());
+  });
+
+  it("opens the existing task dialog for a missing-next-action arrival", async () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { callback(0); return 1; });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [] }));
+    const { container, root } = mountDetail({ attentionTarget: { kind: "missing_next_action" } });
+    await flush();
+    const trigger = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Set next action")!;
+    act(() => trigger.click());
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.activeElement).toBe(container.querySelector<HTMLInputElement>('input[required]'));
+    act(() => container.querySelector<HTMLButtonElement>(".modal__close")!.click());
+    expect(document.activeElement).toBe(trigger);
+    act(() => root.unmount());
+  });
+
+  it("shows a neutral notice for stale targets and no banner for direct visits", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection));
+    const stale = mountDetail({ attentionTarget: { kind: "task", taskId: "missing-task" } });
+    await flush();
+    expect(stale.container.textContent).toContain("This attention item is no longer active");
+    expect(document.activeElement).not.toBe(stale.container.querySelector(".attention-context--resolved"));
+    act(() => [...stale.container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Review current actions")!.click());
+    expect(document.activeElement?.id).toBe("opportunity-actions");
+    act(() => stale.root.unmount());
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection));
+    const direct = mountDetail();
+    await flush();
+    expect(direct.container.querySelector(".attention-context")).toBeNull();
+    act(() => direct.root.unmount());
+  });
+
+  it("keeps an attention-specific initial fetch failure out of the contextual surface", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ error: "Unable to load opportunity" }, false));
+    const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: "task-1" } });
+    await flush();
+    expect(container.textContent).toContain("Unable to load opportunity");
+    expect(container.querySelector(".attention-context")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("does not focus a consumed stale target if it later becomes active", async () => {
+    const open = { ...connection.tasks[0], dueDate: "2026-07-13" };
+    const completed = { ...open, state: "completed" as const, completedAt: "2026-07-12T12:00:00.000Z" };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [completed] })).mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [open] }));
+    const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: open.id } });
+    await flush();
+    expect(document.activeElement).not.toBe(container.querySelector(".attention-context--resolved"));
+    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Reopen")!.click());
+    await flush();
+    const active = container.querySelector(".attention-context--active");
+    expect(active).not.toBeNull();
+    expect(document.activeElement).not.toBe(active);
+    act(() => root.unmount());
+  });
+
+  it("keeps every task action success message explicit", () => {
+    expect(TASK_ACTION_STATUS).toEqual({ complete: "Action completed", cancel: "Action cancelled", reschedule: "Action rescheduled", reopen: "Action reopened" });
+  });
+
+  it("keeps a failed reschedule draft and active attention context", async () => {
+    const due = { ...connection.tasks[0], dueDate: "2026-07-13" };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [due] })).mockResolvedValueOnce(jsonResponse({ error: "Reschedule rejected" }, false));
+    const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: due.id } });
+    await flush();
+    const input = container.querySelector<HTMLInputElement>(`#opportunity-task-${due.id} input[type="date"]`)!;
+    act(() => change(input, "2026-07-20"));
+    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Reschedule")!.click());
+    await flush();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Reschedule rejected");
+    expect(input.value).toBe("2026-07-20");
+    expect(container.querySelector(".attention-context--active")).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("treats the same attention target as a new arrival after it disappears", async () => {
+    const due = { ...connection.tasks[0], dueDate: "2026-07-13" };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [due] }));
+    const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: due.id } });
+    await flush();
+    act(() => root.render(<OpportunityDetailPage opportunityId="opportunity-1" attentionTarget={null} today="2026-07-13" />));
+    await flush();
+    act(() => root.render(<OpportunityDetailPage opportunityId="opportunity-1" attentionTarget={{ kind: "task", taskId: due.id }} today="2026-07-13" />));
+    await flush();
+    expect(document.activeElement).toBe(container.querySelector(".attention-context--active"));
+    act(() => root.unmount());
+  });
+
+  it.each(["success", "failure"] as const)("ignores a late detail %s when opportunity id changes", async (outcome) => {
+    let resolveDetail!: (value: Response) => void;
+    const detailRequest = new Promise<Response>((resolve) => { resolveDetail = resolve; });
+    const nextOpportunity = { ...connection, id: "opportunity-2", label: "Jordan Lee", status: "new" as const, tasks: [] };
+    vi.spyOn(globalThis, "fetch").mockReturnValueOnce(detailRequest).mockResolvedValueOnce(jsonResponse(nextOpportunity));
+    const { container, root } = mountDetail();
+    act(() => root.render(<OpportunityDetailPage opportunityId="opportunity-2" today="2026-07-13" />));
+    await flush();
+    expect(container.textContent).toContain("Jordan Lee");
+    await act(async () => { resolveDetail(outcome === "success" ? jsonResponse({ ...connection, label: "Late detail result" }) : jsonResponse({ error: "Late detail failure" }, false)); });
+    expect(container.textContent).toContain("Jordan Lee");
+    expect(container.textContent).not.toContain("Late detail result");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it.each(["success", "failure"] as const)("clears stale detail and ignores a late task %s when opportunity id changes", async (outcome) => {
+    let resolveTask!: (value: Response) => void;
+    const taskRequest = new Promise<Response>((resolve) => { resolveTask = resolve; });
+    const due = { ...connection.tasks[0], dueDate: "2026-07-13" };
+    const nextOpportunity = { ...connection, id: "opportunity-2", label: "Jordan Lee", tasks: [{ ...due, id: "task-2", opportunityId: "opportunity-2" }] };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [due] })).mockReturnValueOnce(taskRequest).mockResolvedValueOnce(jsonResponse(nextOpportunity));
+    const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: due.id } });
+    await flush(); act(() => container.querySelector<HTMLButtonElement>(".attention-context .button--primary")!.click());
+    act(() => root.render(<OpportunityDetailPage opportunityId="opportunity-2" today="2026-07-13" />));
+    expect(container.textContent).toContain("Loading opportunity"); await flush(); expect(container.textContent).toContain("Jordan Lee");
+    await act(async () => { resolveTask(outcome === "success" ? jsonResponse({ ...connection, label: "Late task result", tasks: [] }) : jsonResponse({ error: "Late task failure" }, false)); });
+    expect(container.textContent).toContain("Jordan Lee"); expect(container.textContent).not.toContain("Late task result"); expect(container.querySelector('[role="status"]')).toBeNull(); expect(container.querySelector('[role="alert"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it.each(["success", "failure"] as const)("clears a pending dialog and ignores its late %s when opportunity id changes", async (outcome) => {
+    let resolveDialog!: (value: Response) => void;
+    const dialogRequest = new Promise<Response>((resolve) => { resolveDialog = resolve; });
+    const next = { ...connection, id: "opportunity-2", label: "Jordan Lee", tasks: [] };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(dialogRequest).mockResolvedValueOnce(jsonResponse(next));
+    const { container, root } = mountDetail(); await flush();
+    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Add task")!.click());
+    act(() => change(container.querySelector<HTMLInputElement>('input[required]')!, "Old record task"));
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() => root.render(<OpportunityDetailPage opportunityId="opportunity-2" today="2026-07-13" />)); await flush();
+    expect(container.textContent).toContain("Jordan Lee"); expect(container.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => { resolveDialog(outcome === "success" ? jsonResponse({ ...connection, label: "Late dialog result" }) : jsonResponse({ error: "Late dialog failure" }, false)); });
+    expect(container.textContent).toContain("Jordan Lee"); expect(container.textContent).not.toContain("Late dialog result"); expect(container.querySelector('[role="dialog"]')).toBeNull(); expect(container.querySelector('[role="status"]')).toBeNull(); expect(container.querySelector('[role="alert"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it.each(["success", "failure"] as const)("ignores a late status %s when opportunity id changes", async (outcome) => {
+    let resolveStatus!: (value: Response) => void;
+    const statusRequest = new Promise<Response>((resolve) => { resolveStatus = resolve; });
+    const next = { ...connection, id: "opportunity-2", label: "Jordan Lee", status: "new" as const, tasks: [] };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(statusRequest).mockResolvedValueOnce(jsonResponse(next));
+    const { container, root } = mountDetail(); await flush();
+    act(() => change(container.querySelector<HTMLSelectElement>(".stage-select select")!, "waiting"));
+    act(() => root.render(<OpportunityDetailPage opportunityId="opportunity-2" today="2026-07-13" />)); await flush();
+    await act(async () => { resolveStatus(outcome === "success" ? jsonResponse({ ...connection, status: "waiting" }) : jsonResponse({ error: "Late status failure" }, false)); });
+    expect(container.textContent).toContain("Jordan Lee"); expect(container.querySelector<HTMLSelectElement>(".stage-select select")?.value).toBe("new"); expect(container.querySelector('[role="status"]')).toBeNull(); expect(container.querySelector('[role="alert"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it.each(["success", "failure"] as const)("ignores a late archive %s when opportunity id changes", async (outcome) => {
+    let resolveArchive!: (value: Response) => void;
+    const archiveRequest = new Promise<Response>((resolve) => { resolveArchive = resolve; });
+    const next = { ...connection, id: "opportunity-2", label: "Jordan Lee", status: "new" as const, tasks: [] };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(archiveRequest).mockResolvedValueOnce(jsonResponse(next));
+    const { container, root } = mountDetail(); await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click()); act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Archive")!.click()); act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() => root.render(<OpportunityDetailPage opportunityId="opportunity-2" today="2026-07-13" />)); await flush();
+    await act(async () => { resolveArchive(outcome === "success" ? jsonResponse({ ...connection, status: "archived" }) : jsonResponse({ error: "Late archive failure" }, false)); });
+    expect(container.textContent).toContain("Jordan Lee"); expect(container.querySelector<HTMLSelectElement>(".stage-select select")?.value).toBe("new"); expect(container.querySelector('[role="dialog"]')).toBeNull(); expect(container.querySelector('[role="status"]')).toBeNull(); expect(container.querySelector('[role="alert"]')).toBeNull(); expect(routerState.push).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it.each(["success", "failure"] as const)("ignores a late delete %s and redirect when opportunity id changes", async (outcome) => {
+    let resolveDelete!: (value: Response) => void;
+    const deleteRequest = new Promise<Response>((resolve) => { resolveDelete = resolve; });
+    const next = { ...connection, id: "opportunity-2", label: "Jordan Lee", tasks: [] };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection)).mockReturnValueOnce(deleteRequest).mockResolvedValueOnce(jsonResponse(next));
+    const { container, root } = mountDetail(); await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click()); act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Delete permanently")!.click()); act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() => root.render(<OpportunityDetailPage opportunityId="opportunity-2" today="2026-07-13" />)); await flush();
+    await act(async () => { resolveDelete(outcome === "success" ? jsonResponse({}) : jsonResponse({ error: "Late delete failure" }, false)); });
+    expect(routerState.push).not.toHaveBeenCalled(); expect(container.textContent).toContain("Jordan Lee"); expect(container.querySelector('[role="status"]')).toBeNull(); expect(container.querySelector('[role="alert"]')).toBeNull();
+    act(() => root.unmount());
+  });
 });
 
 describe("OpportunityDetailContent", () => {
