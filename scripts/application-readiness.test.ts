@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -18,9 +18,11 @@ function fixture() {
   writeFileSync(path.join(root, ".gitignore"), ".env.local\ndata/*.sqlite\napplications/*\n");
   execFileSync("git", ["init", "-q"], { cwd: root });
   for (const skill of ["job-application-resume", "job-application-workflow", "job-tracker-add-posting"]) {
-    const directory = path.join(root, "skills", skill);
-    mkdirSync(directory, { recursive: true });
-    writeFileSync(path.join(directory, "SKILL.md"), `# ${skill}\n`);
+    for (const sourceRoot of ["skills", path.join(".claude", "skills")]) {
+      const directory = path.join(root, sourceRoot, skill);
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(path.join(directory, "SKILL.md"), `# ${skill}\n`);
+    }
   }
   return root;
 }
@@ -180,6 +182,36 @@ describe("evaluateApplicationReadiness", () => {
     expect(result.warnings).toEqual(expect.arrayContaining(["codex_skills_not_installed", "claude_skills_not_installed"]));
   });
 
+  it("warns separately when installed skills are stale", () => {
+    const root = fixture();
+    const codexHome = path.join(root, "codex-home");
+    const claudeHome = path.join(root, "claude-home");
+    for (const skill of ["job-application-resume", "job-application-workflow", "job-tracker-add-posting"]) {
+      const source = `# ${skill}\n`;
+      for (const home of [codexHome, claudeHome]) {
+        const directory = path.join(home, "skills", skill);
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(path.join(directory, "SKILL.md"), source);
+      }
+    }
+    writeFileSync(
+      path.join(codexHome, "skills", "job-application-workflow", "SKILL.md"),
+      "# stale workflow\n"
+    );
+
+    const result = evaluateApplicationReadiness({
+      projectRoot: root,
+      processEnv: {},
+      codexHome,
+      claudeHome
+    });
+
+    expect(result.skills).toEqual({ repositoryComplete: true, codexInstalled: true, claudeInstalled: true });
+    expect(result.warnings).toContain("codex_skills_stale");
+    expect(result.warnings).not.toContain("codex_skills_not_installed");
+    expect(result.warnings).not.toContain("claude_skills_stale");
+  });
+
   it("blocks unignored repository-local private paths", () => {
     const root = fixture();
     const resume = path.join(root, "private", "resume.docx");
@@ -197,6 +229,55 @@ describe("evaluateApplicationReadiness", () => {
       "applications_directory_not_ignored"
     ]));
     expect(JSON.stringify(result)).not.toContain("do not leak this phrase");
+  });
+
+  it("blocks external symlink aliases that resolve to unignored repository paths", () => {
+    const root = fixture();
+    const resume = path.join(root, "private", "resume.docx");
+    const output = path.join(root, "private-output");
+    mkdirSync(path.dirname(resume), { recursive: true });
+    mkdirSync(output);
+    writeFileSync(resume, "resume");
+    const resumeAlias = path.join(os.tmpdir(), `${path.basename(root)}-resume-alias.docx`);
+    const outputAlias = path.join(os.tmpdir(), `${path.basename(root)}-output-alias`);
+    roots.push(resumeAlias, outputAlias);
+    symlinkSync(resume, resumeAlias);
+    symlinkSync(output, outputAlias);
+    writeFileSync(path.join(root, ".env.local"), [
+      `JOBTRACKER_BASE_RESUME_PATH="${resumeAlias}"`,
+      `JOBTRACKER_APPLICATIONS_DIR="${outputAlias}"`
+    ].join("\n"));
+
+    const result = evaluateApplicationReadiness({ projectRoot: root, processEnv: {} });
+
+    expect(result.status).toBe("blocked");
+    expect(result.blockingIssues).toEqual(expect.arrayContaining([
+      "resume_path_not_ignored",
+      "applications_directory_not_ignored"
+    ]));
+  });
+
+  it("allows repository symlink aliases that resolve to external private paths", () => {
+    const root = fixture();
+    const externalRoot = path.join(os.tmpdir(), `${path.basename(root)}-external-private`);
+    const resume = path.join(externalRoot, "resume.docx");
+    const output = path.join(externalRoot, "output");
+    roots.push(externalRoot);
+    mkdirSync(output, { recursive: true });
+    writeFileSync(resume, "resume");
+    const resumeAlias = path.join(root, "resume-alias.docx");
+    const outputAlias = path.join(root, "output-alias");
+    symlinkSync(resume, resumeAlias);
+    symlinkSync(output, outputAlias);
+    writeFileSync(path.join(root, ".env.local"), [
+      'JOBTRACKER_BASE_RESUME_PATH="./resume-alias.docx"',
+      'JOBTRACKER_APPLICATIONS_DIR="./output-alias"'
+    ].join("\n"));
+
+    const result = evaluateApplicationReadiness({ projectRoot: root, processEnv: {} });
+
+    expect(result.blockingIssues).not.toContain("resume_path_not_ignored");
+    expect(result.blockingIssues).not.toContain("applications_directory_not_ignored");
   });
 
   it("does not treat a dotfile-only ignore rule as protection for application artifacts", () => {

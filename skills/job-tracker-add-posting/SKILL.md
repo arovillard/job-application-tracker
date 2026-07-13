@@ -7,9 +7,13 @@ description: Add or update a public job posting in a local Next.js/SQLite JobTra
 
 Use this skill before application-materials work whenever a public job posting should be recorded in the local JobTracker app.
 
+## Input Contract
+
+When no coordinating readiness result is supplied, run and parse `node scripts/check-application-readiness.mjs` from the repository root before intake. Require an absolute `database.path` with `database.parentExists = true` and `database.parentWritable = true`; stop and report the database issue otherwise. Use that exact path for the upsert even when readiness reports unrelated application-material input still needed. Never infer the database path from process defaults.
+
 ## Required Order
 
-1. Obtain the absolute database path from the coordinating readiness result or an explicit user-provided path.
+1. Obtain the absolute database path from the coordinating or directly established readiness result.
 2. Extract posting facts from the public job URL.
 3. Add or update the tracker record with `node scripts/upsert-job-posting.mjs --db "/absolute/database/path"`. Never rely on the script's process defaults.
 4. Verify the script output shows the expected opportunity, URL, status, and action.

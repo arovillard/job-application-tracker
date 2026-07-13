@@ -5,6 +5,8 @@ import {
   existsSync,
   lstatSync,
   readFileSync,
+  readdirSync,
+  realpathSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -141,17 +143,35 @@ function inspectPath(target) {
   }
 }
 
+function canonicalPath(target) {
+  const unresolved = [];
+  let existing = path.resolve(target);
+  while (!existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) return path.resolve(target);
+    unresolved.unshift(path.basename(existing));
+    existing = parent;
+  }
+  try {
+    return path.join(realpathSync(existing), ...unresolved);
+  } catch {
+    return path.resolve(target);
+  }
+}
+
 function isInside(root, target) {
-  const relative = path.relative(root, target);
+  const relative = path.relative(canonicalPath(root), canonicalPath(target));
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 function isGitIgnored(projectRoot, target, directory = false) {
-  if (!isInside(projectRoot, target)) return true;
-  const probe = directory ? path.join(target, "jobtracker-private-probe") : target;
+  const canonicalRoot = canonicalPath(projectRoot);
+  const canonicalTarget = canonicalPath(target);
+  if (!isInside(canonicalRoot, canonicalTarget)) return true;
+  const probe = directory ? path.join(canonicalTarget, "jobtracker-private-probe") : canonicalTarget;
   try {
     execFileSync("git", ["check-ignore", "-q", "--no-index", probe], {
-      cwd: projectRoot,
+      cwd: canonicalRoot,
       stdio: "ignore"
     });
     return true;
@@ -166,6 +186,41 @@ function allSkillsExist(root) {
 
 function personalSkillsExist(home) {
   return REQUIRED_SKILLS.every((name) => existsSync(path.join(home, "skills", name, "SKILL.md")));
+}
+
+function directoryContentsMatch(source, installed) {
+  try {
+    const sourceEntries = readdirSync(source, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+    const installedEntries = readdirSync(installed, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+    if (sourceEntries.length !== installedEntries.length) return false;
+    for (let index = 0; index < sourceEntries.length; index += 1) {
+      const sourceEntry = sourceEntries[index];
+      const installedEntry = installedEntries[index];
+      if (sourceEntry.name !== installedEntry.name) return false;
+      const sourcePath = path.join(source, sourceEntry.name);
+      const installedPath = path.join(installed, installedEntry.name);
+      if (sourceEntry.isDirectory() !== installedEntry.isDirectory()) return false;
+      if (sourceEntry.isFile() !== installedEntry.isFile()) return false;
+      if (sourceEntry.isDirectory()) {
+        if (!directoryContentsMatch(sourcePath, installedPath)) return false;
+      } else if (sourceEntry.isFile()) {
+        if (!readFileSync(sourcePath).equals(readFileSync(installedPath))) return false;
+      } else {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function personalSkillsStale(sourceRoot, home) {
+  const installedRoot = path.join(home, "skills");
+  return REQUIRED_SKILLS.some((name) => !directoryContentsMatch(
+    path.join(sourceRoot, name),
+    path.join(installedRoot, name)
+  ));
 }
 
 function unique(values) {
@@ -282,7 +337,9 @@ export function evaluateApplicationReadiness({
   const codexInstalled = personalSkillsExist(resolvedCodexHome);
   const claudeInstalled = personalSkillsExist(resolvedClaudeHome);
   if (!codexInstalled) warnings.push("codex_skills_not_installed");
+  else if (personalSkillsStale(path.join(absoluteRoot, "skills"), resolvedCodexHome)) warnings.push("codex_skills_stale");
   if (!claudeInstalled) warnings.push("claude_skills_not_installed");
+  else if (personalSkillsStale(path.join(absoluteRoot, ".claude", "skills"), resolvedClaudeHome)) warnings.push("claude_skills_stale");
   if (!config.profileUrl) warnings.push("profile_missing");
 
   const issues = unique(blockingIssues);

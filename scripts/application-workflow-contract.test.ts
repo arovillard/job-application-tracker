@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 const projectRoot = path.resolve(__dirname, "..");
 const workflow = readFileSync(path.join(projectRoot, "skills/job-application-workflow/SKILL.md"), "utf8");
 const resumeSkill = readFileSync(path.join(projectRoot, "skills/job-application-resume/SKILL.md"), "utf8");
+const postingSkill = readFileSync(path.join(projectRoot, "skills/job-tracker-add-posting/SKILL.md"), "utf8");
 const readySentence = "Your application workspace is ready. Your master resume is configured and will not be modified. Send me a job-posting link when you're ready.";
 
 let tempDir: string;
@@ -61,6 +62,25 @@ describe("job application workflow contract", () => {
     expect(resumeSkill).toContain("verified opportunity ID");
     expect(resumeSkill).toContain("absolute `database.path`");
     expect(resumeSkill).toContain("absolute `applicationsDirectory.path`");
+  });
+
+  it("makes direct posting invocation discover the configured database through readiness", () => {
+    expect(postingSkill).toContain("When no coordinating readiness result is supplied");
+    expect(postingSkill).toContain("run and parse `node scripts/check-application-readiness.mjs`");
+    expect(postingSkill).toContain("absolute `database.path`");
+    expect(postingSkill).toContain("database.parentExists");
+    expect(postingSkill).toContain("database.parentWritable");
+  });
+
+  it("keeps new-user setup Google-first in both root instruction files", () => {
+    const agents = readFileSync(path.join(projectRoot, "AGENTS.md"), "utf8");
+    const claude = readFileSync(path.join(projectRoot, "CLAUDE.md"), "utf8");
+
+    for (const instructions of [agents, claude]) {
+      expect(instructions).toContain("private Google Docs URL first");
+      expect(instructions).toContain("DOCX/PDF fallback");
+      expect(instructions).toContain("optional public profile context");
+    }
   });
 
   it("uses the exact no-link ready sentence", () => {
