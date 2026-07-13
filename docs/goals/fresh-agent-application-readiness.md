@@ -19,7 +19,7 @@
 | AR-2 | AR-1 | `/root/ar2_worker` | `scripts/setup-user.mjs`, `scripts/setup-user.test.ts` | complete | 36 focused tests | Approved, 0 findings; commit `9c86042` |
 | AR-3 | AR-1 | `/root/agent_evidence` reactivated as worker | Skills, root instructions, workflow/install tests | complete | 9 focused tests; skill validation and parity clean | Clean re-review; commits `a153130`, `66834f4` |
 | AR-4 | AR-2, AR-3 | `/root/proposal_review` reactivated as worker | `README.md`, `docs/agent-setup.md`, documentation assertion | complete | 3 focused tests | Approved, 0 findings; commit `ebe5624` |
-| AR-5 | AR-1–AR-4 | Root Sol | Verification only | final review pending | 46 focused; 223 full; build passed | Awaiting final Sol review |
+| AR-5 | AR-1–AR-4 | Root Sol | Verification and bounded final fixes | final re-review pending | 51 focused; 228 full; post-fix build passed | Final fix commit `b4d5555` |
 
 ## Decisions
 
@@ -51,4 +51,10 @@
 - Real custom-database upsert/registration and unsafe custom-output privacy cases pass in automated contract tests.
 - Fresh-context scenario traces A–C all passed for missing resume, supplied-link Google success/failure, DOCX/profile warning, PDF warning, direct resume invocation, custom paths, master immutability, and snapshot-before-registration.
 - Live private Google Docs create/readback/export was not run because no user-owned test document was supplied; fixture traces are not represented as live connector proof.
-- Current blocker: final whole-branch Sol review.
+- Final review found: direct posting skill preflight gap, symlink privacy containment bypass, path-first root setup copy, and missing stale-installed-skill warnings.
+- One consolidated final fix pass dispatched to `/root/ar2_worker` with TDD and full verification required.
+- Final fix commit `b4d5555` resolves all four findings with five RED regressions and 35 focused GREEN tests.
+- Fresh post-fix `npm run verify`: lint/typecheck clean; 24 files and 228 tests passed.
+- Fresh post-fix production build passed; generated `next-env.d.ts` change was removed again.
+- Post-fix direct posting scenario D passed: readiness-derived absolute DB path, explicit upsert, verified output, no unintended materials.
+- Current blocker: Sol final re-review.
