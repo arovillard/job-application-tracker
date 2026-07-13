@@ -77,7 +77,7 @@ Expected: FAIL because the current root instructions and coordinator do not ment
 Change the first workflow sentence in both `AGENTS.md` and `CLAUDE.md` to:
 
 ```md
-When the user expresses application intent—with or without a job link—primarily sends a public job-posting URL, or asks to configure, save, remember, or update resume or public professional-profile references for job applications:
+When the user expresses application intent—with or without a job link—or primarily sends a public job-posting URL, or asks to configure, save, remember, or update resume or public professional-profile references for job applications:
 ```
 
 Keep each file's existing provider-specific coordinator path and invocation syntax unchanged.

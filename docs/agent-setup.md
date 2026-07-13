@@ -14,7 +14,20 @@ In a fresh session, repository instructions route the request through `job-appli
 
 > Your application workspace is ready. Your master resume is configured and will not be modified. Send me a job-posting link when you're ready.
 
-A local fresh session can reuse ignored `.env.local` references and local files after revalidation. A cloud checkout does not contain that private state and asks for the resume source again. A new host session may also require the user to reconnect Google Drive.
+A local fresh session can reuse ignored `.env.local` references and local files after revalidation. A cloud checkout does not contain that private state, so it asks for the resume source again unless the same settings are configured as cloud environment variables. A new host session may also require the user to reconnect Google Drive.
+
+The human can save the resume and public profile together without using an npm or terminal command by telling the agent:
+
+```text
+Configure my reusable application profile for this project.
+Master resume Google Doc: https://docs.google.com/document/d/EXAMPLE_DOCUMENT_ID/edit
+LinkedIn profile: https://www.linkedin.com/in/example
+Save these in the project's private local configuration, verify readiness, and tell me when I am ready to provide a job link.
+```
+
+Replace the examples with the human's values. For a local file, use `Master resume file:` and its full path. The coordinator persists the resume as `JOBTRACKER_BASE_RESUME_URL` or `JOBTRACKER_BASE_RESUME_PATH` and the profile as `JOBTRACKER_LINKEDIN_URL` in ignored `.env.local`. It must persist every supplied allowlisted value together and omit values the human did not supply so existing configuration remains unchanged.
+
+Fresh local sessions reload these values. For Codex Cloud, configure the same names as cloud environment variables because ignored `.env.local` is not cloned. A saved Google Docs URL identifies the resume but does not replace Google Drive authorization.
 
 ## Collect From The Human
 

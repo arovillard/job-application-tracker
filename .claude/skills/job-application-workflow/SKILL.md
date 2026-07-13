@@ -1,6 +1,6 @@
 ---
 name: job-application-workflow
-description: Coordinate application readiness, job intake, and tailored materials for Opportunity Tracker. Use for application intent with or without a job link, including requests to apply, prepare an application, tailor a resume for a job, start an application workflow, or messages whose primary content is a public job-posting URL.
+description: Coordinate application readiness, reusable application-profile configuration, job intake, and tailored materials for Opportunity Tracker. Use for application intent with or without a job link, including requests to apply, prepare an application, tailor a resume for a job, start an application workflow, configure, save, remember, or update application-profile references, or messages whose primary content is a public job-posting URL.
 ---
 
 # Job Application Workflow
@@ -11,11 +11,13 @@ Own orchestration only. Work from the repository root and keep the readiness res
 
 1. Locate the repository root containing `.env.example` and `scripts/check-application-readiness.mjs`. If the source coordinator is present but a personal skill copy is missing, continue with this repository source and offer to run the appropriate skill installer when authorized.
 2. Run `node scripts/check-application-readiness.mjs` and parse its schema-v1 JSON. Do not process a supplied job link yet.
-3. If status is `needs_input`, collect only the next missing or invalid value, one at a time. Prefer a private Google Doc, then DOCX, then PDF with a formatting warning. Persist only allowlisted application-profile fields:
+3. If status is `needs_input`, or the user asks to configure, save, remember, or update application-profile references, use any allowlisted values already present in the user's message before asking another question. When the message supplies more than one of `applicationsDirectory`, `baseResumeUrl`, `baseResumePath`, or `profileUrl`, persist every supplied allowlisted field together in one update. Omit fields the user did not supply so existing values remain unchanged. Prefer a private Google Doc, then DOCX, then PDF with a formatting warning. Persist through:
 
    ```bash
    printf '%s\n' '<allowlisted-json>' | node scripts/configure-application-profile.mjs --input-json -
    ```
+
+   Rerun readiness after the combined update. Then collect only the next missing or invalid value, one at a time.
 
    Never request credentials or make a document public. For repository-local resume or output paths, continue only after readiness confirms the exact path is Git-ignored; otherwise ask for a safe external path or an exact ignore rule.
 4. Rerun readiness after each update until local issues are resolved. Stop on `blocked`; explain the blocking issue without silently choosing fallback paths. Preserve `database.path` and `applicationsDirectory.path` exactly as returned; both must be absolute.

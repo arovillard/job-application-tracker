@@ -33,7 +33,18 @@ That is the primary application entrypoint. Repository instructions—not prior 
 
 A private Google Doc connected through the agent is the preferred master resume. The agent reads it through your signed-in Google connection, never asks you to make it public, and creates a role-specific copy instead of editing the master. DOCX is the preferred local fallback. PDF also works, but matching its formatting consistently can be difficult.
 
-A local fresh session reuses the ignored `.env.local` and local files, then validates them again. A cloud checkout does not receive those private files, so it will ask for the Google Doc or an uploaded/local resume again. Google access may also need to be reconnected in a new host session.
+To save the resume and profile references without running a terminal command, give the agent both values in one message:
+
+```text
+Configure my reusable application profile for this project.
+Master resume Google Doc: https://docs.google.com/document/d/EXAMPLE_DOCUMENT_ID/edit
+LinkedIn profile: https://www.linkedin.com/in/example
+Save these in the project's private local configuration, verify readiness, and tell me when I am ready to provide a job link.
+```
+
+Replace the example links with your own. For a local resume, use `Master resume file:` followed by its full path. The agent saves the resume under `JOBTRACKER_BASE_RESUME_URL` or `JOBTRACKER_BASE_RESUME_PATH` and the profile under `JOBTRACKER_LINKEDIN_URL` in the ignored `.env.local` file. It saves every supplied value together and leaves settings you did not mention unchanged.
+
+A local fresh session reuses the ignored `.env.local` and local files, then validates them again. For Codex Cloud, configure the same setting names as cloud environment variables because a cloud checkout does not receive the private `.env.local` file. Saving the Google Docs URL remembers which document to use but does not replace Google Drive authorization, so Google access may still need to be reconnected in a new host session.
 
 ## Quick Start
 

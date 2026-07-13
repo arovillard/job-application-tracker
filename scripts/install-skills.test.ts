@@ -29,7 +29,10 @@ describe("agent skill packaging", () => {
 
     for (const content of [readme, setup]) {
       expect(content).toContain("JOBTRACKER_BASE_RESUME_URL");
+      expect(content).toContain("JOBTRACKER_LINKEDIN_URL");
       expect(content).toContain("Google Doc");
+      expect(content).toContain("Configure my reusable application profile");
+      expect(content).toContain("cloud environment variables");
       expect(content.toLowerCase()).toContain("fresh session");
     }
   });

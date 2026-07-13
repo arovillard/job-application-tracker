@@ -58,6 +58,20 @@ describe("job application workflow contract", () => {
     expect(claude).toContain("/job-application-workflow");
   });
 
+  it("persists profile-only input for reuse by fresh tasks", () => {
+    const agents = readFileSync(path.join(projectRoot, "AGENTS.md"), "utf8");
+    const claude = readFileSync(path.join(projectRoot, "CLAUDE.md"), "utf8");
+
+    for (const instructions of [agents, claude]) {
+      expect(instructions).toContain("configure, save, remember, or update");
+      expect(instructions).toContain("resume or public professional-profile references");
+    }
+    expect(workflow).toContain("configure, save, remember, or update");
+    expect(workflow).toContain("persist every supplied allowlisted field together");
+    expect(workflow).toContain("Omit fields the user did not supply");
+    expect(workflow).toContain("Rerun readiness after the combined update");
+  });
+
   it("makes direct resume invocation establish the same readiness contract", () => {
     expect(resumeSkill).toContain("When no coordinating readiness result is supplied");
     expect(resumeSkill).toContain("run and parse `node scripts/check-application-readiness.mjs`");

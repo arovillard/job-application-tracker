@@ -1,6 +1,6 @@
 # Job Application Workflow
 
-When the user expresses application intent—with or without a job link—or primarily sends a public job-posting URL:
+When the user expresses application intent—with or without a job link—or primarily sends a public job-posting URL, or asks to configure, save, remember, or update resume or public professional-profile references for job applications:
 
 1. Read and follow the repository source coordinator at `skills/job-application-workflow/SKILL.md` first, even if the personal installed copy is absent. Invoke `$job-application-workflow` when available.
 2. Complete readiness before processing a supplied link. The coordinator may offer to refresh personal skills after repository-source routing succeeds.
