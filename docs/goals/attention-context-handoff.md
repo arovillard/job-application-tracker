@@ -48,9 +48,17 @@ CLI-routed agents below are independent external processes. Their usage is not g
 ### ACH-3 — Route and detail-page attention orchestration
 
 - Dependencies: ACH-1 and ACH-2 approved
-- Owner: unassigned
+- Owner: external `terra-worker` process
 - Write set: `src/app/opportunities/[id]/page.tsx`, `src/app/opportunities/[id]/page.test.tsx`, `src/components/OpportunityDetailPage.tsx`, `src/components/OpportunityDetailPage.test.tsx`
-- Status: pending
+- Status: complete
+- Commit range: `0509583..1086671` (implementation, bounded Terra race fix, root escalation correction)
+- Tests: TDD red confirmed; final route/detail suite passed 2 files / 67 tests; focused attention/detail suite passed 5 files / 81 tests; full suite passed 27 files / 294 tests; `npm run typecheck` and `git diff --check` passed. Controller independently reran every final command.
+- Review: initial Sol review found a Critical pre-passive-effect stale-result/redirect race. One bounded Terra fix added current-opportunity identity guards and RED regressions; the first Sol re-review confirmed the original race resolved but found an Important abandoned-render risk from render-phase ref publication. Per review policy this escalated to the root controller, which moved identity publication to an unconditional layout effect. The final Sol escalation audit approved ACH-3 with no Critical, Important, or Minor findings.
+- Terra implementation routing: dispatch `ach3-terra-implement-1`; prompt `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach3-terra-worker.prompt.md`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach3-terra-run.report.md`; requested/observed `gpt-5.6-terra`; role `terra-worker`; effort `medium`; sandbox `workspace-write`; phase verified; telemetry reported; exit 0; 1322231 dispatch tokens; 281230ms.
+- Sol initial routing: dispatch `ach3-sol-review-1`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach3-sol-review.report.md`; requested/observed `gpt-5.6-sol`; role `sol-reviewer`; effort `medium`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 479321 dispatch tokens; 143989ms.
+- Terra fix routing: dispatch `ach3-terra-fix-2`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach3-terra-fix-run.report.md`; requested/observed `gpt-5.6-terra`; role `terra-worker`; effort `medium`; sandbox `workspace-write`; phase verified; telemetry reported; exit 0; 1195595 dispatch tokens; 280548ms.
+- Sol re-review routing: dispatch `ach3-sol-rereview-2`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach3-sol-rereview.report.md`; requested/observed `gpt-5.6-sol`; role `sol-reviewer`; effort `medium`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 196697 dispatch tokens; 110433ms.
+- Sol escalation routing: dispatch `ach3-sol-escalation-3`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach3-sol-escalation-review.report.md`; requested/observed `gpt-5.6-sol`; role `sol-reviewer`; effort `medium`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 290556 dispatch tokens; 104106ms.
 
 ### ACH-4 — Responsive visual integration and acceptance suite
 
@@ -73,6 +81,8 @@ CLI-routed agents below are independent external processes. Their usage is not g
 - No schema, storage, API route, dependency, authentication, authorization, private-file, application-submission, or master-resume change is authorized.
 - ACH-1's worker sandbox could not lock the common Git index or write a detailed report outside its workspace; the controller recovered the verified event evidence, reran deterministic checks, and created the scoped commit. No code blocker remained.
 - ACH-2's worker sandbox likewise could not lock the common Git index; the controller independently verified the scoped work and created the commit.
+- ACH-3's workers could not lock the common Git index; the controller independently verified and committed their scoped work. The root escalation correction followed the single worker-fix/re-review budget and was independently Sol-audited.
 - The final 44px attention-link guarantee remains assigned to ACH-4 exactly as approved; it is not waived.
 - ACH-2 Minor residual: interaction dispatch/ref assertions are deferred to integration coverage and final review; no product-code defect was identified.
+- ACH-3 resolved risk: committed opportunity changes invalidate old async work before passive effects, while abandoned concurrent renders cannot corrupt committed identity; identity and generations jointly guard every result, finalizer, callback, and redirect lane.
 - No blockers.
