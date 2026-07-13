@@ -72,6 +72,15 @@ describe("job application workflow contract", () => {
     expect(postingSkill).toContain("database.parentWritable");
   });
 
+  it("stops direct posting intake when configuration or database readiness is blocked", () => {
+    expect(postingSkill).toContain("`configuration_unreadable`");
+    expect(postingSkill).toContain("`database_parent_unavailable`");
+    expect(postingSkill).toContain("`database_parent_unwritable`");
+    expect(postingSkill).toContain("`database_parent_permission_denied`");
+    expect(postingSkill).toContain("`database_parent_inspection_failed`");
+    expect(postingSkill).toContain("Ignore only application-material issues");
+  });
+
   it("keeps new-user setup Google-first in both root instruction files", () => {
     const agents = readFileSync(path.join(projectRoot, "AGENTS.md"), "utf8");
     const claude = readFileSync(path.join(projectRoot, "CLAUDE.md"), "utf8");
