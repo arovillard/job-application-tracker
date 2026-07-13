@@ -2,12 +2,21 @@
 
 import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const routerState = vi.hoisted(() => ({ push: vi.fn() }));
+const effectState = vi.hoisted(() => ({ skip: false }));
 vi.mock("next/navigation", () => ({ useRouter: () => routerState }));
 vi.mock("next/link", () => ({ default: (props: ComponentProps<"a">) => <a {...props} /> }));
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>();
+  return {
+    ...actual,
+    useEffect: (effect: Parameters<typeof actual.useEffect>[0], dependencies?: Parameters<typeof actual.useEffect>[1]) => actual.useEffect(effectState.skip ? () => undefined : effect, dependencies)
+  };
+});
 
 import type { OpportunityDetail } from "../types";
 import { InteractionComposer, OpportunityDetailContent, OpportunityDetailPage, OpportunitySnapshot, TASK_ACTION_STATUS, TaskComposer, TrackerPanel } from "./OpportunityDetailPage";
@@ -70,6 +79,7 @@ const job: OpportunityDetail = {
 };
 
 afterEach(() => {
+  effectState.skip = false;
   vi.restoreAllMocks();
   routerState.push.mockReset();
   document.body.innerHTML = "";
@@ -279,6 +289,66 @@ describe("attention arrival orchestration", () => {
     act(() => root.render(<OpportunityDetailPage opportunityId="opportunity-2" today="2026-07-13" />)); await flush();
     await act(async () => { resolveDelete(outcome === "success" ? jsonResponse({}) : jsonResponse({ error: "Late delete failure" }, false)); });
     expect(routerState.push).not.toHaveBeenCalled(); expect(container.textContent).toContain("Jordan Lee"); expect(container.querySelector('[role="status"]')).toBeNull(); expect(container.querySelector('[role="alert"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("does not redirect when a delete settles after a new opportunity commits before passive invalidation", async () => {
+    let resolveDelete!: (value: Response) => void;
+    const deleteRequest = new Promise<Response>((resolve) => { resolveDelete = resolve; });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(connection))
+      .mockReturnValueOnce(deleteRequest);
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Delete permanently")!.click());
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+
+    effectState.skip = true;
+    flushSync(() => root.render(<OpportunityDetailPage opportunityId="opportunity-2" today="2026-07-13" />));
+    await act(async () => { resolveDelete(jsonResponse({})); await Promise.resolve(); });
+
+    expect(routerState.push).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it("does not show a task failure when it settles after a new opportunity commits before passive invalidation", async () => {
+    let resolveTask!: (value: Response) => void;
+    const taskRequest = new Promise<Response>((resolve) => { resolveTask = resolve; });
+    const due = { ...connection.tasks[0], dueDate: "2026-07-13" };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [due] }))
+      .mockReturnValueOnce(taskRequest);
+    const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: due.id } });
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>(".attention-context .button--primary")!.click());
+
+    effectState.skip = true;
+    flushSync(() => root.render(<OpportunityDetailPage opportunityId="opportunity-2" today="2026-07-13" />));
+    await act(async () => { resolveTask(jsonResponse({ error: "Late task failure" }, false)); await Promise.resolve(); });
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("does not follow a linked-job success after a new opportunity commits before passive invalidation", async () => {
+    let resolveLinkedJob!: (value: Response) => void;
+    const linkedJobRequest = new Promise<Response>((resolve) => { resolveLinkedJob = resolve; });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(connection))
+      .mockReturnValueOnce(linkedJobRequest);
+    const { container, root } = mountDetail();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Create job opportunity")!.click());
+    act(() => change(container.querySelector<HTMLInputElement>('input[required]')!, "Late linked job"));
+    act(() => container.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+
+    effectState.skip = true;
+    flushSync(() => root.render(<OpportunityDetailPage opportunityId="opportunity-2" today="2026-07-13" />));
+    await act(async () => { resolveLinkedJob(jsonResponse({ ...job, id: "job-2" })); await Promise.resolve(); });
+
+    expect(routerState.push).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
 });
