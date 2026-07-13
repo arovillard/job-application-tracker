@@ -10,6 +10,7 @@ const workflow = readFileSync(path.join(projectRoot, "skills/job-application-wor
 const resumeSkill = readFileSync(path.join(projectRoot, "skills/job-application-resume/SKILL.md"), "utf8");
 const postingSkill = readFileSync(path.join(projectRoot, "skills/job-tracker-add-posting/SKILL.md"), "utf8");
 const readySentence = "Your application workspace is ready. Your master resume is configured and will not be modified. Send me a job-posting link when you're ready.";
+const nextLinkSentence = "I'm ready for another job-posting link whenever you are.";
 
 let tempDir: string;
 
@@ -99,6 +100,12 @@ describe("job application workflow contract", () => {
     expect(workflow).toContain(readySentence);
     expect(agents).toContain(readySentence);
     expect(claude).toContain(readySentence);
+  });
+
+  it("invites another link only after successful completion", () => {
+    expect(workflow).toContain(nextLinkSentence);
+    expect(workflow).toContain("only after tracker intake, verification, and all requested application-material work complete successfully");
+    expect(workflow).toContain("Do not use this sentence when the workflow is blocked, failed, incomplete, or awaiting user input");
   });
 
   it("real tracker commands stay on the supplied custom database", () => {

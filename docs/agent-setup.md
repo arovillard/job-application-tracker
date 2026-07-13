@@ -130,4 +130,6 @@ When the human expresses application intent, with or without a public job link:
 5. When a tailored Google Doc is created, export a local PDF or DOCX snapshot before registering the `resume` artifact. Return the Google Docs link separately and never modify the master.
 6. Treat a missing profile as a warning, not a blocker. Do not submit applications, sign in, make a document public, or use credentials for the human.
 
+After tracker intake, verification, and all requested application-material work complete successfully, end the final response with exactly: “I'm ready for another job-posting link whenever you are.” Do not use this sentence when the workflow is blocked, failed, incomplete, or awaiting user input.
+
 If sources disagree about whether a posting is open, keep the tracker record active unless the human confirms it should be archived.
