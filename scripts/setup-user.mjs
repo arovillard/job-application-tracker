@@ -5,7 +5,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { updateSetupConfig } from "./lib/application-readiness.mjs";
+import { resolveApplicationsDirectory, updateSetupConfig } from "./lib/application-readiness.mjs";
 import { installAllSkills } from "./lib/install-skills.mjs";
 
 const modulePath = fileURLToPath(import.meta.url);
@@ -53,7 +53,7 @@ async function ask(question, fallback, rl, nonInteractive) {
 function setupDefaults(projectRoot) {
   return {
     dbPath: path.join(projectRoot, "data", "jobtracker.sqlite"),
-    applicationsDir: path.join(projectRoot, "applications"),
+    applicationsDir: "./applications",
     googleDocUrl: "",
     localPath: "",
     linkedInUrl: "",
@@ -73,7 +73,8 @@ export function buildResumeConfig({ googleDocUrl = "", localPath = "" }) {
 export async function runSetup({ projectRoot, answers, installSkills }) {
   const root = path.resolve(projectRoot);
   const dbPath = resolveUserPath(answers.dbPath, "", root);
-  const applicationsDir = resolveUserPath(answers.applicationsDir, "", root);
+  const applicationsInput = String(answers.applicationsDir ?? "").trim() || "./applications";
+  const applicationsDir = resolveApplicationsDirectory(root, applicationsInput);
   const resume = buildResumeConfig({
     googleDocUrl: answers.googleDocUrl,
     localPath: resolveUserPath(answers.localPath, "", root)
@@ -84,7 +85,7 @@ export async function runSetup({ projectRoot, answers, installSkills }) {
 
   const summary = updateSetupConfig(root, {
     databasePath: dbPath,
-    applicationsDirectory: applicationsDir,
+    applicationsDirectory: applicationsInput,
     ...resume,
     profileUrl: String(answers.linkedInUrl ?? "").trim(),
     providerNote: String(answers.aiProvider ?? "").trim()
@@ -116,7 +117,7 @@ async function main() {
   try {
     const dbPath = await ask("SQLite database path", defaults.dbPath, rl, nonInteractive);
     const applicationsDir = await ask(
-      "Application materials directory",
+      "Application materials directory (relative paths use the project folder)",
       defaults.applicationsDir,
       rl,
       nonInteractive

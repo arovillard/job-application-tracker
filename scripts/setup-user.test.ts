@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -65,4 +65,34 @@ it("writes the complete trusted setup contract without exposing credential field
   expect(written).toContain('JOBTRACKER_LINKEDIN_URL="https://www.linkedin.com/in/example"');
   expect(written).toContain('JOBTRACKER_AI_PROVIDER="Configured in host"');
   expect(written).not.toMatch(/API_KEY|TOKEN|SECRET/);
+});
+
+it("creates and stores the repository-local applications default", async () => {
+  const root = fixture();
+  await runSetup({
+    projectRoot: root,
+    answers: {
+      dbPath: "./data/jobtracker.sqlite",
+      applicationsDir: "applications",
+      googleDocUrl: "",
+      localPath: "",
+      linkedInUrl: "",
+      aiProvider: ""
+    },
+    installSkills: false
+  });
+  expect(existsSync(path.join(root, "applications"))).toBe(true);
+  expect(readFileSync(path.join(root, ".env.local"), "utf8"))
+    .toContain('JOBTRACKER_APPLICATIONS_DIR="./applications"');
+});
+
+it("rejects /applications without changing setup files", async () => {
+  const root = fixture();
+  await expect(runSetup({
+    projectRoot: root,
+    answers: { dbPath: "./data/jobtracker.sqlite", applicationsDir: "/applications", googleDocUrl: "", localPath: "", linkedInUrl: "", aiProvider: "" },
+    installSkills: false
+  })).rejects.toThrow(/\.\/applications/);
+  expect(existsSync(path.join(root, ".env.local"))).toBe(false);
+  expect(existsSync(path.join(root, "data"))).toBe(false);
 });
