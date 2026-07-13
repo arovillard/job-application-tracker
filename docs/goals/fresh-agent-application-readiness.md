@@ -1,0 +1,39 @@
+# Fresh-Agent Application Readiness Goal Ledger
+
+## Native Goal
+
+- Objective: Implement the approved Fresh-Agent Application Readiness specification and plan end to end, including reviews, verification, privacy checks, and fresh-context acceptance evidence.
+- Budget: none specified.
+- Status: active.
+- Worktree: `<isolated-worktree>/application-readiness-agent`
+- Branch: `codex/application-readiness-agent`
+- Approved spec: `docs/specs/fresh-agent-application-readiness.md` at `d2aef97`
+- Approved plan: `docs/plans/fresh-agent-application-readiness.md` at `d2aef97`
+- Baseline: 68 test files, 564 tests passed before implementation.
+
+## Task Status
+
+| Task | Dependencies | Owner | Write set | Status | Tests | Review |
+|---|---|---|---|---|---|---|
+| AR-1 | None | `/root/ar1_worker` | Readiness/config scripts and tests, `.env.example`, `package.json` | complete | 33 focused; full verify 212 tests | Clean re-review; commits `952fc0d`, `01644b0` |
+| AR-2 | AR-1 | pending terra-worker | `scripts/setup-user.mjs`, `scripts/setup-user.test.ts` | ready | pending | Medium immediate review |
+| AR-3 | AR-1 | pending terra-worker | Skills, root instructions, workflow/install tests | ready | pending | Medium wave review |
+| AR-4 | AR-2, AR-3 | pending terra-worker | `README.md`, `docs/agent-setup.md`, documentation assertion | blocked | pending | Low wave review |
+| AR-5 | AR-1–AR-4 | Root Sol | Verification only | blocked | pending | Final Sol review |
+
+## Decisions
+
+- Use two-stage readiness: deterministic local validation plus host Google Docs access verification.
+- Prefer Google Docs; support DOCX/PDF/text fallbacks.
+- Keep remote Docs links outside the SQLite artifact model; register a local exported snapshot.
+- Pass the readiness result's absolute database and applications paths through every downstream command.
+- Block unignored repository-local resume and output paths.
+- Separate the restricted agent configuration writer from the trusted setup writer.
+
+## Evidence and Blockers
+
+- Prepare review: no remaining blocking or high-severity findings.
+- AR-1 initial commit: `952fc0d`.
+- AR-1 review: changes required for output-ignore proof, permission-error status mapping, and mode `0000` preservation.
+- AR-1 fix commit: `01644b0`; re-review approved with zero findings.
+- Current blockers: none for AR-2 or AR-3.
