@@ -1,6 +1,6 @@
-# Job Application Tracker
+# Opportunity Tracker
 
-Local-first job application tracker built with Next.js and SQLite. The repository also includes Codex and Claude skills that let an AI agent add public job postings to the tracker and prepare job-specific application materials.
+Local-first opportunity tracker for job applications and professional connections, built with Next.js and SQLite. The repository also includes Codex and Claude skills that let an AI agent add public job postings and prepare job-specific application materials.
 
 ## What A New User Needs
 
@@ -41,7 +41,7 @@ npm run setup -- --yes
 For the easiest setup, paste this prompt into Codex or Claude Code. Replace any bracketed values you already know, and let the agent ask for the rest.
 
 ```text
-Please set up Job Application Tracker for me end to end.
+Please set up Opportunity Tracker for me end to end.
 
 Repository: https://github.com/arovillard/job-application-tracker
 Preferred project folder: [tell the agent where to clone it, or ask me]
@@ -80,9 +80,22 @@ Important settings:
 - `JOBTRACKER_LINKEDIN_URL`: optional public profile URL for AI context.
 - `JOBTRACKER_AI_PROVIDER`: optional human-readable note; configure credentials through the AI tool, not this file.
 
+## Opportunities
+
+The workspace tracks two opportunity types:
+
+- **Jobs** retain the existing wishlist, applied, interviewing, offer, rejected, and archived pipeline.
+- **Connections** track a person from first capture through outreach, conversation, a concrete opportunity, dormancy, closure, or archive. Relationship strength is recorded separately as new, familiar, or strong.
+
+Both types share priority, chronological activity history, actionable tasks, search, and the attention queue. Tasks can be completed, cancelled, reopened, and rescheduled. Detail pages support editing, archiving, confirmed permanent deletion, backdated interactions, and independent task creation. Recording a meeting, call, email, message, introduction, or note can create the next task in the same operation.
+
+A connection can originate multiple linked job opportunities. The connection and each job retain independent histories and link back to each other.
+
+Existing databases migrate automatically and transactionally. Application IDs, timestamps, statuses, notes, status history, follow-ups, next actions, and artifact links are preserved. Typed follow-up notes remain historical note activities; their open tasks, and legacy next-action tasks, are not created for rejected or archived jobs. Legacy `/applications/<id>` links redirect to the migrated opportunity.
+
 ## Application Materials
 
-Generated resumes, fit analyses, and outreach drafts should stay as files in `JOBTRACKER_APPLICATIONS_DIR`. The tracker links those three material types to an application record and displays them on the application detail page. Markdown files are rendered as Markdown, and resume PDFs are shown with an inline PDF viewer. The file remains the source of truth; SQLite stores only the file path and metadata.
+Generated resumes, fit analyses, and outreach drafts should stay as files in `JOBTRACKER_APPLICATIONS_DIR`. The tracker links those material types to a job opportunity and displays them on its detail page. Markdown files are rendered as Markdown, and resume PDFs are shown with an inline PDF viewer. The file remains the source of truth; SQLite stores only the file path and metadata. Connection opportunities cannot own application artifacts.
 
 For existing installs with files already in the application-materials folder, run a one-time backfill after pulling the update:
 
@@ -99,7 +112,7 @@ The skills are packaged for both supported agents:
 - Codex source skills live in `skills/`.
 - Claude Code project skills live in `.claude/skills/`.
 
-- `job-tracker-add-posting`: extracts public posting facts, creates or updates a tracker record, avoids duplicate company+role records, and records update notes.
+- `job-tracker-add-posting`: extracts public posting facts, creates or updates a job opportunity, avoids duplicate organization+role records, and records update activities.
 - `job-application-resume`: creates tailored application materials and a candid fit analysis from verified user source material.
 
 Install or refresh them with:

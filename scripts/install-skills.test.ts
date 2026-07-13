@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -32,6 +32,15 @@ describe("agent skill packaging", () => {
 
       expect(claudeSkill).toContain("description:");
       expect(claudeSkill).toContain(codexSkill.match(/^description: .+$/m)?.[0]);
+      const codexRoot = path.join(projectRoot, "skills", skillName);
+      const claudeRoot = path.join(projectRoot, ".claude", "skills", skillName);
+      const files = (root: string): string[] => readdirSync(root, { withFileTypes: true }).flatMap((entry) => entry.isDirectory() ? files(path.join(root, entry.name)).map((name) => path.join(entry.name, name)) : [entry.name]).sort();
+      expect(files(claudeRoot)).toEqual(files(codexRoot));
+      for (const relative of files(codexRoot)) expect(readFileSync(path.join(claudeRoot, relative), "utf8")).toEqual(readFileSync(path.join(codexRoot, relative), "utf8"));
+      if (skillName === "job-tracker-add-posting") {
+        expect(codexSkill).toContain("Confirm opportunity.type is job.");
+        expect(claudeSkill).toContain("Confirm opportunity.type is job.");
+      }
     }
   });
 

@@ -1,7 +1,7 @@
 {
-  "name": "job-application-tracker",
-  "version": "0.1.6",
-  "description": "Local-first job application tracker with packaged Codex and Claude skills for job posting intake and application materials.",
+  "name": "opportunity-tracker",
+  "version": "0.1.7",
+  "description": "Local-first opportunity tracker for jobs and connections with packaged Codex and Claude workflows.",
   "license": "PolyForm-Noncommercial-1.0.0",
   "private": true,
   "scripts": {

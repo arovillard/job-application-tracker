@@ -5,6 +5,7 @@ import { useEffect, useId, useRef } from "react";
 type ModalProps = {
   children: React.ReactNode;
   onClose: () => void;
+  size?: "compact" | "wide";
   title: string;
 };
 
@@ -17,16 +18,27 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])"
 ].join(",");
 
-export function Modal({ children, onClose, title }: ModalProps) {
+let activeModalCount = 0;
+let overflowBeforeModal = "";
+
+export function Modal({ children, onClose, size = "compact", title }: ModalProps) {
   const dialogRef = useRef<HTMLElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const titleId = useId();
 
   useEffect(() => {
     previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (activeModalCount === 0) {
+      overflowBeforeModal = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+    activeModalCount += 1;
     const frame = window.requestAnimationFrame(() => {
-      const focusable = dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
-      (focusable ?? dialogRef.current)?.focus();
+      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? []);
+      const initialFocus = dialogRef.current?.querySelector<HTMLElement>("[data-autofocus]")
+        ?? focusable.find((element) => !element.classList.contains("modal__close"))
+        ?? focusable[0];
+      (initialFocus ?? dialogRef.current)?.focus();
     });
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -62,6 +74,10 @@ export function Modal({ children, onClose, title }: ModalProps) {
     return () => {
       window.cancelAnimationFrame(frame);
       document.removeEventListener("keydown", handleKeyDown);
+      activeModalCount -= 1;
+      if (activeModalCount === 0) {
+        document.body.style.overflow = overflowBeforeModal;
+      }
       previousFocus.current?.focus();
     };
   }, [onClose]);
@@ -72,7 +88,7 @@ export function Modal({ children, onClose, title }: ModalProps) {
         onClose();
       }
     }}>
-      <section aria-labelledby={titleId} aria-modal="true" className="modal" ref={dialogRef} role="dialog" tabIndex={-1}>
+      <section aria-labelledby={titleId} aria-modal="true" className={`modal modal--${size}`} ref={dialogRef} role="dialog" tabIndex={-1}>
         <header className="modal__header">
           <h2 className="modal__title" id={titleId}>{title}</h2>
           <button className="modal__close" type="button" onClick={onClose}>

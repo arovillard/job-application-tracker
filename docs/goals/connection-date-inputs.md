@@ -1,0 +1,21 @@
+# Connection Date Inputs Goal Ledger
+
+- Objective: Implement and verify the approved connection date input fix defined in `docs/specs/connection-date-inputs.md` and `docs/plans/connection-date-inputs.md`.
+- Budget: none specified.
+- Specification: `docs/specs/connection-date-inputs.md`.
+- Plan: `docs/plans/connection-date-inputs.md`.
+- Worktree: `<isolated-worktree>/opportunity-leads`.
+- Branch: `codex/opportunity-leads`.
+- Baseline: `12` test files, `52` tests passing.
+- Task CDI-1 owner: `terra-worker` Plato (`019f553b-c186-7083-8284-50ef55dc0a98`).
+- Task CDI-1 write set: `src/components/NewOpportunityPage.test.tsx`, `src/components/ConnectionOpportunityForm.tsx`.
+- Dependencies: none; Wave 1 is serialized.
+- Status: Goal complete; Task CDI-1 implemented at `cb17ed9`.
+- Decisions: native date controls; unchanged payload, API, persistence, and noon-UTC semantics.
+- Blockers: none.
+- Tests: worker red test reproduced missing date types; focused component/storage checks pass (`17/17`); full `npm run verify` passes (`12` files, `54` tests); typecheck and lint pass; `npm run build` succeeds.
+- Review: Task `sol-reviewer` approved code quality and found no code defects; `sol-final-reviewer` found no findings, approved the code, and authorized Goal completion.
+- Browser evidence: real Chromium DOM reports `Person's name` as `type="text"` and both `Date` and `Due date` as `type="date"`. A browser form submission completed with HTTP 201 and no ISO error, but the automation surface could not durably enter values into Chromium's segmented date editor, so that submission exercised blank-date behavior.
+- Persistence evidence: POST/GET against the same isolated preview persisted `occurredAt: 2026-07-10T12:00:00.000Z` and task `dueDate: 2026-07-15`; the real browser detail UI displayed `Jul 10, 2026` and `Due 2026-07-15`.
+- Residual verification limitation: exact nonblank date entry could not be driven through the browser automation surface; component DOM/payload tests and API/UI readback cover the boundary independently.
+- Final acceptance: complete. All approved acceptance criteria are satisfied; the documented browser-automation limitation is non-blocking.

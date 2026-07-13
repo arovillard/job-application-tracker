@@ -1,0 +1,132 @@
+# Task 1 Report: Opportunity Domain, Schema, and Legacy Migration
+
+## Status
+
+DONE_WITH_CONCERNS
+
+## Changed Files
+
+- `src/types.ts`
+- `src/lib/opportunity-migration.ts`
+- `src/lib/storage.ts`
+- `src/lib/storage.test.ts`
+- `.superpowers/sdd/task-1-report.md`
+
+## Commits
+
+- `36ec9261025b2b9240c971bf7a4ba7f84f75458c` — `feat: add opportunity domain and migration`
+
+## RED Verification
+
+Command:
+
+```bash
+npm test -- src/lib/storage.test.ts
+```
+
+Result: failed as expected before implementation: 2 failed tests, each with a `TypeError` because `createOpportunity` and `getOpportunityDetail` were not exported.
+
+## GREEN Verification
+
+Command:
+
+```bash
+npm test -- src/lib/storage.test.ts
+```
+
+Result: passed after implementation: 1 test file passed, 2 tests passed.
+
+Also run:
+
+```bash
+git diff --check
+```
+
+Result: passed with no whitespace errors.
+
+## Self-Review Findings
+
+- The opportunity schema is normalized and keeps legacy tables intact.
+- Legacy migration uses one transaction, retains application IDs, writes the schema marker last, and is idempotent through that marker.
+- Tests use a fresh temporary SQLite path; the live database was not opened or modified.
+- Input validation rejects invalid type-specific statuses and subtype field leakage; linked jobs require an active connection; artifacts are limited to jobs.
+
+## Concerns
+
+- `npm run typecheck` fails because out-of-scope application routes, components, dashboard code, and scripts still import removed legacy application types and storage APIs. Updating those consumers is outside the Task 1 write scope and is required by follow-on work before repository-wide typecheck can pass.
+- The focused Task 1 test file covers fresh subtype creation and idempotent legacy migration; broader API behavior coverage is expected in follow-on task tests.
+
+## Fix Pass
+
+### Changed Files
+
+- `src/lib/opportunity-migration.ts`
+- `src/lib/storage.ts`
+- `src/lib/storage.test.ts`
+- `.superpowers/sdd/task-1-report.md`
+
+### Commit
+
+- `b1444de41afab14c147cb0c3aa16f9bbbfbcf631` — `fix: preserve opportunity migration invariants`
+
+### RED Verification
+
+Command:
+
+```bash
+npm test -- src/lib/storage.test.ts
+```
+
+Result: 5 failures reproduced terminal task loss, incomplete normalized deduplication, non-atomic linked-job creation, missing update/archive origin validation, and non-ISO activity timestamp acceptance. A second RED run added coverage for update-path archiving and status-activity coupling, with 2 failures.
+
+### GREEN Verification
+
+Command:
+
+```bash
+npm test -- src/lib/storage.test.ts
+```
+
+Result: passed: 1 test file, 9 tests.
+
+Also run:
+
+```bash
+git diff --check
+npm run typecheck 2>&1 | rg 'src/lib/storage.ts|src/lib/opportunity-migration.ts|src/types.ts' || true
+```
+
+Result: no whitespace errors and no Task 1 product-file TypeScript errors. The full repository typecheck remains blocked by out-of-scope legacy consumers.
+
+### Remaining Concerns
+
+- The branch is not integration-ready until follow-on work migrates the legacy application routes, components, scripts, and their imports; repository-wide typecheck remains expected to fail until then.
+
+## Re-review Finding 2 Fix Pass
+
+### Changed Files
+
+- `src/lib/storage.ts`
+- `src/lib/storage.test.ts`
+- `.superpowers/sdd/task-1-report.md`
+
+### Commit
+
+- `bf7bee29f3d894556760e237b8067a18d8651eee` — `fix: preserve terminal task lifecycle history`
+
+### RED Verification
+
+`npm test -- src/lib/storage.test.ts`
+
+Result: failed 1 focused test because a permitted edit to a completed task rewrote its `completedAt` timestamp.
+
+### GREEN Verification
+
+`npm test -- src/lib/storage.test.ts`; `git diff --check`
+
+Result: passed: 1 test file, 10 tests; no whitespace errors.
+
+### Remaining Concerns
+
+- Follow-up migration activity behavior is intentionally unchanged pending the requested human decision.
+- Repository-wide typecheck remains blocked by out-of-scope legacy application consumers.

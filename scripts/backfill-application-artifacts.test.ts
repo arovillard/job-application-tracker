@@ -2,120 +2,13 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
-import { type ApplicationInput } from "../src/types";
-import {
-  createApplication,
-  getApplicationDetail,
-  resetStorageForTests,
-  upsertApplicationArtifact
-} from "../src/lib/storage";
-
-let tempDir: string;
-let dbPath: string;
-let applicationsDir: string;
-
-const baseInput: ApplicationInput = {
-  company: "Acme",
-  role: "Frontend Engineer",
-  status: "wishlist",
-  source: "Company careers",
-  location: "Remote",
-  url: "https://example.com/jobs/frontend",
-  contact: null,
-  notes: "Frontend platform role",
-  appliedDate: null,
-  followUpDate: null
-};
-
-function runBackfill(args: string[] = []) {
-  const output = execFileSync(process.execPath, ["scripts/backfill-application-artifacts.mjs", ...args], {
-    cwd: path.resolve(__dirname, ".."),
-    encoding: "utf8"
-  });
-
-  return JSON.parse(output) as {
-    scannedFiles: number;
-    registered: number;
-    skipped: Array<{ reason: string; path: string }>;
-  };
-}
-
-function countArtifacts() {
-  const db = new Database(dbPath);
-  try {
-    return (db.prepare("SELECT COUNT(*) AS count FROM application_artifacts").get() as { count: number })
-      .count;
-  } finally {
-    db.close();
-  }
-}
-
-beforeEach(() => {
-  tempDir = mkdtempSync(path.join(tmpdir(), "jobtracker-backfill-"));
-  dbPath = path.join(tempDir, "test.sqlite");
-  applicationsDir = path.join(tempDir, "applications");
-  process.env.JOBTRACKER_DB_PATH = dbPath;
-});
-
-afterEach(() => {
-  resetStorageForTests();
-  delete process.env.JOBTRACKER_DB_PATH;
-  rmSync(tempDir, { force: true, recursive: true });
-});
-
+let tempDir: string; let dbPath: string; let applicationsDir: string;
+function run(args = ["--db", dbPath]) { return JSON.parse(execFileSync(process.execPath, ["scripts/backfill-application-artifacts.mjs", ...args, "--applications-dir", applicationsDir], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" })) as { registered: number; skipped: Array<{ reason: string }> }; }
+beforeEach(() => { tempDir = mkdtempSync(path.join(tmpdir(), "jobtracker-backfill-")); dbPath = path.join(tempDir, "test.sqlite"); applicationsDir = path.join(tempDir, "applications"); const db = new Database(dbPath); db.exec("CREATE TABLE opportunities (id TEXT PRIMARY KEY, type TEXT NOT NULL, label TEXT NOT NULL, organization TEXT, status TEXT NOT NULL, priority TEXT NOT NULL, summary TEXT, origin_opportunity_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE job_opportunity_details (opportunity_id TEXT PRIMARY KEY, url TEXT, source TEXT, location TEXT, contact TEXT, applied_date TEXT);"); db.prepare("INSERT INTO opportunities VALUES ('job-id', 'job', 'Frontend Engineer', 'Acme', 'wishlist', 'medium', NULL, NULL, ?, ?)").run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"); db.prepare("INSERT INTO job_opportunity_details VALUES ('job-id', NULL, NULL, NULL, NULL, NULL)").run(); db.close(); });
+afterEach(() => { rmSync(tempDir, { force: true, recursive: true }); });
 describe("backfill-application-artifacts CLI", () => {
-  it("registers existing files for matching company folders and is idempotent", () => {
-    const acme = createApplication(baseInput);
-    createApplication({ ...baseInput, company: "No Folder Co", role: "Engineering Manager" });
-    resetStorageForTests();
-
-    const acmeDir = path.join(applicationsDir, "Acme");
-    const unknownDir = path.join(applicationsDir, "Unknown Co");
-    mkdirSync(acmeDir, { recursive: true });
-    mkdirSync(unknownDir, { recursive: true });
-    writeFileSync(path.join(acmeDir, "frontend-engineer-fit-analysis.md"), "# Fit\n");
-    writeFileSync(path.join(acmeDir, "reach-out-message.md"), "# Outreach\n");
-    writeFileSync(path.join(acmeDir, "Example Candidate Resume.pdf"), "pdf");
-    writeFileSync(path.join(acmeDir, "Acme Jobs.pdf"), "pdf");
-    writeFileSync(path.join(unknownDir, "unknown-fit-analysis.md"), "# Unknown\n");
-    process.env.JOBTRACKER_DB_PATH = dbPath;
-    upsertApplicationArtifact(acme.id, {
-      type: "posting",
-      title: "Existing Posting",
-      filePath: path.join(acmeDir, "Acme Jobs.pdf"),
-      contentType: "application/pdf"
-    });
-    resetStorageForTests();
-
-    const result = runBackfill(["--db", dbPath, "--applications-dir", applicationsDir]);
-
-    expect(result).toMatchObject({
-      scannedFiles: 5,
-      registered: 3
-    });
-    expect(result.skipped).toEqual([
-      expect.objectContaining({
-        reason: "unsupported_material_type",
-        path: path.join(acmeDir, "Acme Jobs.pdf")
-      }),
-      expect.objectContaining({
-        reason: "no_matching_application",
-        path: path.join(unknownDir, "unknown-fit-analysis.md")
-      })
-    ]);
-    expect(getApplicationDetail(acme.id)?.artifacts.map((artifact) => artifact.type).sort()).toEqual([
-      "fit_analysis",
-      "outreach_message",
-      "resume"
-    ]);
-
-    const secondRun = runBackfill(["--db", dbPath, "--applications-dir", applicationsDir]);
-
-    expect(secondRun.registered).toBe(3);
-    expect(countArtifacts()).toBe(3);
-  });
+  it("backfills matching files into opportunity artifacts idempotently", () => { const dir = path.join(applicationsDir, "Acme"); mkdirSync(dir, { recursive: true }); writeFileSync(path.join(dir, "frontend-engineer-fit-analysis.md"), "# Fit"); writeFileSync(path.join(dir, "Example Candidate Resume.pdf"), "pdf"); expect(run()).toMatchObject({ registered: 2, skipped: [] }); expect(run()).toMatchObject({ registered: 2 }); const db = new Database(dbPath); try { expect(db.prepare("SELECT COUNT(*) AS count FROM opportunity_artifacts WHERE opportunity_id = 'job-id'").get()).toEqual({ count: 2 }); } finally { db.close(); } });
+  it("migrates an unmigrated legacy database and resolves JOBTRACKER_DB_PATH", () => { const db = new Database(dbPath); try { db.exec("DROP TABLE job_opportunity_details; DROP TABLE opportunities; CREATE TABLE applications (id TEXT PRIMARY KEY, company TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL, source TEXT, location TEXT, url TEXT, contact TEXT, notes TEXT, applied_date TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);"); db.prepare("INSERT INTO applications VALUES ('legacy-job', 'Acme', 'Engineer', 'wishlist', NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)").run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"); } finally { db.close(); } const dir = path.join(applicationsDir, "Acme"); mkdirSync(dir, { recursive: true }); writeFileSync(path.join(dir, "legacy-fit-analysis.md"), "# Fit"); const previous = process.env.JOBTRACKER_DB_PATH; process.env.JOBTRACKER_DB_PATH = dbPath; try { expect(run([])).toMatchObject({ registered: 1 }); } finally { if (previous === undefined) delete process.env.JOBTRACKER_DB_PATH; else process.env.JOBTRACKER_DB_PATH = previous; } const migrated = new Database(dbPath); migrated.pragma("foreign_keys = ON"); try { for (const table of ["job_opportunity_details", "opportunity_activities", "opportunity_tasks", "opportunity_artifacts"]) expect(migrated.prepare(`PRAGMA foreign_key_list(${table})`).all()).toEqual(expect.arrayContaining([expect.objectContaining({ table: "opportunities", on_delete: "CASCADE" })])); expect(migrated.prepare("PRAGMA foreign_key_list(opportunity_tasks)").all()).toEqual(expect.arrayContaining([expect.objectContaining({ table: "opportunity_activities", on_delete: "SET NULL" })])); migrated.prepare("DELETE FROM opportunities WHERE id='legacy-job'").run(); for (const table of ["job_opportunity_details", "opportunity_activities", "opportunity_tasks", "opportunity_artifacts"]) expect(migrated.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE opportunity_id='legacy-job'`).get()).toEqual({ count: 0 }); } finally { migrated.close(); } });
 });

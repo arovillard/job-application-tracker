@@ -53,8 +53,7 @@ After creating or updating an application-material file, link it to the existing
 
 ```bash
 node scripts/register-application-artifact.mjs \
-  --company "Company Name" \
-  --role "Role Title" \
+  --opportunity-id "VERIFIED_OPPORTUNITY_ID" \
   --type fit_analysis \
   --title "Fit Analysis" \
   --file "/absolute/path/to/company/role-fit-analysis.md"
@@ -66,7 +65,7 @@ Only register the three material types shown in the app:
 - `outreach_message` for recruiter, hiring-manager, or cold outreach drafts.
 - `resume` for tailored resumes.
 
-If company and role matching is ambiguous, rerun the command with `--application-id <id>` from the verified tracker record. The Markdown file remains the source of truth; the database stores only the link and metadata.
+Use `--opportunity-id <id>` from the verified tracker record whenever it is available. Company and role matching is a fallback; `--application-id <id>` remains a deprecated alias. The Markdown file remains the source of truth; the database stores only the link and metadata.
 
 ## Required Markdown Analysis
 

@@ -1,13 +1,3 @@
-import { ApplicationDetailPage } from "../../../components/ApplicationDetailPage";
+import { redirect } from "next/navigation";
 
-type ApplicationDetailRouteProps = {
-  params: Promise<{
-    id: string;
-  }>;
-};
-
-export default async function ApplicationDetailRoute({ params }: ApplicationDetailRouteProps) {
-  const { id } = await params;
-
-  return <ApplicationDetailPage applicationId={id} />;
-}
+export default async function LegacyApplicationDetailRoute({ params }: { params: Promise<{ id: string }> }) { const { id } = await params; redirect(`/opportunities/${id}`); }

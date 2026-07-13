@@ -12,7 +12,7 @@ Use this skill before application-materials work whenever a public job posting s
 1. Read `.env.local` when present and note `JOBTRACKER_DB_PATH`.
 2. Extract posting facts from the public job URL.
 3. Add or update the tracker record with `node scripts/upsert-job-posting.mjs`.
-4. Verify the script output shows the expected company, role, URL, status, and action.
+4. Verify the script output shows the expected opportunity, URL, status, and action.
 5. If the user is applying or wants interview-ready materials, invoke `job-application-resume` after the tracker record is verified.
 
 Do not submit applications, sign in, or use credentials for the user.
@@ -51,8 +51,8 @@ Script defaults:
 
 - DB path: `JOBTRACKER_DB_PATH` when set, otherwise `./data/jobtracker.sqlite` from the current working directory.
 - New record status: `wishlist`
-- Duplicate key: normalized `company + role`
-- Duplicate behavior: update the existing record and add an `update` note, never create a duplicate.
+- Duplicate key: normalized `organization + label` among job opportunities only.
+- Duplicate behavior: update the existing job opportunity and add a `note` activity, never create a duplicate.
 - `--reactivate`: if an existing duplicate is `archived` or `rejected` and the posting is not closed, set it back to `wishlist`.
 
 Use `--status applied` only when the user says they already applied. Use `--status archived` only when the user explicitly confirms the posting should be archived.
@@ -68,10 +68,11 @@ printf '%s\n' '{"company":"Company","role":"Role","url":"https://example.com/job
 
 Read the script JSON output. Confirm:
 
-- `action` is `created` or `updated`.
-- `application.company`, `application.role`, and `application.url` match the posting.
-- `application.status` is appropriate for the user intent.
-- `changes` and `noteIds` show that duplicate updates were documented.
+- Confirm action is created or updated.
+- Confirm opportunity.type is job.
+- Confirm opportunity.organization, opportunity.label, opportunity.url, and opportunity.status match the posting.
+- Confirm changes and activityIds document duplicate updates.
+- Treat application as a deprecated output alias and do not depend on it in new workflows.
 
 If the script fails or the DB shape is unclear, read `references/schema.md`. Prefer fixing script invocation or using the reference to inspect state; do not hand-write ad hoc SQL unless the script is blocked.
 
