@@ -19,7 +19,7 @@
 | AR-2 | AR-1 | `/root/ar2_worker` | `scripts/setup-user.mjs`, `scripts/setup-user.test.ts` | complete | 36 focused tests | Approved, 0 findings; commit `9c86042` |
 | AR-3 | AR-1 | `/root/agent_evidence` reactivated as worker | Skills, root instructions, workflow/install tests | complete | 9 focused tests; skill validation and parity clean | Clean re-review; commits `a153130`, `66834f4` |
 | AR-4 | AR-2, AR-3 | `/root/proposal_review` reactivated as worker | `README.md`, `docs/agent-setup.md`, documentation assertion | complete | 3 focused tests | Approved, 0 findings; commit `ebe5624` |
-| AR-5 | AR-1–AR-4 | Root Sol | Verification only | in progress | acceptance running | Final Sol review |
+| AR-5 | AR-1–AR-4 | Root Sol | Verification only | final review pending | 46 focused; 223 full; build passed | Awaiting final Sol review |
 
 ## Decisions
 
@@ -42,4 +42,13 @@
 - AR-3 initial commit `a153130`; fix required for direct resume-skill preflight and exact no-link copy.
 - AR-3 fix commit `66834f4`; re-review approved with zero findings.
 - AR-4 approved with zero findings at `ebe5624`.
-- Current blockers: none; AR-5 acceptance is active.
+- Full `npm run verify`: lint and typecheck clean; 24 files and 223 tests passed.
+- Production `npm run build`: compiled, typechecked, and generated all routes successfully; only the pre-existing multi-lockfile worktree warning appeared.
+- Focused feature suite: 5 files and 46 tests passed.
+- All three skills validated; Codex and Claude trees are byte-identical.
+- Privacy/hygiene: `.env.local`, SQLite, and default applications artifacts are ignored; Git diff is clean; generated `next-env.d.ts` build change was removed.
+- Live readiness CLI with Google URL and external applications path returned schema v1 `ready`, external-access check required, and only missing-personal-skill warnings.
+- Real custom-database upsert/registration and unsafe custom-output privacy cases pass in automated contract tests.
+- Fresh-context scenario traces A–C all passed for missing resume, supplied-link Google success/failure, DOCX/profile warning, PDF warning, direct resume invocation, custom paths, master immutability, and snapshot-before-registration.
+- Live private Google Docs create/readback/export was not run because no user-owned test document was supplied; fixture traces are not represented as live connector proof.
+- Current blocker: final whole-branch Sol review.
