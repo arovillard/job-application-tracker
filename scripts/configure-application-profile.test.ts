@@ -78,6 +78,17 @@ describe("updateApplicationConfig", () => {
     expect(statSync(path.join(root, ".env.local")).mode & 0o777).toBe(0o400);
   });
 
+  it("preserves an existing mode of 0000 when privileged reading is available", () => {
+    const root = fixture();
+    const filename = path.join(root, ".env.local");
+    const original = 'JOBTRACKER_LINKEDIN_URL=""\n';
+    writeFileSync(filename, original, { mode: 0o000 });
+    updateApplicationConfig(root, { profileUrl: "https://example.com/profile" }, {
+      readFile: () => original
+    });
+    expect(statSync(filename).mode & 0o777).toBe(0o000);
+  });
+
   it("cleans the temporary file and preserves the original after rename failure", () => {
     const root = fixture();
     writeFileSync(path.join(root, ".env.local"), "# original\n", { mode: 0o600 });

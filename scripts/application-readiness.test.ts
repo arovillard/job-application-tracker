@@ -199,6 +199,105 @@ describe("evaluateApplicationReadiness", () => {
     expect(JSON.stringify(result)).not.toContain("do not leak this phrase");
   });
 
+  it("does not treat a dotfile-only ignore rule as protection for application artifacts", () => {
+    const root = fixture();
+    const resume = path.join(os.tmpdir(), `${path.basename(root)}-resume.docx`);
+    roots.push(resume);
+    writeFileSync(resume, "resume");
+    mkdirSync(path.join(root, "custom-output"));
+    writeFileSync(path.join(root, ".gitignore"), [
+      ".env.local",
+      "custom-output/.*"
+    ].join("\n"));
+    writeFileSync(path.join(root, ".env.local"), [
+      `JOBTRACKER_BASE_RESUME_PATH="${resume}"`,
+      'JOBTRACKER_APPLICATIONS_DIR="./custom-output"'
+    ].join("\n"));
+    const result = evaluateApplicationReadiness({ projectRoot: root, processEnv: {} });
+    expect(result.status).toBe("blocked");
+    expect(result.blockingIssues).toContain("applications_directory_not_ignored");
+  });
+
+  it("blocks an inaccessible resume parent instead of reporting a missing resume", () => {
+    const root = fixture();
+    const parent = path.join(os.tmpdir(), `${path.basename(root)}-resume-parent`);
+    roots.push(parent);
+    mkdirSync(parent);
+    const resume = path.join(parent, "resume.docx");
+    writeFileSync(resume, "resume");
+    chmodSync(parent, 0o000);
+    try {
+      writeFileSync(path.join(root, ".env.local"), `JOBTRACKER_BASE_RESUME_PATH="${resume}"\n`);
+      const result = evaluateApplicationReadiness({ projectRoot: root, processEnv: {} });
+      expect(result.status).toBe("blocked");
+      expect(result.blockingIssues).toContain("resume_permission_denied");
+      expect(result.blockingIssues).not.toContain("resume_invalid");
+    } finally {
+      chmodSync(parent, 0o700);
+    }
+  });
+
+  it("blocks an inaccessible applications parent instead of reporting an unavailable directory", () => {
+    const root = fixture();
+    const parent = path.join(os.tmpdir(), `${path.basename(root)}-applications-parent`);
+    roots.push(parent);
+    const output = path.join(parent, "output");
+    mkdirSync(output, { recursive: true });
+    chmodSync(parent, 0o000);
+    try {
+      writeFileSync(path.join(root, ".env.local"), `JOBTRACKER_APPLICATIONS_DIR="${output}"\n`);
+      const result = evaluateApplicationReadiness({ projectRoot: root, processEnv: {} });
+      expect(result.status).toBe("blocked");
+      expect(result.blockingIssues).toContain("applications_directory_permission_denied");
+      expect(result.blockingIssues).not.toContain("applications_directory_unavailable");
+    } finally {
+      chmodSync(parent, 0o700);
+    }
+  });
+
+  it("reports a stable permission code for an inaccessible database parent", () => {
+    const root = fixture();
+    const parent = path.join(os.tmpdir(), `${path.basename(root)}-database-parent`);
+    roots.push(parent);
+    const databaseDirectory = path.join(parent, "data");
+    mkdirSync(databaseDirectory, { recursive: true });
+    chmodSync(parent, 0o000);
+    try {
+      writeFileSync(path.join(root, ".env.local"), `JOBTRACKER_DB_PATH="${path.join(databaseDirectory, "jobs.sqlite")}"\n`);
+      const result = evaluateApplicationReadiness({ projectRoot: root, processEnv: {} });
+      expect(result.status).toBe("blocked");
+      expect(result.blockingIssues).toContain("database_parent_permission_denied");
+      expect(result.blockingIssues).not.toContain("database_parent_unavailable");
+    } finally {
+      chmodSync(parent, 0o700);
+    }
+  });
+
+  it("treats a missing database parent as user-correctable input", () => {
+    const root = fixture();
+    writeFileSync(path.join(root, ".env.local"), [
+      'JOBTRACKER_APPLICATIONS_DIR="./applications"',
+      'JOBTRACKER_DB_PATH="./missing/data/jobs.sqlite"'
+    ].join("\n"));
+    const result = evaluateApplicationReadiness({ projectRoot: root, processEnv: {} });
+    expect(result.status).toBe("needs_input");
+    expect(result.blockingIssues).toContain("database_parent_unavailable");
+  });
+
+  it("blocks when an existing database parent is not writable", () => {
+    const root = fixture();
+    const databaseParent = path.join(os.tmpdir(), `${path.basename(root)}-readonly-database`);
+    roots.push(databaseParent);
+    mkdirSync(databaseParent, { mode: 0o500 });
+    writeFileSync(path.join(root, ".env.local"), [
+      'JOBTRACKER_APPLICATIONS_DIR="./applications"',
+      `JOBTRACKER_DB_PATH="${path.join(databaseParent, "jobs.sqlite")}"`
+    ].join("\n"));
+    const result = evaluateApplicationReadiness({ projectRoot: root, processEnv: {} });
+    expect(result.status).toBe("blocked");
+    expect(result.blockingIssues).toContain("database_parent_unwritable");
+  });
+
   it("blocks unreadable configuration", () => {
     const root = fixture();
     writeFileSync(path.join(root, ".env.local"), "JOBTRACKER_BASE_RESUME_PATH=x");

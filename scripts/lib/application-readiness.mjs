@@ -38,7 +38,8 @@ const USER_ISSUES = new Set([
   "resume_missing",
   "resume_invalid",
   "applications_directory_unconfigured",
-  "applications_directory_unavailable"
+  "applications_directory_unavailable",
+  "database_parent_unavailable"
 ]);
 
 function unquoteDotenv(value) {
@@ -130,6 +131,16 @@ function canAccess(target, mode) {
   }
 }
 
+function inspectPath(target) {
+  try {
+    return { state: "ok", stats: statSync(target) };
+  } catch (error) {
+    if (error && ["ENOENT", "ENOTDIR"].includes(error.code)) return { state: "missing", stats: null };
+    if (error && ["EACCES", "EPERM"].includes(error.code)) return { state: "permission_denied", stats: null };
+    return { state: "error", stats: null };
+  }
+}
+
 function isInside(root, target) {
   const relative = path.relative(root, target);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
@@ -137,7 +148,7 @@ function isInside(root, target) {
 
 function isGitIgnored(projectRoot, target, directory = false) {
   if (!isInside(projectRoot, target)) return true;
-  const probe = directory ? path.join(target, ".jobtracker-private-probe") : target;
+  const probe = directory ? path.join(target, "jobtracker-private-probe") : target;
   try {
     execFileSync("git", ["check-ignore", "-q", "--no-index", probe], {
       cwd: projectRoot,
@@ -202,9 +213,9 @@ export function evaluateApplicationReadiness({
     if (!valid) blockingIssues.push("resume_invalid");
   } else if (config.baseResumePath) {
     const kind = localResumeKind(config.baseResumePath);
-    const exists = existsSync(config.baseResumePath);
-    const file = exists && statSync(config.baseResumePath).isFile();
-    const permissionBits = file ? statSync(config.baseResumePath).mode & 0o444 : 0;
+    const inspection = inspectPath(config.baseResumePath);
+    const file = inspection.state === "ok" && inspection.stats.isFile();
+    const permissionBits = file ? inspection.stats.mode & 0o444 : 0;
     const readable = file && Boolean(permissionBits) && canAccess(config.baseResumePath, constants.R_OK);
     const valid = Boolean(kind && readable);
     resume = {
@@ -217,7 +228,9 @@ export function evaluateApplicationReadiness({
         ? "Local master resume is available and must be treated as read-only."
         : "Choose an existing readable DOCX, PDF, Markdown, or text resume."
     };
-    if (kind && file && !readable) blockingIssues.push("resume_unreadable");
+    if (inspection.state === "permission_denied") blockingIssues.push("resume_permission_denied");
+    else if (inspection.state === "error") blockingIssues.push("resume_inspection_failed");
+    else if (kind && file && !readable) blockingIssues.push("resume_unreadable");
     else if (!valid) blockingIssues.push("resume_invalid");
     if (kind === "pdf") warnings.push("pdf_formatting_limited");
     if (isInside(absoluteRoot, config.baseResumePath) && !isGitIgnored(absoluteRoot, config.baseResumePath)) {
@@ -237,11 +250,14 @@ export function evaluateApplicationReadiness({
 
   const applicationsPath = config.applicationsDirectory;
   const applicationsConfigured = Boolean(applicationsPath);
-  const applicationsExists = applicationsConfigured && existsSync(applicationsPath) && statSync(applicationsPath).isDirectory();
+  const applicationsInspection = applicationsConfigured ? inspectPath(applicationsPath) : { state: "missing", stats: null };
+  const applicationsExists = applicationsInspection.state === "ok" && applicationsInspection.stats.isDirectory();
   const applicationsWritable = applicationsExists
-    && Boolean(statSync(applicationsPath).mode & 0o222)
+    && Boolean(applicationsInspection.stats.mode & 0o222)
     && canAccess(applicationsPath, constants.W_OK);
   if (!applicationsConfigured) blockingIssues.push("applications_directory_unconfigured");
+  else if (applicationsInspection.state === "permission_denied") blockingIssues.push("applications_directory_permission_denied");
+  else if (applicationsInspection.state === "error") blockingIssues.push("applications_directory_inspection_failed");
   else if (!applicationsExists) blockingIssues.push("applications_directory_unavailable");
   else if (!applicationsWritable) blockingIssues.push("applications_directory_unwritable");
   if (applicationsConfigured && isInside(absoluteRoot, applicationsPath) && !isGitIgnored(absoluteRoot, applicationsPath, true)) {
@@ -249,11 +265,15 @@ export function evaluateApplicationReadiness({
   }
 
   const databaseParent = path.dirname(config.databasePath);
-  const databaseParentExists = existsSync(databaseParent) && statSync(databaseParent).isDirectory();
+  const databaseInspection = inspectPath(databaseParent);
+  const databaseParentExists = databaseInspection.state === "ok" && databaseInspection.stats.isDirectory();
   const databaseParentWritable = databaseParentExists
-    && Boolean(statSync(databaseParent).mode & 0o222)
+    && Boolean(databaseInspection.stats.mode & 0o222)
     && canAccess(databaseParent, constants.W_OK);
-  if (!databaseParentExists || !databaseParentWritable) blockingIssues.push("database_parent_unavailable");
+  if (databaseInspection.state === "permission_denied") blockingIssues.push("database_parent_permission_denied");
+  else if (databaseInspection.state === "error") blockingIssues.push("database_parent_inspection_failed");
+  else if (!databaseParentExists) blockingIssues.push("database_parent_unavailable");
+  else if (!databaseParentWritable) blockingIssues.push("database_parent_unwritable");
 
   const repositoryComplete = allSkillsExist(absoluteRoot);
   if (!repositoryComplete) blockingIssues.push("skills_repository_incomplete");
@@ -351,11 +371,7 @@ function atomicWriteEnv(filename, contents, operations = {}) {
   const rename = operations.rename ?? renameSync;
   const remove = operations.unlink ?? unlinkSync;
   const temporary = path.join(path.dirname(filename), `.env.local.tmp-${process.pid}-${randomUUID()}`);
-  let mode = 0o600;
-  if (existsSync(filename)) {
-    const restrictive = lstatSync(filename).mode & 0o600;
-    if (restrictive) mode = restrictive;
-  }
+  const mode = existsSync(filename) ? lstatSync(filename).mode & 0o600 : 0o600;
   try {
     writeFileSync(temporary, contents, { encoding: "utf8", mode: 0o600, flag: "wx" });
     chmodSync(temporary, mode);
@@ -391,7 +407,8 @@ function updateConfig(projectRoot, input, allowedKeys, operations) {
   const root = path.resolve(projectRoot);
   validateInput(input, allowedKeys);
   const envPath = path.join(root, ".env.local");
-  const original = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
+  const read = operations?.readFile ?? readFileSync;
+  const original = existsSync(envPath) ? read(envPath, "utf8") : "";
   const parsed = parseDotenv(original);
   const normalized = { ...input };
   if (input.baseResumeUrl) normalized.baseResumePath = "";
