@@ -86,17 +86,19 @@ afterEach(() => {
 });
 
 describe("attention arrival orchestration", () => {
-  it("focuses an active attention arrival and moves review focus to its task", async () => {
+  it("focuses an active attention arrival and exposes direct task decisions", async () => {
     const due = { ...connection.tasks[0], dueDate: "2026-07-13" };
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [due] }));
     const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: due.id } });
     await flush();
+
     const banner = container.querySelector<HTMLElement>(".attention-context--active")!;
     expect(document.activeElement).toBe(banner);
     expect(banner.textContent).toContain("Send portfolio");
-    act(() => [...banner.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Review options")!.click());
-    expect(document.activeElement?.id).toBe(`opportunity-task-${due.id}`);
-    expect(document.activeElement?.classList.contains("task-item--attention")).toBe(true);
+    expect([...banner.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+      "Complete",
+      "Cancel"
+    ]);
     act(() => root.unmount());
   });
 
@@ -117,6 +119,71 @@ describe("attention arrival orchestration", () => {
     expect(container.querySelector('[role="status"]')?.textContent).toBe("Action completed");
     expect(container.textContent).toContain("This attention item is no longer active");
     expect(document.activeElement).toBe(container.querySelector(".attention-context--resolved"));
+    act(() => root.unmount());
+  });
+
+  it("cancels from the attention banner, announces resolution, and preserves focus", async () => {
+    let resolveCancel!: (value: Response) => void;
+    const cancelRequest = new Promise<Response>((resolve) => { resolveCancel = resolve; });
+    const due = { ...connection.tasks[0], dueDate: "2026-07-13" };
+    const cancelled = { ...due, state: "cancelled" as const };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [due] }))
+      .mockReturnValueOnce(cancelRequest);
+    const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: due.id } });
+    await flush();
+
+    const banner = container.querySelector<HTMLElement>(".attention-context--active")!;
+    const buttons = [...banner.querySelectorAll<HTMLButtonElement>("button")];
+    const complete = buttons.find((button) => button.textContent === "Complete")!;
+    const cancel = buttons.find((button) => button.textContent === "Cancel");
+    expect(cancel).toBeDefined();
+    if (!cancel) {
+      act(() => root.unmount());
+      return;
+    }
+
+    act(() => { cancel.click(); cancel.click(); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(complete.disabled).toBe(true);
+    expect(cancel.disabled).toBe(true);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(`/api/opportunities/opportunity-1/tasks/${due.id}`);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({ action: "cancel" });
+
+    await act(async () => { resolveCancel(jsonResponse({ ...connection, tasks: [cancelled] })); });
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("Action cancelled");
+    expect(container.textContent).toContain("This attention item is no longer active");
+    expect(document.activeElement).toBe(container.querySelector(".attention-context--resolved"));
+    act(() => root.unmount());
+  });
+
+  it("keeps banner actions available after cancellation fails", async () => {
+    const due = { ...connection.tasks[0], dueDate: "2026-07-13" };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [due] }))
+      .mockResolvedValueOnce(jsonResponse({ error: "Cancel rejected" }, false));
+    const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: due.id } });
+    await flush();
+
+    const banner = container.querySelector<HTMLElement>(".attention-context--active")!;
+    const cancel = [...banner.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Cancel");
+    expect(cancel).toBeDefined();
+    if (!cancel) {
+      act(() => root.unmount());
+      return;
+    }
+
+    act(() => cancel.click());
+    await flush();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Cancel rejected");
+    expect(container.querySelector(".attention-context--active")).not.toBeNull();
+    const retryButtons = [...container.querySelectorAll<HTMLButtonElement>(
+      ".attention-context--active button"
+    )];
+    expect(retryButtons.map((button) => button.textContent)).toEqual(["Complete", "Cancel"]);
+    expect(retryButtons.every((button) => !button.disabled)).toBe(true);
     act(() => root.unmount());
   });
 

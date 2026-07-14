@@ -7,6 +7,7 @@ export type OpportunityAttentionBannerProps = {
   context: ResolvedAttentionContext;
   pendingTaskId: string | null;
   onComplete: (task: OpportunityTask) => void;
+  onCancel: (task: OpportunityTask) => void;
   onReview: () => void;
   onSetNextAction: (trigger: HTMLButtonElement) => void;
 };
@@ -15,6 +16,7 @@ export const OpportunityAttentionBanner = forwardRef<HTMLElement, OpportunityAtt
   context,
   pendingTaskId,
   onComplete,
+  onCancel,
   onReview,
   onSetNextAction
 }, ref) {
@@ -28,7 +30,7 @@ export const OpportunityAttentionBanner = forwardRef<HTMLElement, OpportunityAtt
       </div>
       <div className="attention-context__actions">
         <button className="button button--primary" disabled={pendingTaskId === context.task.id} type="button" onClick={() => onComplete(context.task)}>Complete</button>
-        <button className="button" type="button" onClick={onReview}>Review options</button>
+        <button className="button" disabled={pendingTaskId === context.task.id} type="button" onClick={() => onCancel(context.task)}>Cancel</button>
       </div>
     </section>;
   }

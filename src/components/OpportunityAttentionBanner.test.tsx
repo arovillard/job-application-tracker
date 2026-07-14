@@ -19,20 +19,29 @@ const task: OpportunityTask = {
 const callbacks = {
   pendingTaskId: null,
   onComplete: vi.fn(),
+  onCancel: vi.fn(),
   onReview: vi.fn(),
   onSetNextAction: vi.fn()
 };
 
 describe("OpportunityAttentionBanner", () => {
-  it("renders an actionable due-task arrival", () => {
+  it("renders Complete and Cancel as the direct due-task decisions", () => {
     const markup = renderToStaticMarkup(<OpportunityAttentionBanner
       {...callbacks}
       context={{ state: "active_task", task, isOverdue: false }}
     />);
+    const pending = renderToStaticMarkup(<OpportunityAttentionBanner
+      {...callbacks}
+      context={{ state: "active_task", task, isOverdue: false }}
+      pendingTaskId={task.id}
+    />);
+
     expect(markup).toContain("Needs attention today");
     expect(markup).toContain("Investigate unanswered email");
-    expect(markup).toContain("Complete");
-    expect(markup).toContain("Review options");
+    expect(markup).toContain(">Complete</button>");
+    expect(markup).toContain(">Cancel</button>");
+    expect(markup).not.toContain("Review options");
+    expect(pending.match(/disabled=""/g)).toHaveLength(2);
     expect(markup).toContain('aria-labelledby="attention-context-title"');
     expect(markup).toContain('id="attention-context-title"');
     expect(markup).toContain('tabindex="-1"');
