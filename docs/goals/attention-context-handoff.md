@@ -75,11 +75,13 @@ CLI-routed agents below are independent external processes. Their usage is not g
 
 ## Final acceptance
 
-- Focused suite: pending
-- `npm run verify`: pending
-- `npm run build`: pending
-- Privacy/scope inspection: pending
-- Sol final review: pending
+- Focused suite: final bounded fix passed 8 files / 112 tests; root re-verification pending after ledger commit
+- `npm run verify`: final bounded fix passed lint, typecheck, and 27 files / 297 tests; root re-verification pending after ledger commit
+- `npm run build`: final bounded fix build passed; root re-verification pending after ledger commit
+- Privacy/scope inspection: final fix changed only `OpportunityDetailPage.tsx` and its integration test; final clean-state inspection pending
+- Initial Sol final review: one Important keyed post-Complete focus-intent blocker, no other findings; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/sol-final-acceptance.report.md`; requested/observed `gpt-5.6-sol`; role `sol-final-reviewer`; effort `high`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 994665 dispatch tokens; 321090ms.
+- Terra final fix: dispatch `final-terra-focus-fix-2`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/final-terra-focus-fix-run.report.md`; requested/observed `gpt-5.6-terra`; role `terra-worker`; effort `medium`; sandbox `workspace-write`; phase verified; telemetry reported; exit 0; 1105760 dispatch tokens; 199796ms.
+- Final fix commit: `c4285f9` (`fix: scope resolved focus to attention target`); keyed intent regression RED then GREEN; final Sol re-review pending.
 
 ## Decisions and blockers
 
@@ -93,4 +95,5 @@ CLI-routed agents below are independent external processes. Their usage is not g
 - ACH-3 resolved risk: committed opportunity changes invalidate old async work before passive effects, while abandoned concurrent renders cannot corrupt committed identity; identity and generations jointly guard every result, finalizer, callback, and redirect lane.
 - ACH-4 additionally follows the design-engineer accessibility/performance checklist; no new motion is appropriate for this frequent focus/navigation flow.
 - ACH-4 visual residual: real-browser desktop/760px/320px, light/dark, long-content overflow, and keyboard-focus appearance require final manual/runtime confirmation; the static contracts and build are complete.
+- Final-review blocker correction: resolved-focus intent is now keyed/cancelled with the exact committed attention target; the pending Complete → remove target → resolve → restore stale target regression stays unfocused. High-effort final Sol re-review remains pending.
 - No blockers.
