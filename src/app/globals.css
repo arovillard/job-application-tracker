@@ -301,15 +301,18 @@ kbd {
 .attention-strip__summary strong { color: var(--ink); font-size: 0.82rem; }
 .attention-strip__summary span { color: var(--ink-muted); font-size: 0.75rem; }
 .attention-strip__items { display: flex; gap: 8px; min-width: 0; overflow: hidden; }
-.attention-strip__item { align-items: center; background: color-mix(in srgb, var(--surface) 74%, transparent); border: 1px solid color-mix(in srgb, var(--warning) 15%, var(--line)); border-radius: 999px; color: var(--ink); display: inline-flex; gap: 7px; max-width: min(100%, 250px); min-width: 0; padding: 7px 10px; text-decoration: none; }
+.attention-strip__item { align-items: center; background: color-mix(in srgb, var(--surface) 74%, transparent); border: 1px solid color-mix(in srgb, var(--warning) 15%, var(--line)); border-radius: 14px; color: var(--ink); display: inline-flex; gap: 9px; max-width: min(100%, 360px); min-height: 44px; min-width: 0; padding: 7px 11px; text-decoration: none; }
+.attention-strip__item:focus-visible { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); outline: none; }
 .attention-strip__item:hover { border-color: var(--warning); }
 .attention-list__marker { border-radius: 999px; height: 8px; width: 8px; }
 .attention-list__marker--high { background: var(--danger); box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 14%, transparent); }
 .attention-list__marker--medium { background: var(--warning); }
 .attention-list__marker--low { background: var(--accent); }
-.attention-strip__content { align-items: baseline; display: flex; gap: 5px; min-width: 0; }
+.attention-strip__content { display: grid; gap: 2px; min-width: 0; }
 .attention-strip__content strong { font-size: 0.77rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attention-strip__due { color: var(--ink-muted); font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
+.attention-strip__meta { align-items: baseline; color: var(--ink-muted); display: flex; font-size: 0.7rem; gap: 5px; min-width: 0; }
+.attention-strip__meta > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attention-strip__due { color: var(--ink-muted); font-size: 0.7rem; font-weight: 700; white-space: nowrap; }
 .attention-strip__due--overdue { color: var(--danger); }
 .attention-strip__skeleton { display: flex; gap: 8px; }
 .attention-strip__skeleton span, .application-table__loading-row span { animation: skeleton-pulse 1.4s ease-in-out infinite; background: linear-gradient(90deg, var(--surface-subtle), var(--surface-strong), var(--surface-subtle)); background-size: 200% 100%; border-radius: 999px; display: block; height: 29px; width: 110px; }
@@ -773,4 +776,24 @@ kbd {
   .modal--compact .application-form { padding: 20px 17px 18px; }
   .modal--compact .application-form__actions { margin: 0 -17px -18px; padding: 14px 17px max(17px, env(safe-area-inset-bottom)); }
   .task-composer-form__intro { padding: 12px; }
+}
+
+.attention-context { align-items: center; border: 1px solid var(--line-strong); border-radius: 16px; display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 20px; padding: 18px 20px; }
+.attention-context--active { background: color-mix(in srgb, var(--warning-soft) 72%, var(--surface)); border-color: color-mix(in srgb, var(--warning) 34%, var(--line)); }
+.attention-context--resolved { background: var(--surface-subtle); }
+.attention-context__copy { min-width: 0; }
+.attention-context__copy .panel-heading__eyebrow { color: var(--warning); margin-bottom: 5px; }
+.attention-context--resolved .panel-heading__eyebrow { color: var(--ink-muted); }
+.attention-context__copy h2 { font-size: 1.08rem; letter-spacing: -0.025em; line-height: 1.3; margin: 0 0 4px; }
+.attention-context__copy p:last-child { color: var(--ink-muted); font-size: 0.82rem; margin: 0; }
+.attention-context__actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.attention-context__actions .button { min-height: 44px; }
+.attention-context:focus-visible, .task-item--attention:focus-visible, #opportunity-actions:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 38%, transparent); outline-offset: 3px; }
+.task-item--attention { background: color-mix(in srgb, var(--warning-soft) 48%, transparent); border-radius: 10px; box-shadow: 0 0 0 6px color-mix(in srgb, var(--warning-soft) 48%, transparent); }
+
+/* Attention context mobile */
+@media (max-width: 760px) {
+  .attention-context { align-items: stretch; grid-template-columns: 1fr; padding: 16px; }
+  .attention-context__actions { justify-content: stretch; width: 100%; }
+  .attention-context__actions .button { flex: 1 1 150px; }
 }

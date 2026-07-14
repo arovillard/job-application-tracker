@@ -232,4 +232,23 @@ describe("opportunity interface stylesheet", () => {
     expect(css).toMatch(/\.confirmation-form__message\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\);[^}]*\}/s);
     expect(css).toContain(".confirmation-form--danger .confirmation-form__symbol");
   });
+
+  it("styles action-first attention links and contextual arrivals with touch-safe focus", () => {
+    expect(css).toMatch(/\.attention-strip__item\s*\{[^}]*min-height:\s*44px;[^}]*\}/s);
+    expect(css).toMatch(/\.attention-strip__item:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 2px var\(--accent\);[^}]*outline:\s*none;[^}]*\}/s);
+    expect(css).toMatch(/\.attention-strip__content\s*\{[^}]*display:\s*grid;[^}]*\}/s);
+    expect(css).toContain(".attention-strip__meta {");
+    expect(css).toContain(".attention-context {");
+    expect(css).toContain(".attention-context--active {");
+    expect(css).toContain(".attention-context--resolved {");
+    expect(css).toMatch(/\.attention-context__actions \.button\s*\{[^}]*min-height:\s*44px;[^}]*\}/s);
+    expect(css).toContain(".attention-context:focus-visible");
+    expect(css).toContain(".task-item--attention");
+  });
+
+  it("stacks contextual attention content on narrow screens without adding motion", () => {
+    expect(css).toMatch(/\/\* Attention context mobile \*\/\s*@media \(max-width: 760px\)\s*\{[\s\S]*?\.attention-context\s*\{[^}]*grid-template-columns:\s*1fr;[^}]*\}[\s\S]*?\.attention-context__actions\s*\{[^}]*width:\s*100%;[^}]*\}/s);
+    expect(css).not.toMatch(/\.attention-context[^}]*animation:/s);
+    expect(css).not.toMatch(/\.attention-context[^}]*transition:/s);
+  });
 });
