@@ -1,6 +1,6 @@
 # Attention Banner Cancel Action
 
-**Status:** Approved direction; pending written-spec review  
+**Status:** Approved direction; pending written-spec review
 **Date:** 2026-07-14
 
 ## Problem

@@ -34,8 +34,8 @@ Writers are serialized. `APH-1` and `APH-2` intentionally share `src/app/globals
 
 **Outcome:** Missing-next-action remains a Needs attention reason but no longer has a task/action field or task-like dashboard copy.
 
-**Dependencies:** None.  
-**Dependency wave:** 1.  
+**Dependencies:** None.
+**Dependency wave:** 1.
 **Risk:** Medium — changes a shared discriminated union and its rendering consumer. Run focused checks, inspect the diff immediately, and obtain a fresh Sol review before `APH-2`.
 
 **Files:**
@@ -323,8 +323,8 @@ Route one fresh `sol-reviewer` with the approved spec/plan paths, `APH-1` report
 
 **Outcome:** The Actions card uses precise due-state emphasis, a real primary Complete action, accessible focus semantics, and closed-by-default secondary controls without nested-card styling.
 
-**Dependencies:** `APH-1` approved and committed.  
-**Dependency wave:** 2.  
+**Dependencies:** `APH-1` approved and committed.
+**Dependency wave:** 2.
 **Risk:** Medium — changes a shared task component, keyboard semantics, and global responsive CSS. Run focused checks, inspect the diff immediately, and obtain a fresh Sol review before final acceptance.
 
 **Files:**

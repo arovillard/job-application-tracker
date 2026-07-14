@@ -287,4 +287,3 @@ Against the feature worktree on port `3001`, open a task attention link and veri
 git add src/components/OpportunityAttentionBanner.tsx src/components/OpportunityAttentionBanner.test.tsx src/components/OpportunityDetailPage.tsx src/components/OpportunityDetailPage.test.tsx
 git commit -m "fix: add cancel to attention banner"
 ```
-

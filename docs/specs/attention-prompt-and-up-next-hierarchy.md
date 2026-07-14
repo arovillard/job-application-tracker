@@ -1,7 +1,7 @@
 # Attention Prompt and Up Next Hierarchy
 
-**Status:** Proposed for approval  
-**Date:** 2026-07-13  
+**Status:** Proposed for approval
+**Date:** 2026-07-13
 **Orchestration run:** `attention-followup-20260714T012724Z-b82977a2-9893-4b86-97ee-7e713acc33f3`
 
 ## Problem
