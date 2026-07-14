@@ -237,6 +237,8 @@ describe("opportunity interface stylesheet", () => {
     expect(css).toMatch(/\.attention-strip__item\s*\{[^}]*min-height:\s*44px;[^}]*\}/s);
     expect(css).toMatch(/\.attention-strip__item:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 2px var\(--accent\);[^}]*outline:\s*none;[^}]*\}/s);
     expect(css).toMatch(/\.attention-strip__content\s*\{[^}]*display:\s*grid;[^}]*\}/s);
+    expect(css).toMatch(/\.attention-list__marker--planning\s*\{[^}]*border:\s*2px solid var\(--warning\);/s);
+    expect(css).toMatch(/\.attention-strip__due--planning\s*\{[^}]*background:[^;]+;[^}]*color:\s*var\(--warning\);/s);
     expect(css).toContain(".attention-strip__meta {");
     expect(css).toContain(".attention-context {");
     expect(css).toContain(".attention-context--active {");

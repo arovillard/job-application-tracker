@@ -90,6 +90,16 @@ describe("getDashboardInsights", () => {
       { opportunityId: "job-due", kind: "task", taskId: "job-task", dueDate: "2026-07-09" },
       { opportunityId: "connection-new", kind: "missing_next_action", taskId: null, dueDate: null }
     ]);
+
+    const planning = insights.attention.find((item) => item.kind === "missing_next_action");
+    expect(planning).toMatchObject({
+      kind: "missing_next_action",
+      taskId: null,
+      reasonLabel: "No next action planned",
+      dueDate: null,
+      isOverdue: false
+    });
+    expect(planning).not.toHaveProperty("actionLabel");
   });
 
   it("keeps future tasks out of attention while suppressing missing-action warnings", () => {

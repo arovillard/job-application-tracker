@@ -27,7 +27,7 @@ export type DashboardAttentionItem = DashboardAttentionBase & ({
 } | {
   kind: "missing_next_action";
   taskId: null;
-  actionLabel: string;
+  reasonLabel: "No next action planned";
   dueDate: null;
   isOverdue: false;
 });
@@ -90,7 +90,7 @@ export function getDashboardInsights(
         priority: opportunity.priority,
         kind: "missing_next_action",
         taskId: null,
-        actionLabel: "Set a next action",
+        reasonLabel: "No next action planned",
         dueDate: null,
         isOverdue: false
       });

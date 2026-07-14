@@ -157,6 +157,45 @@ describe("Dashboard", () => {
     act(() => root.unmount());
   });
 
+  it("keeps the attention count stable while View all resets type and selects Needs attention", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse([job, connection]));
+    const { container, root } = mountDashboard();
+    await flushDashboard();
+
+    const queue = container.querySelector<HTMLElement>(".attention-strip")!;
+    const active = [...container.querySelectorAll<HTMLButtonElement>(".status-filter__button")]
+      .find((button) => button.textContent?.trim() === "Active")!;
+    const needsAttention = [...container.querySelectorAll<HTMLButtonElement>(".status-filter__button")]
+      .find((button) => button.textContent?.includes("Needs attention"))!;
+    const typeGroup = container.querySelector<HTMLElement>('[aria-label="Filter opportunities by type"]')!;
+    const allTypes = [...typeGroup.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "All")!;
+    const jobs = [...typeGroup.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Jobs")!;
+    const viewAll = [...queue.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "View all")!;
+
+    expect(queue.textContent).toContain("2 to review");
+    expect(active.getAttribute("aria-pressed")).toBe("true");
+    expect(needsAttention.getAttribute("aria-pressed")).toBe("false");
+    act(() => jobs.click());
+    expect(allTypes.getAttribute("aria-pressed")).toBe("false");
+    expect(jobs.getAttribute("aria-pressed")).toBe("true");
+
+    act(() => viewAll.click());
+
+    expect(queue.textContent).toContain("2 to review");
+    expect([...container.querySelectorAll<HTMLButtonElement>(".status-filter__button")]
+      .find((button) => button.textContent?.trim() === "Active")?.getAttribute("aria-pressed")).toBe("false");
+    expect([...container.querySelectorAll<HTMLButtonElement>(".status-filter__button")]
+      .find((button) => button.textContent?.includes("Needs attention"))?.getAttribute("aria-pressed")).toBe("true");
+    expect(allTypes.getAttribute("aria-pressed")).toBe("true");
+    expect(jobs.getAttribute("aria-pressed")).toBe("false");
+    expect(container.textContent).toContain("Platform Engineer");
+    expect(container.textContent).toContain("Maya Chen");
+    act(() => root.unmount());
+  });
+
   it("resets the status filter when switching between job and connection views", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([job, connection]));
     const { container, root } = mountDashboard();

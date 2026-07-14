@@ -50,27 +50,37 @@ describe("AttentionQueue", () => {
     expect(link.querySelector("strong")?.textContent).toBe("Investigate unanswered email");
     expect(link.textContent).toContain("Lead AI Strategy");
     expect(link.textContent).toContain("Due today");
+    expect(link.classList.contains("attention-strip__item--planning")).toBe(false);
+    expect(link.querySelector(".attention-list__marker--medium")).not.toBeNull();
   });
 
-  it("carries missing-next-action context without a task id", () => {
-    const markup = renderToStaticMarkup(<AttentionQueue items={[{
+  it("presents a missing next action as a planning prompt rather than a stored action", () => {
+    document.body.innerHTML = renderToStaticMarkup(<AttentionQueue items={[{
       id: "missing-next-action-opportunity-1",
       opportunityId: "opportunity-1",
       taskId: null,
-      type: "connection",
-      label: "Maya Chen",
+      type: "job",
+      label: "Engineering Manager",
       organization: "Acme",
-      status: "new",
-      priority: "medium",
+      status: "applied",
+      priority: "high",
       kind: "missing_next_action",
-      actionLabel: "Set a next action",
+      reasonLabel: "No next action planned",
       dueDate: null,
       isOverdue: false
     }]} onViewAll={() => undefined} />);
 
-    expect(markup).toContain("Set a next action");
-    expect(markup).toContain("Maya Chen");
-    expect(markup).toContain("attention=missing_next_action");
-    expect(markup).not.toContain("taskId=");
+    const link = document.querySelector<HTMLAnchorElement>(".attention-strip__item--planning")!;
+    expect(link.href).toContain("/opportunities/opportunity-1?attention=missing_next_action");
+    expect(link.href).not.toContain("taskId=");
+    expect(link.getAttribute("aria-label")).toBe(
+      "No next action planned for Engineering Manager. Open planning prompt."
+    );
+    expect(link.querySelector("strong")?.textContent).toBe("No next action planned");
+    expect(link.textContent).toContain("Engineering Manager");
+    expect(link.textContent).toContain("Planning");
+    expect(link.querySelector(".attention-list__marker--planning")).not.toBeNull();
+    expect(link.textContent).not.toContain("Set a next action");
+    expect(link.textContent).not.toContain("Plan next move");
   });
 });
