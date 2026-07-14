@@ -120,6 +120,27 @@ describe("attention arrival orchestration", () => {
     act(() => root.unmount());
   });
 
+  it("does not focus a restored target after its pending contextual Complete resolves while absent", async () => {
+    let resolveComplete!: (value: Response) => void;
+    const completeRequest = new Promise<Response>((resolve) => { resolveComplete = resolve; });
+    const due = { ...connection.tasks[0], dueDate: "2026-07-13" };
+    const completed = { ...due, state: "completed" as const, completedAt: "2026-07-13T12:00:00.000Z" };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [due] }))
+      .mockReturnValueOnce(completeRequest);
+    const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: due.id } });
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>(".attention-context .button--primary")!.click());
+    act(() => root.render(<OpportunityDetailPage opportunityId="opportunity-1" attentionTarget={null} today="2026-07-13" />));
+    await act(async () => { resolveComplete(jsonResponse({ ...connection, tasks: [completed] })); });
+    act(() => root.render(<OpportunityDetailPage opportunityId="opportunity-1" attentionTarget={{ kind: "task", taskId: due.id }} today="2026-07-13" />));
+    await flush();
+    const resolved = container.querySelector(".attention-context--resolved");
+    expect(resolved).not.toBeNull();
+    expect(document.activeElement).not.toBe(resolved);
+    act(() => root.unmount());
+  });
+
   it("opens the existing task dialog for a missing-next-action arrival", async () => {
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { callback(0); return 1; });
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [] }));
