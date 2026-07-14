@@ -204,6 +204,10 @@ describe("attention arrival orchestration", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [due] })).mockResolvedValueOnce(jsonResponse({ error: "Reschedule rejected" }, false));
     const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: due.id } });
     await flush();
+    const details = container.querySelector<HTMLDetailsElement>(
+      `#opportunity-task-${due.id} details.task-item__more`
+    )!;
+    act(() => { details.open = true; });
     const input = container.querySelector<HTMLInputElement>(`#opportunity-task-${due.id} input[type="date"]`)!;
     act(() => change(input, "2026-07-20"));
     act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Reschedule")!.click());
@@ -211,6 +215,50 @@ describe("attention arrival orchestration", () => {
     expect(container.querySelector('[role="alert"]')?.textContent).toBe("Reschedule rejected");
     expect(input.value).toBe("2026-07-20");
     expect(container.querySelector(".attention-context--active")).not.toBeNull();
+    expect(details.open).toBe(true);
+    const retryReschedule = [...details.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Reschedule")!;
+    const retryCancel = [...details.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Cancel")!;
+    expect(retryReschedule.disabled).toBe(false);
+    expect(retryCancel.disabled).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it("resets the due-date draft when rescheduling promotes a different primary task", async () => {
+    const first = {
+      ...connection.tasks[0],
+      id: "task-first",
+      title: "First task",
+      dueDate: "2026-07-13"
+    };
+    const second = {
+      ...connection.tasks[0],
+      id: "task-second",
+      title: "Second task",
+      dueDate: "2026-07-14",
+      createdAt: "2026-07-11T18:00:00.000Z"
+    };
+    const rescheduled = { ...first, dueDate: "2026-07-20" };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [first, second] }))
+      .mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [rescheduled, second] }));
+    const { container, root } = mountDetail();
+    await flush();
+
+    const firstDetails = container.querySelector<HTMLDetailsElement>(
+      "#opportunity-task-task-first details.task-item__more"
+    )!;
+    act(() => { firstDetails.open = true; });
+    const firstInput = firstDetails.querySelector<HTMLInputElement>('input[type="date"]')!;
+    act(() => change(firstInput, "2026-07-20"));
+    act(() => [...firstDetails.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Reschedule")!.click());
+    await flush();
+
+    const primary = container.querySelector<HTMLElement>(".actions-card__primary")!;
+    expect(primary.querySelector("strong")?.textContent).toBe("Second task");
+    expect(primary.querySelector<HTMLInputElement>('input[type="date"]')?.value).toBe("2026-07-14");
     act(() => root.unmount());
   });
 

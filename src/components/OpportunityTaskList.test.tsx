@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -35,6 +37,9 @@ describe("OpportunityTaskList", () => {
     expect(overdue).toContain("Overdue · 2026-07-11");
     expect(dueToday).toContain("Due today · 2026-07-12");
     expect(noDate).toContain("No due date");
+    expect(overdue).toContain("task-item__due--overdue");
+    expect(dueToday).toContain("task-item__due--today");
+    expect(noDate).toContain("task-item__due--none");
     expect(overdue).toContain("Up next");
   });
 
@@ -45,7 +50,7 @@ describe("OpportunityTaskList", () => {
       task("history", "Previous call", "2026-07-10", "completed")
     ]} today="2026-07-12" onAction={vi.fn()} />);
 
-    expect(markup.match(/<strong>Send follow-up<\/strong>/g)).toHaveLength(1);
+    expect(markup.match(/<strong(?: id="[^"]+")?>Send follow-up<\/strong>/g)).toHaveLength(1);
     expect(markup).toContain("Actions");
     expect(markup).toContain("Other tasks");
     expect(markup).toContain("Schedule call");
@@ -57,8 +62,8 @@ describe("OpportunityTaskList", () => {
   it("keeps the primary action and optional task groups in one Actions card", () => {
     const markup = renderToStaticMarkup(<OpportunityTaskList tasks={[task("primary", "Send follow-up", "2026-07-15")]} today="2026-07-12" onAction={vi.fn()} />);
 
-    expect(markup).toContain('<section class="next-action-card actions-card"');
-    expect(markup).toContain('<h2 class="tracker-panel__title">Actions</h2>');
+    expect(markup).toContain('class="next-action-card actions-card"');
+    expect(markup).toContain('class="tracker-panel__title" id="opportunity-actions-title">Actions</h2>');
     expect(markup).toContain('class="task-item task-item--primary"');
     expect(markup).toContain('class="task-item__eyebrow">Up next</span>');
     expect(markup).toContain('class="task-item__reschedule"');
@@ -73,21 +78,30 @@ describe("OpportunityTaskList", () => {
     expect(markup).toContain("Set a next action");
   });
 
-  it("marks an attention-targeted task and exposes stable focus targets", () => {
-    const markup = renderToStaticMarkup(<OpportunityTaskList
+  it("names the attention target and progressively discloses secondary primary-task actions", () => {
+    document.body.innerHTML = renderToStaticMarkup(<OpportunityTaskList
       attentionTaskId="target"
-      tasks={[
-        task("primary", "Earlier task", "2026-07-13"),
-        task("target", "Targeted task", "2026-07-13")
-      ]}
+      tasks={[task("target", "Targeted task", "2026-07-13")]}
       today="2026-07-13"
       onAction={vi.fn()}
     />);
 
-    expect(markup).toContain('id="opportunity-actions"');
-    expect(markup).toContain('id="opportunity-task-target"');
-    expect(markup).toContain('task-item--attention');
-    expect(markup).toContain('tabindex="-1"');
-    expect(markup.match(/task-item--attention/g)).toHaveLength(1);
+    const section = document.querySelector("#opportunity-actions")!;
+    const heading = document.querySelector("#opportunity-actions-title")!;
+    const row = document.querySelector("#opportunity-task-target")!;
+    const details = row.querySelector("details.task-item__more")!;
+
+    expect(section.getAttribute("aria-labelledby")).toBe(heading.id);
+    expect(row.getAttribute("role")).toBe("group");
+    expect(row.getAttribute("aria-labelledby")).toBe("opportunity-task-title-target");
+    expect(row.getAttribute("aria-describedby")).toBe("opportunity-task-due-target");
+    expect(row.getAttribute("tabindex")).toBe("-1");
+    expect(row.querySelector(".task-item__due--today")?.textContent).toBe("Due today · 2026-07-13");
+    expect(row.querySelector(".task-item__action--complete")?.textContent).toBe("Complete");
+    expect(details.hasAttribute("open")).toBe(false);
+    expect(details.querySelector("summary")?.textContent).toBe("More options");
+    expect(details.textContent).toContain("Move due date");
+    expect(details.textContent).toContain("Reschedule");
+    expect(details.textContent).toContain("Cancel");
   });
 });

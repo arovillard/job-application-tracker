@@ -201,7 +201,15 @@ describe("opportunity interface stylesheet", () => {
     expect(css).toMatch(/\.pipeline-title-lockup\s*\{[^}]*align-items:\s*baseline;[^}]*display:\s*flex;[^}]*\}/s);
     expect(css).toMatch(/\.detail-shell\s*\{[^}]*padding-top:\s*28px;[^}]*\}/s);
     expect(css).toMatch(/\.detail-shell \.app-header\s*\{[^}]*margin-bottom:\s*18px;[^}]*min-height:\s*0;[^}]*\}/s);
-    expect(css).toMatch(/\.task-item--primary\s*\{[^}]*display:\s*grid;[^}]*gap:\s*18px;[^}]*\}/s);
+    expect(css).toMatch(/\.actions-card\s*\{[^}]*container-type:\s*inline-size;[^}]*padding:\s*0;/s);
+    expect(css).toMatch(/\.task-item--primary\s*\{[^}]*border-bottom:\s*0;[^}]*padding:\s*0;/s);
+    expect(css).toMatch(/\.task-item__actions \.task-item__action--complete\s*\{[^}]*background:\s*var\(--accent\);[^}]*color:\s*white;/s);
+    expect(css).toMatch(/\.task-item--attention\s*\{[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;/s);
+    expect(css).toContain(".task-item--attention .task-item__due--today");
+    expect(css).toContain(".task-item--attention .task-item__due--overdue");
+    expect(css).toMatch(/\.task-item__more > summary\s*\{[^}]*min-height:\s*44px;/s);
+    expect(css).toMatch(/@media \(hover:\s*hover\) and \(pointer:\s*fine\)\s*\{[\s\S]*?\.task-item__actions \.task-item__action--complete:hover\s*\{[^}]*background:\s*var\(--accent-strong\);[^}]*color:\s*white;/s);
+    expect(css).toMatch(/@container actions-card \(max-width:\s*340px\)\s*\{[\s\S]*?\.task-item__reschedule\s*\{[^}]*grid-template-columns:\s*1fr;/s);
     expect(css).toMatch(/\.task-item__reschedule\s*\{[^}]*border-top:\s*1px solid var\(--line\);[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;[^}]*\}/s);
     expect(css).toMatch(/\.task-item__reschedule input\s*\{[^}]*min-height:\s*44px;[^}]*\}/s);
     expect(css).toMatch(/\.detail-command\s*\{[^}]*display:\s*grid;[^}]*margin-bottom:\s*20px;[^}]*\}/s);
@@ -245,7 +253,7 @@ describe("opportunity interface stylesheet", () => {
     expect(css).toContain(".attention-context--resolved {");
     expect(css).toMatch(/\.attention-context__actions \.button\s*\{[^}]*min-height:\s*44px;[^}]*\}/s);
     expect(css).toContain(".attention-context:focus-visible");
-    expect(css).toContain(".task-item--attention");
+    expect(css).toMatch(/\.task-item--attention\s*\{[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;/s);
   });
 
   it("stacks contextual attention content on narrow screens without adding motion", () => {
