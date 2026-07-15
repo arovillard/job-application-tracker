@@ -680,6 +680,27 @@ describe("OpportunityDetailContent", () => {
     act(() => root.unmount());
   });
 
+  it("submits the lowercase machine value for a labeled interaction type", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(connection))
+      .mockResolvedValueOnce(jsonResponse(connection));
+    const { container, root } = mountDetail();
+    await flush();
+
+    act(() => [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Record interaction")!.click());
+    const select = container.querySelector<HTMLSelectElement>('[role="dialog"] select')!;
+    const meeting = [...select.options].find((option) => option.textContent === "Meeting")!;
+    act(() => change(select, meeting.value));
+    act(() => change(container.querySelector<HTMLTextAreaElement>("textarea")!, "Great first interview"));
+    act(() => container.querySelector<HTMLFormElement>("form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flush();
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({ type: "meeting" });
+    act(() => root.unmount());
+  });
+
   it("retains focus in an interaction draft while typing rerenders the dialog", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(connection));
     const { container, root } = mountDetail();
