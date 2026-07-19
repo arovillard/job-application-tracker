@@ -72,6 +72,21 @@ describe("OpportunityTaskList", () => {
     expect(markup).not.toContain("Other tasks");
   });
 
+  it("presents completed and cancelled tasks as quiet history instead of overdue work", () => {
+    const markup = renderToStaticMarkup(<OpportunityTaskList tasks={[
+      task("completed", "Sent follow-up", "2026-07-10", "completed"),
+      task("cancelled", "Old reminder", "2026-07-09", "cancelled")
+    ]} today="2026-07-12" onAction={vi.fn()} />);
+
+    expect(markup).toContain("task-item--history task-item--completed");
+    expect(markup).toContain("task-item--history task-item--cancelled");
+    expect(markup).toContain('class="sr-only">Completed: </span>2026-07-12');
+    expect(markup).toContain('class="sr-only">Cancelled: </span>2026-07-01');
+    expect(markup).not.toContain("Overdue");
+    expect(markup).toContain('class="task-item__action task-item__action--reopen"');
+    expect(markup).toContain('aria-label="Reopen Sent follow-up"');
+  });
+
   it("offers an add-task CTA when no open task exists", () => {
     const markup = renderToStaticMarkup(<OpportunityTaskList tasks={[task("history", "Previous call", null, "cancelled")]} onAction={vi.fn()} />);
 

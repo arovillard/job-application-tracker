@@ -6,7 +6,7 @@ import { flushSync } from "react-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const routerState = vi.hoisted(() => ({ push: vi.fn() }));
+const routerState = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 const effectState = vi.hoisted(() => ({ skip: false }));
 vi.mock("next/navigation", () => ({ useRouter: () => routerState }));
 vi.mock("next/link", () => ({ default: (props: ComponentProps<"a">) => <a {...props} /> }));
@@ -82,6 +82,7 @@ afterEach(() => {
   effectState.skip = false;
   vi.restoreAllMocks();
   routerState.push.mockReset();
+  routerState.replace.mockReset();
   document.body.innerHTML = "";
 });
 
@@ -102,7 +103,7 @@ describe("attention arrival orchestration", () => {
     act(() => root.unmount());
   });
 
-  it("completes from the attention surface, announces resolution, and preserves focus", async () => {
+  it("completes from the attention surface, clears its context, and focuses current actions", async () => {
     let resolveComplete!: (value: Response) => void;
     const completeRequest = new Promise<Response>((resolve) => { resolveComplete = resolve; });
     const due = { ...connection.tasks[0], dueDate: "2026-07-13" };
@@ -117,12 +118,13 @@ describe("attention arrival orchestration", () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe(`/api/opportunities/opportunity-1/tasks/${due.id}`);
     await act(async () => { resolveComplete(jsonResponse({ ...connection, tasks: [completed] })); });
     expect(container.querySelector('[role="status"]')?.textContent).toBe("Action completed");
-    expect(container.textContent).toContain("This attention item is no longer active");
-    expect(document.activeElement).toBe(container.querySelector(".attention-context--resolved"));
+    expect(container.querySelector(".attention-context")).toBeNull();
+    expect(routerState.replace).toHaveBeenCalledWith("/opportunities/opportunity-1", { scroll: false });
+    expect(document.activeElement?.id).toBe("opportunity-actions");
     act(() => root.unmount());
   });
 
-  it("cancels from the attention banner, announces resolution, and preserves focus", async () => {
+  it("cancels from the attention banner, clears its context, and focuses current actions", async () => {
     let resolveCancel!: (value: Response) => void;
     const cancelRequest = new Promise<Response>((resolve) => { resolveCancel = resolve; });
     const due = { ...connection.tasks[0], dueDate: "2026-07-13" };
@@ -152,8 +154,9 @@ describe("attention arrival orchestration", () => {
 
     await act(async () => { resolveCancel(jsonResponse({ ...connection, tasks: [cancelled] })); });
     expect(container.querySelector('[role="status"]')?.textContent).toBe("Action cancelled");
-    expect(container.textContent).toContain("This attention item is no longer active");
-    expect(document.activeElement).toBe(container.querySelector(".attention-context--resolved"));
+    expect(container.querySelector(".attention-context")).toBeNull();
+    expect(routerState.replace).toHaveBeenCalledWith("/opportunities/opportunity-1", { scroll: false });
+    expect(document.activeElement?.id).toBe("opportunity-actions");
     act(() => root.unmount());
   });
 
@@ -202,9 +205,9 @@ describe("attention arrival orchestration", () => {
     await act(async () => { resolveComplete(jsonResponse({ ...connection, tasks: [completed] })); });
     act(() => root.render(<OpportunityDetailPage opportunityId="opportunity-1" attentionTarget={{ kind: "task", taskId: due.id }} today="2026-07-13" />));
     await flush();
-    const resolved = container.querySelector(".attention-context--resolved");
-    expect(resolved).not.toBeNull();
-    expect(document.activeElement).not.toBe(resolved);
+    const stale = container.querySelector(".attention-context--stale");
+    expect(stale).not.toBeNull();
+    expect(document.activeElement).not.toBe(stale);
     act(() => root.unmount());
   });
 
@@ -222,13 +225,16 @@ describe("attention arrival orchestration", () => {
     act(() => root.unmount());
   });
 
-  it("shows a neutral notice for stale targets and no banner for direct visits", async () => {
+  it("shows a passive dismissible notice for stale targets, cleans the URL, and shows no banner for direct visits", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection));
     const stale = mountDetail({ attentionTarget: { kind: "task", taskId: "missing-task" } });
     await flush();
-    expect(stale.container.textContent).toContain("This attention item is no longer active");
-    expect(document.activeElement).not.toBe(stale.container.querySelector(".attention-context--resolved"));
-    act(() => [...stale.container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Review current actions")!.click());
+    expect(stale.container.textContent).toContain("This attention item was already handled");
+    expect(document.activeElement).not.toBe(stale.container.querySelector(".attention-context--stale"));
+    expect(routerState.replace).not.toHaveBeenCalled();
+    act(() => [...stale.container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Dismiss")!.click());
+    expect(stale.container.querySelector(".attention-context--stale")).toBeNull();
+    expect(routerState.replace).toHaveBeenCalledWith("/opportunities/opportunity-1", { scroll: false });
     expect(document.activeElement?.id).toBe("opportunity-actions");
     act(() => stale.root.unmount());
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse(connection));
@@ -253,7 +259,7 @@ describe("attention arrival orchestration", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [completed] })).mockResolvedValueOnce(jsonResponse({ ...connection, tasks: [open] }));
     const { container, root } = mountDetail({ attentionTarget: { kind: "task", taskId: open.id } });
     await flush();
-    expect(document.activeElement).not.toBe(container.querySelector(".attention-context--resolved"));
+    expect(document.activeElement).not.toBe(container.querySelector(".attention-context--stale"));
     act(() => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Reopen")!.click());
     await flush();
     const active = container.querySelector(".attention-context--active");

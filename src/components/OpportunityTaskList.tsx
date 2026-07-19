@@ -39,9 +39,12 @@ function TaskRow({ task, pendingTaskId, onAction, today, primary = false, attent
   const [dueDate, setDueDate] = useState(task.dueDate ?? "");
   const pending = pendingTaskId === task.id;
   const due = dueState(task, today);
+  const history = task.state !== "open";
+  const historyState = task.state === "completed" ? "Completed" : "Cancelled";
+  const historyDate = (task.state === "completed" ? task.completedAt ?? task.updatedAt : task.updatedAt).slice(0, 10);
   const titleId = `opportunity-task-title-${task.id}`;
   const dueId = `opportunity-task-due-${task.id}`;
-  const className = `task-item${primary ? " task-item--primary" : ""}${attention ? " task-item--attention" : ""}`;
+  const className = `task-item${primary ? " task-item--primary" : ""}${attention ? " task-item--attention" : ""}${history ? ` task-item--history task-item--${task.state}` : ""}`;
   const reschedule = <div className="task-item__reschedule">
     <label>
       <span>Move due date</span>
@@ -71,7 +74,9 @@ function TaskRow({ task, pendingTaskId, onAction, today, primary = false, attent
     <div className="task-item__content">
       {primary ? <span className="task-item__eyebrow">Up next</span> : null}
       <strong id={titleId}>{task.title}</strong>
-      <span className={`task-item__due task-item__due--${due.tone}`} id={dueId}>{due.copy}</span>
+      {history
+        ? <span className={`task-item__state task-item__state--${task.state}`} id={dueId}><span className="sr-only">{historyState}: </span>{historyDate}</span>
+        : <span className={`task-item__due task-item__due--${due.tone}`} id={dueId}>{due.copy}</span>}
     </div>
     <div className="task-item__actions">
       {task.state === "open" ? primary ? <>
@@ -108,7 +113,8 @@ function TaskRow({ task, pendingTaskId, onAction, today, primary = false, attent
         >Cancel</button>
         {reschedule}
       </> : <button
-        className="task-item__action"
+        aria-label={`Reopen ${task.title}`}
+        className="task-item__action task-item__action--reopen"
         disabled={pending}
         type="button"
         onClick={() => void onAction(task, "reopen")}

@@ -253,7 +253,7 @@ describe("opportunity interface stylesheet", () => {
     expect(css).toContain(".attention-strip__meta {");
     expect(css).toContain(".attention-context {");
     expect(css).toContain(".attention-context--active {");
-    expect(css).toContain(".attention-context--resolved {");
+    expect(css).toMatch(/\.attention-context--stale\s*\{[^}]*background:\s*var\(--surface-subtle\);[^}]*padding:\s*10px 14px;[^}]*\}/s);
     expect(css).toMatch(/\.attention-context__actions \.button\s*\{[^}]*min-height:\s*44px;[^}]*\}/s);
     expect(css).toContain(".attention-context:focus-visible");
     expect(css).toMatch(/\.task-item--attention\s*\{[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;/s);
@@ -263,5 +263,14 @@ describe("opportunity interface stylesheet", () => {
     expect(css).toMatch(/\/\* Attention context mobile \*\/\s*@media \(max-width: 760px\)\s*\{[\s\S]*?\.attention-context\s*\{[^}]*grid-template-columns:\s*1fr;[^}]*\}[\s\S]*?\.attention-context__actions\s*\{[^}]*width:\s*100%;[^}]*\}/s);
     expect(css).not.toMatch(/\.attention-context[^}]*animation:/s);
     expect(css).not.toMatch(/\.attention-context[^}]*transition:/s);
+  });
+
+  it("styles completed task history as quiet, touch-safe secondary content", () => {
+    expect(css).toMatch(/\.actions-card__history > summary\s*\{[^}]*color:\s*var\(--ink\);[^}]*display:\s*flex;[^}]*font-size:\s*0\.86rem;[^}]*min-height:\s*48px;[^}]*\}/s);
+    expect(css).toMatch(/\.task-item--history\s*\{[^}]*padding:\s*14px 0;[^}]*\}/s);
+    expect(css).toMatch(/\.task-item--history \.task-item__content\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;[^}]*\}/s);
+    expect(css).toMatch(/\.task-item \.task-item__state\s*\{[^}]*border-radius:\s*999px;[^}]*font-size:\s*0\.76rem;[^}]*\}/s);
+    expect(css).toMatch(/\.task-item__actions \.task-item__action--reopen\s*\{[^}]*background:\s*transparent;[^}]*border-color:\s*transparent;[^}]*min-height:\s*44px;[^}]*\}/s);
+    expect(css).not.toMatch(/\.task-item--history[^}]*animation:/s);
   });
 });

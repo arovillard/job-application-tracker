@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { OpportunityTask } from "../types";
-import { OpportunityAttentionBanner } from "./OpportunityAttentionBanner";
+import { OpportunityAttentionBanner, OpportunityAttentionNotice } from "./OpportunityAttentionBanner";
 
 const task: OpportunityTask = {
   id: "task-1",
@@ -47,13 +47,13 @@ describe("OpportunityAttentionBanner", () => {
     expect(markup).toContain('tabindex="-1"');
   });
 
-  it("renders missing and resolved states with explicit explanations", () => {
+  it("renders the missing-action state and a separate compact stale notice", () => {
     const missing = renderToStaticMarkup(<OpportunityAttentionBanner {...callbacks} context={{ state: "missing_next_action" }} />);
-    const resolved = renderToStaticMarkup(<OpportunityAttentionBanner {...callbacks} context={{ state: "resolved" }} />);
+    const stale = renderToStaticMarkup(<OpportunityAttentionNotice onDismiss={vi.fn()} />);
     expect(missing).toContain("No next action is planned");
     expect(missing).toContain("Set next action");
-    expect(resolved).toContain("This attention item is no longer active");
-    expect(resolved).toContain("Review current actions");
-    expect(resolved).toContain('tabindex="-1"');
+    expect(stale).toContain("This attention item was already handled");
+    expect(stale).toContain(">Dismiss</button>");
+    expect(stale).not.toContain('tabindex="-1"');
   });
 });
