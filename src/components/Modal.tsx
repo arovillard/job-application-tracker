@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useLayoutEffect, useRef } from "react";
 
 type ModalProps = {
   children: React.ReactNode;
@@ -27,7 +27,10 @@ export function Modal({ children, dismissDisabled = false, onClose, size = "comp
   const dismissDisabledRef = useRef(dismissDisabled);
   const previousFocus = useRef<HTMLElement | null>(null);
   const titleId = useId();
-  dismissDisabledRef.current = dismissDisabled;
+
+  useLayoutEffect(() => {
+    dismissDisabledRef.current = dismissDisabled;
+  }, [dismissDisabled]);
 
   useEffect(() => {
     previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;

@@ -67,13 +67,13 @@ export function Dashboard() {
   const [taskDraft, setTaskDraft] = useState({ title: "", dueDate: "" });
   const [taskError, setTaskError] = useState<string | null>(null);
   const [isTaskSubmitting, setIsTaskSubmitting] = useState(false);
-  const [nextMoveFocusId, setNextMoveFocusId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const pendingStatusRef = useRef(false);
   const taskSubmittingRef = useRef(false);
   const mountedRef = useRef(true);
   const loadRequestRef = useRef(0);
   const taskRequestRef = useRef(0);
+  const nextMoveFocusRef = useRef<string | null>(null);
   const { theme, setTheme } = useTheme();
 
   const fetchOpportunities = useCallback(async () => {
@@ -117,12 +117,13 @@ export function Dashboard() {
   }, [fetchOpportunities]);
 
   useLayoutEffect(() => {
+    const nextMoveFocusId = nextMoveFocusRef.current;
     if (!nextMoveFocusId) return;
     const nextMove = document.getElementById(`opportunity-next-move-${nextMoveFocusId}`);
     if (!nextMove) return;
+    nextMoveFocusRef.current = null;
     nextMove.focus({ preventScroll: true });
-    setNextMoveFocusId(null);
-  }, [nextMoveFocusId, opportunities]);
+  }, [opportunities]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -213,7 +214,7 @@ export function Dashboard() {
       setTaskDraft({ title: "", dueDate: "" });
       setTaskError(null);
       setToast({ message: `Next action added for ${target.label}.` });
-      setNextMoveFocusId(target.id);
+      nextMoveFocusRef.current = target.id;
     } catch (caught) {
       if (mountedRef.current && requestId === taskRequestRef.current) {
         setTaskError(caught instanceof Error ? caught.message : "Unable to add next action");

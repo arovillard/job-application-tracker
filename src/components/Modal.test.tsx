@@ -192,6 +192,19 @@ describe("Modal", () => {
     expect(closeCallCount).toBe(0);
   });
 
+  it("honors a dismissal lock that is enabled after the modal opens", () => {
+    const onClose = vi.fn();
+    const children = <><input aria-label="Task title" /><button type="button">Save task</button></>;
+    const { container, root } = mountModal({ children, onClose });
+
+    act(() => root.render(<Modal dismissDisabled onClose={onClose} title="Add next action">{children}</Modal>));
+    act(() => document.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" })));
+
+    expect(container.querySelector<HTMLButtonElement>(".modal__close")?.disabled).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
   it.each(["first", "second"])("keeps scrolling locked until the final overlapping modal unmounts when %s unmounts first", (firstToUnmount) => {
     document.body.style.overflow = "scroll";
     const first = mountModal();
