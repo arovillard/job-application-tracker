@@ -19,7 +19,8 @@ vi.mock("react", async (importOriginal) => {
 });
 
 import type { OpportunityDetail } from "../types";
-import { InteractionComposer, OpportunityDetailContent, OpportunityDetailPage, OpportunitySnapshot, TASK_ACTION_STATUS, TaskComposer, TrackerPanel } from "./OpportunityDetailPage";
+import { InteractionComposer, OpportunityDetailContent, OpportunityDetailPage, OpportunitySnapshot, TASK_ACTION_STATUS, TrackerPanel } from "./OpportunityDetailPage";
+import { TaskComposer } from "./TaskComposer";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -629,6 +630,10 @@ describe("OpportunityDetailContent", () => {
     act(() => cta.click());
 
     expect(container.querySelector('[role="dialog"]')?.classList.contains("modal--compact")).toBe(true);
+    expect(container.querySelector(".modal__title")?.textContent).toBe("Add next action");
+    expect(container.querySelector(".task-composer-form__context")?.textContent).toContain("Creating task for");
+    expect(container.querySelector(".task-composer-form__context")?.textContent).toContain("Maya Chen");
+    expect(container.querySelector(".task-composer-form__context")?.textContent).toContain("Acme");
     expect(document.activeElement).toBe(container.querySelector<HTMLInputElement>("input[required]"));
     act(() => container.querySelector<HTMLButtonElement>(".modal__close")!.click());
     expect(document.activeElement).toBe(cta);
@@ -637,7 +642,7 @@ describe("OpportunityDetailContent", () => {
 
   it("renders interaction and task composers with application form hooks", () => {
     const interactionMarkup = renderToStaticMarkup(<InteractionComposer activityType="note" body="" occurredDate="" taskTitle="" taskDueDate="" onActivityTypeChange={vi.fn()} onBodyChange={vi.fn()} onOccurredDateChange={vi.fn()} onTaskTitleChange={vi.fn()} onTaskDueDateChange={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} />);
-    const taskMarkup = renderToStaticMarkup(<TaskComposer taskTitle="" taskDueDate="" onTaskTitleChange={vi.fn()} onTaskDueDateChange={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} />);
+    const taskMarkup = renderToStaticMarkup(<TaskComposer opportunity={connection} taskTitle="" taskDueDate="" onTaskTitleChange={vi.fn()} onTaskDueDateChange={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} />);
     expect(interactionMarkup).toContain('class="application-form interaction-form"');
     expect(interactionMarkup).toContain('class="application-form__input"');
     expect(interactionMarkup).toContain('class="application-form__select"');
@@ -653,9 +658,11 @@ describe("OpportunityDetailContent", () => {
     expect(interactionMarkup).toMatch(/application-form__body[\s\S]*application-form__actions/);
     expect(interactionMarkup).toContain('type="date"');
     expect(taskMarkup).toContain('class="application-form task-composer-form"');
-    expect(taskMarkup).toContain('class="application-form task-composer-form"');
-    expect(taskMarkup).toContain('class="task-composer-form__intro"');
-    expect(taskMarkup).toContain("Make the next move concrete");
+    expect(taskMarkup).toContain('class="task-composer-form__context"');
+    expect(taskMarkup).toContain("Creating task for");
+    expect(taskMarkup).toContain("Maya Chen");
+    expect(taskMarkup).toContain("Acme");
+    expect(taskMarkup).not.toContain("Make the next move concrete");
     expect(taskMarkup).toContain('class="application-form__input"');
     expect(taskMarkup).toContain('class="application-form__body"');
     expect(taskMarkup).toContain('class="application-form__actions"');

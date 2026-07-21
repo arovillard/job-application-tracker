@@ -176,6 +176,12 @@ describe("opportunity interface stylesheet", () => {
     expect(css).toMatch(/@media \(max-width: 320px\)\s*\{[\s\S]*?body\s*\{[^}]*min-width:\s*0;[^}]*\}/s);
   });
 
+  it("gives the contextual next-move CTA a touch-safe target and visible focus", () => {
+    expect(css).toMatch(/\.next-move__cta\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--accent-strong\);[^}]*min-height:\s*44px;[^}]*\}/s);
+    expect(css).toMatch(/\.next-move__cta:focus-visible\s*\{[^}]*outline-offset:\s*2px;[^}]*\}/s);
+    expect(css).toMatch(/@media \(hover:\s*hover\) and \(pointer:\s*fine\)\s*\{[\s\S]*?\.next-move__cta:hover\s*\{[^}]*background:[^;]+;[^}]*border-color:\s*var\(--accent\);/s);
+  });
+
   it("uses theme-derived dashboard tokens and retains visible focus and motion gates", () => {
     expect(css).toMatch(/:root\[data-theme="dark"\]\s*\{[^}]*--accent-soft:[^;]+;[^}]*--success-soft:[^;]+;[^}]*--warning-soft:[^;]+;[^}]*--danger-soft:[^;]+;[^}]*\}/s);
     expect(css).toContain(".pipeline-pulse__bar--empty { background: var(--surface-strong);");
@@ -239,7 +245,9 @@ describe("opportunity interface stylesheet", () => {
     expect(css).toMatch(/\.modal-backdrop\s*\{[^}]*backdrop-filter:\s*blur\(6px\);[^}]*\}/s);
     expect(css).toMatch(/\.modal::before\s*\{[^}]*background:\s*linear-gradient[^;]+;[^}]*height:\s*3px;[^}]*\}/s);
     expect(css).toMatch(/\.modal__header\s*\{[^}]*background:\s*linear-gradient[^;]+;[^}]*padding:\s*20px 24px 18px;[^}]*\}/s);
-    expect(css).toMatch(/\.task-composer-form__intro\s*\{[^}]*border-radius:\s*12px;[^}]*display:\s*grid;[^}]*\}/s);
+    expect(css).toMatch(/\.task-composer-form__context\s*\{[^}]*border-radius:\s*12px;[^}]*display:\s*grid;[^}]*min-width:\s*0;[^}]*\}/s);
+    expect(css).toMatch(/\.task-composer-form__context-heading\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;[^}]*\}/s);
+    expect(css).toMatch(/\.modal__close:disabled\s*\{[^}]*cursor:\s*wait;[^}]*opacity:\s*0\.55;[^}]*\}/s);
     expect(css).toMatch(/\.confirmation-form__message\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\);[^}]*\}/s);
     expect(css).toContain(".confirmation-form--danger .confirmation-form__symbol");
   });
@@ -248,8 +256,6 @@ describe("opportunity interface stylesheet", () => {
     expect(css).toMatch(/\.attention-strip__item\s*\{[^}]*min-height:\s*44px;[^}]*\}/s);
     expect(css).toMatch(/\.attention-strip__item:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 2px var\(--accent\);[^}]*outline:\s*none;[^}]*\}/s);
     expect(css).toMatch(/\.attention-strip__content\s*\{[^}]*display:\s*grid;[^}]*\}/s);
-    expect(css).toMatch(/\.attention-list__marker--planning\s*\{[^}]*border:\s*2px solid var\(--warning\);/s);
-    expect(css).toMatch(/\.attention-strip__due--planning\s*\{[^}]*background:[^;]+;[^}]*color:\s*var\(--warning\);/s);
     expect(css).toContain(".attention-strip__meta {");
     expect(css).toContain(".attention-context {");
     expect(css).toContain(".attention-context--active {");

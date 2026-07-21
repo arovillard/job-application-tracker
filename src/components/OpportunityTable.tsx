@@ -10,6 +10,7 @@ import {
   type OpportunityStatus,
   type OpportunitySummary
 } from "../types";
+import { opportunityIsAttentionEligible } from "../lib/opportunity-attention";
 
 export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
   wishlist: "Wishlist",
@@ -48,6 +49,7 @@ export function OpportunityTable({
   opportunities,
   loading = false,
   pendingStatusId = null,
+  onAddTask,
   onStatusChange,
   emptyMessage,
   onClearFilters
@@ -55,6 +57,7 @@ export function OpportunityTable({
   opportunities: OpportunitySummary[];
   loading?: boolean;
   pendingStatusId?: string | null;
+  onAddTask?: (opportunity: OpportunitySummary, trigger: HTMLButtonElement) => void;
   onStatusChange?: (opportunity: OpportunitySummary, status: OpportunityStatus) => void | Promise<void>;
   emptyMessage?: string;
   onClearFilters?: () => void;
@@ -113,9 +116,13 @@ export function OpportunityTable({
                   </select>
                 </label> : <span className={`status-badge status-badge--${opportunity.status}`}>{statusLabel(opportunity)}</span>}
               </td>
-              <td className="application-table__cell" data-label="Next move"><div className="next-move">
-                <span className="next-move__label">{opportunity.nextOpenTask?.title ?? "Set a next action"}</span>
-                <time className="next-move__date" dateTime={opportunity.nextOpenTask?.dueDate ?? undefined}>{formatDate(opportunity.nextOpenTask?.dueDate ?? null)}</time>
+              <td className="application-table__cell" data-label="Next move"><div className="next-move" id={`opportunity-next-move-${opportunity.id}`} tabIndex={-1}>
+                {opportunity.nextOpenTask ? <>
+                  <span className="next-move__label">{opportunity.nextOpenTask.title}</span>
+                  <time className="next-move__date" dateTime={opportunity.nextOpenTask.dueDate ?? undefined}>{formatDate(opportunity.nextOpenTask.dueDate)}</time>
+                </> : opportunityIsAttentionEligible(opportunity) && onAddTask
+                  ? <button aria-label={`Set next action for ${opportunity.label}`} className="next-move__cta" type="button" onClick={(event) => onAddTask(opportunity, event.currentTarget)}>Set next action</button>
+                  : <span className="next-move__label next-move__label--empty">No next action</span>}
               </div></td>
               <td className="application-table__cell" data-label="Focus"><span className={`priority-chip priority-chip--${opportunity.priority}`}>{opportunity.priority}</span></td>
               <td className="application-table__cell" data-label="Updated"><time className="application-table__time" dateTime={opportunity.updatedAt}>{formatDate(opportunity.updatedAt.slice(0, 10))}</time></td>

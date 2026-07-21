@@ -308,23 +308,12 @@ kbd {
 .attention-list__marker--high { background: var(--danger); box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 14%, transparent); }
 .attention-list__marker--medium { background: var(--warning); }
 .attention-list__marker--low { background: var(--accent); }
-.attention-list__marker--planning {
-  background: transparent;
-  border: 2px solid var(--warning);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 12%, transparent);
-}
 .attention-strip__content { display: grid; gap: 2px; min-width: 0; }
 .attention-strip__content strong { font-size: 0.77rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attention-strip__meta { align-items: baseline; color: var(--ink-muted); display: flex; font-size: 0.7rem; gap: 5px; min-width: 0; }
 .attention-strip__meta > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attention-strip__due { color: var(--ink-muted); font-size: 0.7rem; font-weight: 700; white-space: nowrap; }
 .attention-strip__due--overdue { color: var(--danger); }
-.attention-strip__due--planning {
-  background: color-mix(in srgb, var(--warning-soft) 76%, var(--surface));
-  border-radius: 999px;
-  color: var(--warning);
-  padding: 2px 6px;
-}
 .attention-strip__skeleton { display: flex; gap: 8px; }
 .attention-strip__skeleton span, .application-table__loading-row span { animation: skeleton-pulse 1.4s ease-in-out infinite; background: linear-gradient(90deg, var(--surface-subtle), var(--surface-strong), var(--surface-subtle)); background-size: 200% 100%; border-radius: 999px; display: block; height: 29px; width: 110px; }
 
@@ -413,6 +402,8 @@ kbd {
 .next-move__label { color: var(--ink); font-size: 0.84rem; font-weight: 650; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .next-move__label--empty, .next-move__date--empty { color: var(--ink-faint); font-weight: 500; }
 .next-move__date, .application-table__time { color: var(--ink-muted); font-size: 0.76rem; }
+.next-move__cta { align-items: center; background: transparent; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius: 9px; color: var(--accent-strong); display: inline-flex; font-size: 0.8rem; font-weight: 760; justify-self: start; min-height: 44px; padding: 8px 11px; }
+.next-move__cta:focus-visible { outline-offset: 2px; }
 .application-table__cell[data-label="Updated"] { min-width: 96px; white-space: nowrap; }
 .priority-chip, .status-badge { align-items: center; border-radius: 999px; display: inline-flex; font-size: 0.73rem; font-weight: 750; line-height: 1; padding: 7px 9px; white-space: nowrap; }
 .priority-chip--high { background: var(--danger-soft); color: var(--danger); }
@@ -623,6 +614,7 @@ kbd {
 @media (hover: hover) and (pointer: fine) {
   .icon-button:hover { transform: translateY(-1px); }
   .button:hover, .application-form__button:hover, .application-table__button:hover { transform: translateY(-1px); }
+  .next-move__cta:hover { background: color-mix(in srgb, var(--accent-soft) 72%, var(--surface)); border-color: var(--accent); }
   .application-table__open:hover span { transform: translateX(3px); }
   .button:active, .application-form__button:active, .application-table__button:active { transform: translateY(0); }
 }
@@ -783,13 +775,15 @@ kbd {
 .modal__header { background: linear-gradient(180deg, color-mix(in srgb, var(--surface-subtle) 48%, var(--surface)), var(--surface)); padding: 20px 24px 18px; }
 .modal__title { font-size: 1.14rem; font-weight: 820; }
 .modal__close { height: 40px; width: 40px; }
+.modal__close:disabled { cursor: wait; opacity: 0.55; }
 .modal--compact .application-form { padding: 26px 28px 28px; }
 .modal--compact .application-form__actions { margin: 0 -28px -28px; padding: 15px 28px 20px; }
 
-.task-composer-form__intro { align-items: start; background: color-mix(in srgb, var(--accent-soft) 58%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line)); border-radius: 12px; display: grid; gap: 12px; grid-template-columns: auto minmax(0, 1fr); padding: 14px; }
-.task-composer-form__intro > span { align-items: center; background: var(--accent); border-radius: 999px; color: white; display: inline-flex; font-size: 0.74rem; font-weight: 820; height: 28px; justify-content: center; width: 28px; }
-.task-composer-form__intro strong { color: var(--ink); display: block; font-size: 0.9rem; margin-bottom: 3px; }
-.task-composer-form__intro p { color: var(--ink-muted); font-size: 0.78rem; line-height: 1.45; margin: 0; }
+.task-composer-form__context { align-items: start; background: color-mix(in srgb, var(--accent-soft) 58%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line)); border-radius: 12px; display: grid; gap: 4px; min-width: 0; padding: 14px; }
+.task-composer-form__context-heading { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
+.task-composer-form__context-heading .panel-heading__eyebrow { margin: 0; }
+.task-composer-form__context strong { color: var(--ink); font-size: 1rem; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.task-composer-form__context p { color: var(--ink-muted); font-size: 0.8rem; line-height: 1.45; margin: 0; overflow-wrap: anywhere; }
 .task-composer-form .application-form__input { min-height: 48px; }
 
 .confirmation-form__message { align-items: start; display: grid; gap: 14px; grid-template-columns: auto minmax(0, 1fr); }
@@ -802,7 +796,7 @@ kbd {
   .modal__header { padding: 17px 18px 15px; }
   .modal--compact .application-form { padding: 20px 17px 18px; }
   .modal--compact .application-form__actions { margin: 0 -17px -18px; padding: 14px 17px max(17px, env(safe-area-inset-bottom)); }
-  .task-composer-form__intro { padding: 12px; }
+  .task-composer-form__context { padding: 12px; }
 }
 
 .attention-context { align-items: center; border: 1px solid var(--line-strong); border-radius: 16px; display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 20px; padding: 18px 20px; }

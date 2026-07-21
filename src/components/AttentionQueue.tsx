@@ -13,17 +13,6 @@ type AttentionPresentation = {
 };
 
 function attentionPresentation(item: DashboardAttentionItem): AttentionPresentation {
-  if (item.kind === "missing_next_action") {
-    return {
-      title: item.reasonLabel,
-      status: "Planning",
-      ariaLabel: `${item.reasonLabel} for ${item.label}. Open planning prompt.`,
-      itemClassName: "attention-strip__item attention-strip__item--planning",
-      markerClassName: "attention-list__marker attention-list__marker--planning",
-      statusClassName: "attention-strip__due attention-strip__due--planning"
-    };
-  }
-
   const status = item.isOverdue
     ? `Overdue · ${item.dueDate}`
     : `Due today · ${item.dueDate}`;
@@ -52,7 +41,7 @@ export function AttentionQueue({ items, maxItems = 3, loading = false, onViewAll
         return <Link
           aria-label={presentation.ariaLabel}
           className={presentation.itemClassName}
-          href={buildAttentionHref(item)}
+          href={buildAttentionHref({ kind: "task", opportunityId: item.opportunityId, taskId: item.taskId })}
           key={item.id}
         >
           <span className={presentation.markerClassName} aria-hidden="true" />
