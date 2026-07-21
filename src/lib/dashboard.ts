@@ -4,9 +4,9 @@ import type {
   OpportunitySummary,
   OpportunityType
 } from "../types";
-import { opportunityIsAttentionEligible, opportunityRequiresForwardMotion } from "./opportunity-attention";
+import { opportunityIsAttentionEligible } from "./opportunity-attention";
 
-export type AttentionKind = "task" | "missing_next_action";
+export type AttentionKind = "task";
 
 type DashboardAttentionBase = {
   id: string;
@@ -18,19 +18,13 @@ type DashboardAttentionBase = {
   priority: OpportunityPriority;
 };
 
-export type DashboardAttentionItem = DashboardAttentionBase & ({
+export type DashboardAttentionItem = DashboardAttentionBase & {
   kind: "task";
   taskId: string;
   actionLabel: string;
   dueDate: string;
   isOverdue: boolean;
-} | {
-  kind: "missing_next_action";
-  taskId: null;
-  reasonLabel: "No next action planned";
-  dueDate: null;
-  isOverdue: false;
-});
+};
 
 export type DashboardInsights = { attention: DashboardAttentionItem[] };
 
@@ -64,37 +58,21 @@ export function getDashboardInsights(
   for (const opportunity of opportunities) {
     if (!opportunityIsAttentionEligible(opportunity)) continue;
     const task = opportunity.nextOpenTask;
-    if (task?.dueDate && task.dueDate <= today) {
-      attention.push({
-        id: `task-${task.id}`,
-        opportunityId: opportunity.id,
-        type: opportunity.type,
-        label: opportunity.label,
-        organization: opportunity.organization,
-        status: opportunity.status,
-        priority: opportunity.priority,
-        kind: "task",
-        taskId: task.id,
-        actionLabel: task.title,
-        dueDate: task.dueDate,
-        isOverdue: task.dueDate < today
-      });
-    } else if (!task && opportunityRequiresForwardMotion(opportunity)) {
-      attention.push({
-        id: `missing-next-action-${opportunity.id}`,
-        opportunityId: opportunity.id,
-        type: opportunity.type,
-        label: opportunity.label,
-        organization: opportunity.organization,
-        status: opportunity.status,
-        priority: opportunity.priority,
-        kind: "missing_next_action",
-        taskId: null,
-        reasonLabel: "No next action planned",
-        dueDate: null,
-        isOverdue: false
-      });
-    }
+    if (!task?.dueDate || task.dueDate > today) continue;
+    attention.push({
+      id: `task-${task.id}`,
+      opportunityId: opportunity.id,
+      type: opportunity.type,
+      label: opportunity.label,
+      organization: opportunity.organization,
+      status: opportunity.status,
+      priority: opportunity.priority,
+      kind: "task",
+      taskId: task.id,
+      actionLabel: task.title,
+      dueDate: task.dueDate,
+      isOverdue: task.dueDate < today
+    });
   }
 
   return { attention: attention.sort(compareAttention) };

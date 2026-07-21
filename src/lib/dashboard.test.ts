@@ -62,7 +62,7 @@ function connection(overrides: Partial<ConnectionOpportunity & { nextOpenTask: O
 }
 
 describe("getDashboardInsights", () => {
-  it("orders due work before opportunities missing a next action", () => {
+  it("returns only persisted due work and ignores missing next actions", () => {
     const opportunities = [
       connection({
         id: "connection-due",
@@ -87,19 +87,8 @@ describe("getDashboardInsights", () => {
       dueDate: item.dueDate
     }))).toEqual([
       { opportunityId: "connection-due", kind: "task", taskId: "connection-task", dueDate: "2026-07-08" },
-      { opportunityId: "job-due", kind: "task", taskId: "job-task", dueDate: "2026-07-09" },
-      { opportunityId: "connection-new", kind: "missing_next_action", taskId: null, dueDate: null }
+      { opportunityId: "job-due", kind: "task", taskId: "job-task", dueDate: "2026-07-09" }
     ]);
-
-    const planning = insights.attention.find((item) => item.kind === "missing_next_action");
-    expect(planning).toMatchObject({
-      kind: "missing_next_action",
-      taskId: null,
-      reasonLabel: "No next action planned",
-      dueDate: null,
-      isOverdue: false
-    });
-    expect(planning).not.toHaveProperty("actionLabel");
   });
 
   it("keeps future tasks out of attention while suppressing missing-action warnings", () => {
