@@ -61,20 +61,21 @@ function renderTable(opportunities: OpportunitySummary[], pendingStatusId: strin
     <OpportunityTable
       opportunities={opportunities}
       pendingStatusId={pendingStatusId}
+      onAddTask={() => undefined}
       onStatusChange={() => undefined}
     />
   );
 }
 
-function mountTable(onStatusChange = vi.fn()) {
+function mountTable(onStatusChange = vi.fn(), onAddTask = vi.fn()) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   let root: Root;
   act(() => {
     root = createRoot(container);
-    root.render(<OpportunityTable opportunities={[job, connection]} onStatusChange={onStatusChange} />);
+    root.render(<OpportunityTable opportunities={[job, connection]} onAddTask={onAddTask} onStatusChange={onStatusChange} />);
   });
-  return { container, onStatusChange, root: root! };
+  return { container, onAddTask, onStatusChange, root: root! };
 }
 
 function rowFor(label: string) {
@@ -125,6 +126,27 @@ describe("OpportunityTable", () => {
     expect(connectionRow!.querySelector(".application-table__tertiary")?.textContent).toBe("Strong relationship");
     expect(connectionRow!.querySelector(".relationship-chip")).toBeNull();
     expect(connectionRow!.querySelector("select")?.value).toBe("in_conversation");
+  });
+
+  it("offers an entity-named next-action CTA only for eligible rows", () => {
+    const wishlist = { ...job, id: "wishlist-job", status: "wishlist" as const, nextOpenTask: null };
+    const rejected = { ...job, id: "rejected-job", label: "Closed Role", status: "rejected" as const, nextOpenTask: null };
+    renderTable([connection, wishlist, rejected]);
+
+    expect(rowFor("Maya Chen")?.querySelector('button[aria-label="Set next action for Maya Chen"]')?.textContent).toBe("Set next action");
+    expect(rowFor("Platform Engineer")?.querySelector('button[aria-label="Set next action for Platform Engineer"]')).not.toBeNull();
+    expect(rowFor("Closed Role")?.querySelector("button")).toBeNull();
+    expect(rowFor("Closed Role")?.querySelector(".next-move__label")?.textContent).toBe("No next action");
+  });
+
+  it("passes the exact opportunity and trigger to onAddTask", () => {
+    const { container, onAddTask, root } = mountTable();
+    const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Set next action for Maya Chen"]')!;
+
+    act(() => trigger.click());
+
+    expect(onAddTask).toHaveBeenCalledWith(connection, trigger);
+    act(() => root.unmount());
   });
 
   it("renders three accessible loading skeleton rows and an empty state that reuses the header creation control", () => {

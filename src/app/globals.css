@@ -402,6 +402,8 @@ kbd {
 .next-move__label { color: var(--ink); font-size: 0.84rem; font-weight: 650; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .next-move__label--empty, .next-move__date--empty { color: var(--ink-faint); font-weight: 500; }
 .next-move__date, .application-table__time { color: var(--ink-muted); font-size: 0.76rem; }
+.next-move__cta { align-items: center; background: transparent; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius: 9px; color: var(--accent-strong); display: inline-flex; font-size: 0.8rem; font-weight: 760; justify-self: start; min-height: 44px; padding: 8px 11px; }
+.next-move__cta:focus-visible { outline-offset: 2px; }
 .application-table__cell[data-label="Updated"] { min-width: 96px; white-space: nowrap; }
 .priority-chip, .status-badge { align-items: center; border-radius: 999px; display: inline-flex; font-size: 0.73rem; font-weight: 750; line-height: 1; padding: 7px 9px; white-space: nowrap; }
 .priority-chip--high { background: var(--danger-soft); color: var(--danger); }
@@ -612,6 +614,7 @@ kbd {
 @media (hover: hover) and (pointer: fine) {
   .icon-button:hover { transform: translateY(-1px); }
   .button:hover, .application-form__button:hover, .application-table__button:hover { transform: translateY(-1px); }
+  .next-move__cta:hover { background: color-mix(in srgb, var(--accent-soft) 72%, var(--surface)); border-color: var(--accent); }
   .application-table__open:hover span { transform: translateX(3px); }
   .button:active, .application-form__button:active, .application-table__button:active { transform: translateY(0); }
 }

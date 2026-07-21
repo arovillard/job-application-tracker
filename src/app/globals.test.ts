@@ -176,6 +176,12 @@ describe("opportunity interface stylesheet", () => {
     expect(css).toMatch(/@media \(max-width: 320px\)\s*\{[\s\S]*?body\s*\{[^}]*min-width:\s*0;[^}]*\}/s);
   });
 
+  it("gives the contextual next-move CTA a touch-safe target and visible focus", () => {
+    expect(css).toMatch(/\.next-move__cta\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--accent-strong\);[^}]*min-height:\s*44px;[^}]*\}/s);
+    expect(css).toMatch(/\.next-move__cta:focus-visible\s*\{[^}]*outline-offset:\s*2px;[^}]*\}/s);
+    expect(css).toMatch(/@media \(hover:\s*hover\) and \(pointer:\s*fine\)\s*\{[\s\S]*?\.next-move__cta:hover\s*\{[^}]*background:[^;]+;[^}]*border-color:\s*var\(--accent\);/s);
+  });
+
   it("uses theme-derived dashboard tokens and retains visible focus and motion gates", () => {
     expect(css).toMatch(/:root\[data-theme="dark"\]\s*\{[^}]*--accent-soft:[^;]+;[^}]*--success-soft:[^;]+;[^}]*--warning-soft:[^;]+;[^}]*--danger-soft:[^;]+;[^}]*\}/s);
     expect(css).toContain(".pipeline-pulse__bar--empty { background: var(--surface-strong);");
