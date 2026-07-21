@@ -1,6 +1,6 @@
 {
   "name": "opportunity-tracker",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Local-first opportunity tracker for jobs and connections with packaged Codex and Claude workflows.",
   "license": "PolyForm-Noncommercial-1.0.0",
   "private": true,
