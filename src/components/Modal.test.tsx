@@ -10,12 +10,14 @@ import { Modal } from "./Modal";
 
 type ModalOptions = {
   children?: React.ReactNode;
+  dismissDisabled?: boolean;
   onClose?: () => void;
   size?: "compact" | "wide";
 };
 
 function mountModal({
   children = <><input aria-label="Organization" /><button type="button">Save changes</button></>,
+  dismissDisabled,
   onClose = vi.fn(),
   size
 }: ModalOptions = {}) {
@@ -29,7 +31,7 @@ function mountModal({
   act(() => {
     root = createRoot(container);
     root.render(
-      <Modal onClose={onClose} size={size} title="Edit opportunity">
+      <Modal dismissDisabled={dismissDisabled} onClose={onClose} size={size} title="Edit opportunity">
         {children}
       </Modal>
     );
@@ -168,6 +170,26 @@ describe("Modal", () => {
 
     expect(document.body.style.overflow).toBe("scroll");
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("ignores Escape, backdrop, and close-button dismissal while disabled", () => {
+    const onClose = vi.fn();
+    const { container, root } = mountModal({ dismissDisabled: true, onClose });
+    const backdrop = container.querySelector(".modal-backdrop")!;
+    const close = container.querySelector<HTMLButtonElement>(".modal__close")!;
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" }));
+      backdrop.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      close.click();
+    });
+
+    const closeWasDisabled = close.disabled;
+    const closeCallCount = onClose.mock.calls.length;
+    act(() => root.unmount());
+
+    expect(closeWasDisabled).toBe(true);
+    expect(closeCallCount).toBe(0);
   });
 
   it.each(["first", "second"])("keeps scrolling locked until the final overlapping modal unmounts when %s unmounts first", (firstToUnmount) => {

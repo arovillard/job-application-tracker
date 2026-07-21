@@ -239,7 +239,9 @@ describe("opportunity interface stylesheet", () => {
     expect(css).toMatch(/\.modal-backdrop\s*\{[^}]*backdrop-filter:\s*blur\(6px\);[^}]*\}/s);
     expect(css).toMatch(/\.modal::before\s*\{[^}]*background:\s*linear-gradient[^;]+;[^}]*height:\s*3px;[^}]*\}/s);
     expect(css).toMatch(/\.modal__header\s*\{[^}]*background:\s*linear-gradient[^;]+;[^}]*padding:\s*20px 24px 18px;[^}]*\}/s);
-    expect(css).toMatch(/\.task-composer-form__intro\s*\{[^}]*border-radius:\s*12px;[^}]*display:\s*grid;[^}]*\}/s);
+    expect(css).toMatch(/\.task-composer-form__context\s*\{[^}]*border-radius:\s*12px;[^}]*display:\s*grid;[^}]*min-width:\s*0;[^}]*\}/s);
+    expect(css).toMatch(/\.task-composer-form__context-heading\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;[^}]*\}/s);
+    expect(css).toMatch(/\.modal__close:disabled\s*\{[^}]*cursor:\s*wait;[^}]*opacity:\s*0\.55;[^}]*\}/s);
     expect(css).toMatch(/\.confirmation-form__message\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\);[^}]*\}/s);
     expect(css).toContain(".confirmation-form--danger .confirmation-form__symbol");
   });

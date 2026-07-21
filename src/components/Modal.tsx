@@ -4,6 +4,7 @@ import { useEffect, useId, useRef } from "react";
 
 type ModalProps = {
   children: React.ReactNode;
+  dismissDisabled?: boolean;
   onClose: () => void;
   size?: "compact" | "wide";
   title: string;
@@ -21,10 +22,12 @@ const FOCUSABLE_SELECTOR = [
 let activeModalCount = 0;
 let overflowBeforeModal = "";
 
-export function Modal({ children, onClose, size = "compact", title }: ModalProps) {
+export function Modal({ children, dismissDisabled = false, onClose, size = "compact", title }: ModalProps) {
   const dialogRef = useRef<HTMLElement>(null);
+  const dismissDisabledRef = useRef(dismissDisabled);
   const previousFocus = useRef<HTMLElement | null>(null);
   const titleId = useId();
+  dismissDisabledRef.current = dismissDisabled;
 
   useEffect(() => {
     previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -44,7 +47,7 @@ export function Modal({ children, onClose, size = "compact", title }: ModalProps
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        if (!dismissDisabledRef.current) onClose();
         return;
       }
 
@@ -84,14 +87,14 @@ export function Modal({ children, onClose, size = "compact", title }: ModalProps
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) {
+      if (event.target === event.currentTarget && !dismissDisabled) {
         onClose();
       }
     }}>
       <section aria-labelledby={titleId} aria-modal="true" className={`modal modal--${size}`} ref={dialogRef} role="dialog" tabIndex={-1}>
         <header className="modal__header">
           <h2 className="modal__title" id={titleId}>{title}</h2>
-          <button className="modal__close" type="button" onClick={onClose}>
+          <button className="modal__close" disabled={dismissDisabled} type="button" onClick={onClose}>
             <span aria-hidden="true">×</span><span className="sr-only">Close</span>
           </button>
         </header>
