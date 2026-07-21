@@ -40,8 +40,35 @@ const connection: OpportunitySummary = {
   createdAt: "2026-07-02T00:00:00.000Z", updatedAt: "2026-07-12T08:00:00.000Z", roleContext: "Engineering leader", contactInfo: null, meetingContext: null, relationshipStrength: "strong", lastInteractionAt: null, nextOpenTask: null
 };
 
-function jsonResponse(body: unknown) {
-  return { ok: true, json: async () => body } as Response;
+function jsonResponse(body: unknown, ok = true) {
+  return { ok, status: ok ? 200 : 422, json: async () => body } as Response;
+}
+
+function change(control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
+  Object.getOwnPropertyDescriptor(Object.getPrototypeOf(control), "value")?.set?.call(control, value);
+  control.dispatchEvent(new Event("input", { bubbles: true }));
+  control.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function localDateKey(value = new Date()) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function taskFor(opportunityId: string, title: string, dueDate: string | null) {
+  return {
+    id: `task-${opportunityId}`,
+    opportunityId,
+    title,
+    dueDate,
+    state: "open" as const,
+    sourceActivityId: null,
+    completedAt: null,
+    createdAt: "2026-07-21T12:00:00.000Z",
+    updatedAt: "2026-07-21T12:00:00.000Z"
+  };
 }
 
 function deferred<T>() {
@@ -158,7 +185,9 @@ describe("Dashboard", () => {
   });
 
   it("keeps the attention count stable while View all resets type and selects Needs attention", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse([job, connection]));
+    const dueJob = { ...job, nextOpenTask: taskFor(job.id, "Follow up with recruiter", "2020-01-01") };
+    const dueConnection = { ...connection, nextOpenTask: taskFor(connection.id, "Send introduction", "2020-01-02") };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse([dueJob, dueConnection]));
     const { container, root } = mountDashboard();
     await flushDashboard();
 
@@ -286,6 +315,88 @@ describe("Dashboard", () => {
     act(() => root.unmount());
   });
 
+  it("creates an undated next action for the selected row without adding attention noise", async () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { callback(0); return 1; });
+    const createdTask = taskFor(job.id, "Send portfolio", null);
+    const updated: OpportunityDetail = { ...job, tasks: [createdTask], activities: [], artifacts: [], origin: null, originatedJobs: [] };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse([job]))
+      .mockResolvedValueOnce(jsonResponse(updated));
+    const { container, root } = mountDashboard();
+    await flushDashboard();
+
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Set next action for Platform Engineer"]')!.click());
+
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.querySelector(".modal__title")?.textContent).toBe("Add next action");
+    expect(dialog.querySelector(".task-composer-form__context")?.textContent).toContain("Creating task for");
+    expect(dialog.querySelector(".task-composer-form__context")?.textContent).toContain("Platform Engineer");
+    expect(dialog.querySelector(".task-composer-form__context")?.textContent).toContain("Acme Corp");
+    act(() => change(dialog.querySelector<HTMLInputElement>("input[required]")!, "Send portfolio"));
+    act(() => dialog.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flushDashboard();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/opportunities/job-1/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Send portfolio", dueDate: null })
+    });
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector("#opportunity-next-move-job-1")?.textContent).toContain("Send portfolio");
+    expect(container.querySelector(".attention-strip")).toBeNull();
+    expect(toastState.props?.message).toBe("Next action added for Platform Engineer.");
+    expect(document.activeElement).toBe(container.querySelector("#opportunity-next-move-job-1"));
+    act(() => root.unmount());
+  });
+
+  it("keeps the selected entity and draft visible when next-action creation fails", async () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { callback(0); return 1; });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse([connection]))
+      .mockResolvedValueOnce(jsonResponse({ error: "Task rejected" }, false));
+    const { container, root } = mountDashboard();
+    await flushDashboard();
+
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Set next action for Maya Chen"]')!.click());
+    const input = container.querySelector<HTMLInputElement>('[role="dialog"] input[required]')!;
+    act(() => change(input, "Share hiring manager intro"));
+    act(() => container.querySelector<HTMLFormElement>('[role="dialog"] form')!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flushDashboard();
+
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.querySelector(".task-composer-form__context")?.textContent).toContain("Maya Chen");
+    expect(dialog.querySelector(".task-composer-form__context")?.textContent).toContain("Engineering leader");
+    expect(dialog.querySelector<HTMLInputElement>("input[required]")?.value).toBe("Share hiring manager intro");
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toBe("Task rejected");
+    expect(dialog.querySelector<HTMLInputElement>("input[required]")?.disabled).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it("adds a newly created due-today task to Needs attention", async () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { callback(0); return 1; });
+    const today = localDateKey();
+    const createdTask = taskFor(job.id, "Send portfolio", today);
+    const updated: OpportunityDetail = { ...job, tasks: [createdTask], activities: [], artifacts: [], origin: null, originatedJobs: [] };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse([job]))
+      .mockResolvedValueOnce(jsonResponse(updated));
+    const { container, root } = mountDashboard();
+    await flushDashboard();
+
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Set next action for Platform Engineer"]')!.click());
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    act(() => {
+      change(dialog.querySelector<HTMLInputElement>("input[required]")!, "Send portfolio");
+      change(dialog.querySelector<HTMLInputElement>('input[type="date"]')!, today);
+    });
+    act(() => dialog.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await flushDashboard();
+
+    expect(container.querySelector(".attention-strip")?.textContent).toContain("1 to review");
+    expect(container.querySelector(".attention-strip")?.textContent).toContain("Send portfolio");
+    act(() => root.unmount());
+  });
+
   it("replaces the dashboard with a retryable load error without rendering loaded workspace content", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("Network unavailable"));
     const { container, root } = mountDashboard();
@@ -315,7 +426,7 @@ describe("Dashboard", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(container.querySelector(".pipeline-pulse")?.textContent).toContain("2 Active");
-    expect(container.querySelector(".pipeline-pulse")?.textContent).toContain("2 Needs attention");
+    expect(container.querySelector(".pipeline-pulse")?.textContent).toContain("0 Needs attention");
     expect(container.querySelector('[role="alert"]')).toBeNull();
     act(() => root.unmount());
   });

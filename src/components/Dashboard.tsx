@@ -1,16 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { getDashboardInsights } from "../lib/dashboard";
 import { selectNextOpenTask } from "../lib/opportunity-tasks";
 import { CONNECTION_STATUSES, JOB_STATUSES, type OpportunityDetail, type OpportunityStatus, type OpportunitySummary } from "../types";
 import { AttentionQueue } from "./AttentionQueue";
+import { Modal } from "./Modal";
 import { CONNECTION_STATUS_LABELS, JOB_STATUS_LABELS, OpportunityTable, statusLabel } from "./OpportunityTable";
 import { OpportunityTypeFilter, type OpportunityTypeFilterValue } from "./OpportunityTypeFilter";
 import { NewOpportunityMenu } from "./NewOpportunityMenu";
 import { PipelinePulse } from "./PipelinePulse";
 import { StatusFilter, type StatusFilterOption } from "./StatusFilter";
+import { TaskComposer } from "./TaskComposer";
 import { useTheme } from "./ThemeProvider";
 import { Toast } from "./Toast";
 
@@ -61,10 +63,17 @@ export function Dashboard() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; onAction?: () => void } | null>(null);
+  const [taskTarget, setTaskTarget] = useState<OpportunitySummary | null>(null);
+  const [taskDraft, setTaskDraft] = useState({ title: "", dueDate: "" });
+  const [taskError, setTaskError] = useState<string | null>(null);
+  const [isTaskSubmitting, setIsTaskSubmitting] = useState(false);
+  const [nextMoveFocusId, setNextMoveFocusId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const pendingStatusRef = useRef(false);
+  const taskSubmittingRef = useRef(false);
   const mountedRef = useRef(true);
   const loadRequestRef = useRef(0);
+  const taskRequestRef = useRef(0);
   const { theme, setTheme } = useTheme();
 
   const fetchOpportunities = useCallback(async () => {
@@ -100,8 +109,20 @@ export function Dashboard() {
       .finally(() => {
         if (mountedRef.current && requestId === loadRequestRef.current) setLoading(false);
       });
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      taskRequestRef.current += 1;
+      taskSubmittingRef.current = false;
+    };
   }, [fetchOpportunities]);
+
+  useLayoutEffect(() => {
+    if (!nextMoveFocusId) return;
+    const nextMove = document.getElementById(`opportunity-next-move-${nextMoveFocusId}`);
+    if (!nextMove) return;
+    nextMove.focus({ preventScroll: true });
+    setNextMoveFocusId(null);
+  }, [nextMoveFocusId, opportunities]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -151,6 +172,60 @@ export function Dashboard() {
     finally { pendingStatusRef.current = false; setPendingStatusId(null); }
   };
 
+  const openTask = useCallback((opportunity: OpportunitySummary, trigger: HTMLButtonElement) => {
+    trigger.focus();
+    taskRequestRef.current += 1;
+    taskSubmittingRef.current = false;
+    setIsTaskSubmitting(false);
+    setTaskTarget(opportunity);
+    setTaskDraft({ title: "", dueDate: "" });
+    setTaskError(null);
+  }, []);
+
+  const closeTask = useCallback(() => {
+    if (taskSubmittingRef.current) return;
+    taskRequestRef.current += 1;
+    setTaskTarget(null);
+    setTaskDraft({ title: "", dueDate: "" });
+    setTaskError(null);
+  }, []);
+
+  const submitTask = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!taskTarget || taskSubmittingRef.current) return;
+    const target = taskTarget;
+    const requestId = ++taskRequestRef.current;
+    taskSubmittingRef.current = true;
+    setIsTaskSubmitting(true);
+    setTaskError(null);
+    try {
+      const response = await fetch(`/api/opportunities/${target.id}/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: taskDraft.title, dueDate: taskDraft.dueDate || null })
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      const updated = detailToSummary(await response.json() as OpportunityDetail);
+      if (updated.id !== target.id) throw new Error("The saved task did not match the selected opportunity");
+      if (!mountedRef.current || requestId !== taskRequestRef.current) return;
+      setOpportunities((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setTaskTarget(null);
+      setTaskDraft({ title: "", dueDate: "" });
+      setTaskError(null);
+      setToast({ message: `Next action added for ${target.label}.` });
+      setNextMoveFocusId(target.id);
+    } catch (caught) {
+      if (mountedRef.current && requestId === taskRequestRef.current) {
+        setTaskError(caught instanceof Error ? caught.message : "Unable to add next action");
+      }
+    } finally {
+      if (mountedRef.current && requestId === taskRequestRef.current) {
+        taskSubmittingRef.current = false;
+        setIsTaskSubmitting(false);
+      }
+    }
+  };
+
   return <main className="app-shell dashboard-shell">
     <header className="dashboard-header"><div className="dashboard-header__brand"><span className="brand-mark" aria-hidden="true">O</span><span>Opportunity Tracker</span></div>
       <div className="dashboard-header__actions"><span className="shortcut-hint"><kbd>⌘</kbd><kbd>K</kbd> Search</span>
@@ -166,8 +241,9 @@ export function Dashboard() {
         <label className="select-field"><span className="sr-only">Sort opportunities</span><select value={sort} onChange={(event) => setSort(event.target.value as SortValue)}><option value="updated">Recently updated</option><option value="next-action">Next action date</option><option value="priority">Priority</option><option value="organization">Organization</option></select></label>
       </div><div className="pipeline-filter-rail" role="region" aria-label="Filter opportunities"><OpportunityTypeFilter value={typeFilter} onChange={(value) => { setTypeFilter(value); setStatusFilter(value === "all" ? "active" : "all"); }} /><StatusFilter value={statusFilter} options={statusOptions} onChange={setStatusFilter} /></div></div>
       <AttentionQueue items={insights.attention} loading={loading} onViewAll={() => { setTypeFilter("all"); setStatusFilter("attention"); }} />
-      <OpportunityTable opportunities={filtered} loading={loading} pendingStatusId={pendingStatusId} onStatusChange={updateStatus} emptyMessage={search || typeFilter !== "all" || statusFilter !== "active" ? "No opportunities match this search or filter." : "Create your first job or connection opportunity."} onClearFilters={search || typeFilter !== "all" || statusFilter !== "active" ? () => { setSearch(""); setTypeFilter("all"); setStatusFilter("active"); } : undefined} />
+      <OpportunityTable opportunities={filtered} loading={loading} pendingStatusId={pendingStatusId} onAddTask={openTask} onStatusChange={updateStatus} emptyMessage={search || typeFilter !== "all" || statusFilter !== "active" ? "No opportunities match this search or filter." : "Create your first job or connection opportunity."} onClearFilters={search || typeFilter !== "all" || statusFilter !== "active" ? () => { setSearch(""); setTypeFilter("all"); setStatusFilter("active"); } : undefined} />
     </section>}
+    {taskTarget ? <Modal dismissDisabled={isTaskSubmitting} title="Add next action" onClose={closeTask}><TaskComposer opportunity={taskTarget} error={taskError} taskTitle={taskDraft.title} taskDueDate={taskDraft.dueDate} isSubmitting={isTaskSubmitting} onTaskTitleChange={(title) => setTaskDraft((current) => ({ ...current, title }))} onTaskDueDateChange={(dueDate) => setTaskDraft((current) => ({ ...current, dueDate }))} onCancel={closeTask} onSubmit={submitTask} /></Modal> : null}
     <Toast message={toast?.message ?? null} actionLabel={toast?.onAction ? "Undo" : undefined} onAction={() => { const action = toast?.onAction; setToast(null); action?.(); }} onDismiss={() => setToast(null)} />
   </main>;
 }
