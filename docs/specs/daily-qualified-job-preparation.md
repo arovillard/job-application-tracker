@@ -25,6 +25,9 @@ This change includes:
 - A versioned scoring schema and validation rules.
 - Updates to the repository application coordinator, posting-intake skill, and application-material skill.
 - A complete application dossier contract: tailored resume, fit analysis, cover letter, outreach draft, and submission guide.
+- A stable database-instance identity check that fails closed if the configured live database is missing, replaced, malformed, or no longer matches the deployment identity.
+- A bounded run lock plus atomic status/version preconditions so overlapping runs and concurrent user archive/reject actions cannot mutate inactive opportunities.
+- An executable automated-intake coordinator with scenario tests for sub-threshold, inactive, unchanged-complete, incomplete-repair, race, and no-submit paths.
 - Duplicate and repeat-run controls that use the existing posting dry-run behavior before mutating the tracker.
 - Contract and behavioral tests for scoring, workflow ordering, artifact requirements, fail-closed behavior, and submission safety.
 - A daily Codex automation for the local JobTracker project at 08:00 in `Etc/UTC`.
@@ -57,6 +60,7 @@ The existing tracker UI, job lifecycle, artifact viewer, and archive/reject cont
 - The application workflow currently has no discovery policy, numeric score, scoring command, daily scheduler, cover-letter requirement, submission-guide requirement, or repeat-run dossier completeness rule.
 - The configured private resume has been validated read-only through the signed-in host. It establishes 10+ years of product delivery, progression from JavaScript Engineer to Technical Lead, Director-level engineering and operations experience, people leadership, React/React Native/TypeScript/Node/AWS depth, platform/developer-experience work, customer translation, and AI-assisted workflows.
 - Current local readiness has confirmed an absolute project root, working SQLite path, and applications-materials path in the saved local checkout. These ignored paths are the user's working tracker state and materials directory; the specification intentionally does not commit machine-specific personal paths.
+- Readiness currently validates the configured database parent but does not prove that the database file exists, is a regular SQLite file, has the current tracker schema, or is the same database instance selected at deployment. The scheduled workflow therefore needs a stronger fail-closed identity command before any automated intake.
 - The user identifies the app normally served on `http://localhost:3000` as the UI for this working database. The server may not be running at every scheduled execution, so the validated SQLite path—not server reachability—is the database identity contract.
 
 ## Proposed Behavior
@@ -66,6 +70,12 @@ The existing tracker UI, job lifecycle, artifact viewer, and archive/reject cont
 At 08:00 `Etc/UTC`, a standalone Codex automation runs with `executionEnvironment=local` against the saved JobTracker project. It must not run in the implementation worktree because ignored `.env.local`, the live SQLite database, and generated application materials belong to the saved local checkout.
 
 Every run begins from that repository root, uses the repository source coordinator as authoritative, and runs `node scripts/check-application-readiness.mjs` before discovery-driven mutation. It must parse and preserve the returned absolute `projectRoot`, `database.path`, and `applicationsDirectory.path`. Every dry run, real posting upsert, dossier inspection, and artifact registration receives that exact `database.path` through `--db`; every material command receives the exact `applicationsDirectory.path` through `--applications-dir`. Process defaults and synthesized fallback paths are forbidden.
+
+Deployment initializes one stable UUID in the existing `schema_metadata` table of the already-existing working database through `node scripts/jobtracker-database-identity.mjs initialize --db "/absolute/database/path"`. Initialization uses SQLite `fileMustExist` and a shared structural validator for the current tracker schema before writing: required tables and columns, primary keys, foreign-key targets/actions, the artifact uniqueness key, and required named indexes must all match. Correctly named lookalike tables are rejected. Initialization never replaces an existing identity and adds only the `jobtracker_instance_id` metadata row; it does not create a database or change the schema. The automation stores that returned UUID in its private external prompt/state, not in committed repository files.
+
+Every scheduled run then invokes `node scripts/jobtracker-database-identity.mjs verify --db "/absolute/database/path" --expected-id "DEPLOYMENT_UUID"` before discovery-driven intake. Verification requires an absolute existing regular file, the complete shared structural schema contract, a readable `schema_metadata` identity row, and an exact UUID match. A missing file, directory, empty/new database, named-table lookalike with missing/wrong columns, broken primary/foreign/unique keys, missing required index, missing identity, or different identity stops the run. The workflow never initializes identity during a scheduled run.
+
+After identity verification, the run acquires one bounded lock in the verified database's existing `schema_metadata` table with `node scripts/daily-job-prep-lock.mjs acquire --db "/absolute/database/path"`. The returned random token is required by every automated decision, guarded upsert, guarded dossier precondition, and guarded artifact/dossier commit. Acquisition, expired takeover, and release use `BEGIN IMMEDIATE` transactions around the single `daily_job_prep_lock` metadata row, so concurrent contenders serialize and cannot delete or replace a successor's lock. The lock expires after six hours to recover from a crashed run and is released in a `finally` path. A second unexpired acquisition fails closed. Expiry or token mismatch during a command also fails closed.
 
 The local Next.js app at `http://localhost:3000` is a presentation surface over the working SQLite state, not a second data service. The automation may use the public local API for read-only corroboration when it is already available, but it does not require the development server to be running and must never start a second server or choose another database when port 3000 is unavailable.
 
@@ -140,7 +150,7 @@ All gates compare the exact half-point arithmetic before display formatting. Dis
 
 If there are no explicitly mandatory criteria, the command returns a validation failure rather than treating mandatory match as 100%. The agent must revisit the posting and identify its required qualifications or skip the candidate as unverifiable.
 
-The scoring command is the mutation boundary. Tracker intake and material generation are forbidden until its parsed output reports `eligible: true` and all returned values are verified against the input opportunity.
+The scoring command is the mutation boundary. Tracker intake and material generation are forbidden until its parsed output reports `eligible: true` and all returned values are verified against the input opportunity. Automated candidates pass through `node scripts/prepare-qualified-job.mjs`, which verifies database identity and the run-lock token, invokes the evaluator before any posting command, performs the dry-run/inspection/decision sequence below, and is the only automated route to a real posting upsert.
 
 ### Repeat-Run and Duplicate Controls
 
@@ -155,6 +165,10 @@ Before a real tracker write, the workflow invokes the existing posting command w
 The dossier-inspection command reports each required artifact's registration, expected type/title, absolute path, file existence, and regular-file status. A dossier is complete only when all five required outputs are registered and their local files are present. The tailored Google Doc URL is returned separately and is not a substitute for the registered local resume snapshot.
 
 The real upsert uses the same canonical facts and absolute database path as the dry run. The workflow verifies action, opportunity type, organization, role, canonical URL, status, changes, and activity IDs. The resulting job remains `wishlist`.
+
+Automated dry-run output also returns the pre-mutation duplicate snapshot: whether the record existed and, when it did, its ID, status, and `updated_at` value. A guarded real upsert accepts either `expect new` or that exact existing ID/status/version. Inside the same SQLite transaction and before any update, activity, or task write, it rechecks the current record. A new duplicate, missing record, ID mismatch, status mismatch, version mismatch, or current `rejected`/`archived` state aborts with no mutation. Dry-run is allowed to describe an inactive duplicate, but a real automated upsert can never update one.
+
+Immediately before creating or repairing materials, the coordinator reruns dossier inspection with the run-lock token and the expected `wishlist` status plus the `updated_at` value returned by the intake decision. That single read-only SQLite snapshot must match. Every automated artifact registration also requires the same active run-lock token and atomically rechecks `status = wishlist` inside its write transaction before inserting/updating an artifact. If the user rejects or archives during material authoring, subsequent registration stops, the tracker record remains inactive, and the workflow reports the dossier as incomplete rather than ready. Generated but unregistered files remain private local files and are not described as submission-ready.
 
 ### Complete Application Dossier
 
@@ -193,6 +207,8 @@ Every prepared job must include:
 
 All local files use role-specific slugs and preserve unrelated existing files. The workflow verifies every file exists before registration and parses every registration response. A remote Google Doc link without a verified local resume snapshot is incomplete.
 
+In automated mode, the agent writes only missing dossier outputs to a private staging directory inside the verified applications directory, then invokes `node scripts/commit-job-dossier.mjs` with an exact manifest. The command performs a fresh guarded status/version inspection, rejects any manifest entry that would replace an already-valid required artifact or reuse any already-registered destination path, validates every staged input and destination boundary, copies missing outputs without overwrite semantics, registers them under the fixed type/title contract with the active lock and expected `wishlist` status, and finally reruns guarded dossier inspection. Registration is called through an imported function with an explicit committed return. If any error is ambiguous after the registration call, the commit command queries the exact artifact row before cleanup: a matching committed row keeps the copied file and is treated as committed, while absence of the row permits removal only of the destination created by that iteration. A failure may leave only registered valid outputs for a later repair; it never creates a dangling registration, overwrites a valid existing file, or calls the dossier complete unless all five requirements validate.
+
 ### Tracker Review Workflow
 
 Prepared opportunities remain in `wishlist` and appear in the existing active pipeline. The user reviews the job details, source link, fit analysis, resume, cover letter, outreach draft, and submission guide.
@@ -217,14 +233,37 @@ Each run reports:
 
 The summary must not reproduce private resume content, personal contact details, or credentials.
 
+## Executable Automated Intake Decisions
+
+`node scripts/prepare-qualified-job.mjs --db "/absolute/database/path" --expected-database-id "DEPLOYMENT_UUID" --lock-token "RUN_TOKEN" --input-json -` accepts exactly `{ assessment, posting }`; submission, credential, or authenticated-action fields/options are invalid. Posting organization, role, canonical URL, and `posting_state` must exactly match the evaluated posting identity and state after documented normalization; a contradiction such as evaluated `open` with intake `closed` fails before dry-run. It returns a schema-versioned decision without creating application materials:
+
+- `skip_ineligible`: evaluator failed one or more gates; no posting command or tracker mutation occurred.
+- `skip_inactive`: the dry run identified a rejected or archived record; no real upsert or dossier creation occurred.
+- `skip_complete`: the posting was unchanged and the read-only inspector proved all five files valid; no real upsert or file change occurred.
+- `repair_dossier`: the posting was unchanged and the dossier was incomplete; no posting mutation occurred, valid existing files are preserved, and the response includes the exact ID/status/version precondition for material work.
+- `prepare_dossier`: a new or materially changed eligible posting was committed through guarded compare-and-set, remains `wishlist`, and the response includes the exact ID/status/version precondition for material work.
+
+The command rejects posting facts that do not match the evaluated organization, role, canonical URL, or posting state. Candidate scenario tests use only temporary databases and applications directories. They prove score-before-dry-run, contradictory-state rejection before dry-run, dry-run-before-real-write, inactive preservation including activities, `updated_at`, schema, and metadata, unchanged-complete skipping, incomplete repair without overwriting valid files, compare-and-set race failure, overlap lock failure, and rejection of any submit-style option before mutation.
+
 ## Interfaces and File Responsibilities
 
 - `scripts/evaluate-job-match.mjs`: validate assessment JSON, compute deterministic scores, enforce gates, and emit schema-versioned JSON.
 - `scripts/evaluate-job-match.test.ts`: behavioral coverage for valid eligibility, threshold boundaries, half-credit adjacency, blockers, group totals, mandatory rules, rounding, and malformed input.
+- `scripts/jobtracker-database-identity.mjs`: deployment-only identity initialization and scheduled fail-closed verification for an existing tracker database.
+- `scripts/jobtracker-database-identity.test.ts`: missing/non-file/malformed/missing-ID/mismatch/success/idempotent-initialize coverage.
+- `scripts/lib/current-opportunity-schema.mjs`: one read-only structural schema validator shared by identity, lock, automated upsert, automated inspection/registration, and dossier commit paths.
+- `scripts/daily-job-prep-lock.mjs` and `scripts/lib/daily-job-prep-lock.mjs`: acquire, verify, and release one expiring lock keyed to the verified database path.
+- `scripts/daily-job-prep-lock.test.ts`: simultaneous acquire, token mismatch, transactional release/acquire, expiry takeover, and database isolation coverage.
 - `scripts/inspect-job-dossier.mjs`: read-only lookup for existing opportunity status and required registered artifact/file completeness.
 - `scripts/inspect-job-dossier.test.ts`: complete, incomplete, missing-file, inactive-status, and invalid-opportunity coverage.
-- `scripts/register-application-artifact.mjs`: reject missing or non-file artifact paths before any database mutation.
-- `scripts/register-application-artifact.test.ts`: regression coverage for file validation and unchanged valid registration behavior.
+- `scripts/register-application-artifact.mjs`: reject missing or non-file artifact paths before any database mutation and enforce lock/status preconditions in automated mode.
+- `scripts/register-application-artifact.test.ts`: regression coverage for file validation, guarded inactive-state races, and unchanged valid registration behavior.
+- `scripts/commit-job-dossier.mjs`: guarded, no-overwrite promotion and registration of only missing staged dossier outputs.
+- `scripts/commit-job-dossier.test.ts`: real temporary-file coverage for complete creation, incomplete repair, valid-file preservation, unsafe paths, collisions, and concurrent inactive status.
+- `scripts/prepare-qualified-job.mjs`: executable score-first, dry-run, duplicate/dossier decision, and compare-and-set automated intake coordinator.
+- `scripts/prepare-qualified-job.test.ts`: temporary-fixture scenario coverage for all decision paths and submission rejection.
+- `scripts/upsert-job-posting.mjs`: preserve manual behavior while adding automated dry-run precondition output and guarded compare-and-set writes.
+- `scripts/upsert-job-posting.test.ts`: automated race, inactive, expect-new, and manual-compatibility coverage.
 - `skills/job-application-workflow/SKILL.md`: daily discovery policy, pre-score exclusions, gate-before-mutation ordering, duplicate controls, run summary, and no-submit boundary.
 - `skills/job-tracker-add-posting/SKILL.md`: automated dry-run-before-write behavior, no automatic reactivation, and verified unchanged-candidate handling.
 - `skills/job-application-resume/SKILL.md`: complete dossier requirements, scoring evidence integration, artifact types, source-grounded answers, and submission-guide contract.
@@ -249,6 +288,10 @@ The summary must not reproduce private resume content, personal contact details,
 - One dossier artifact fails: keep valid files, report the dossier as incomplete, and do not claim the opportunity is submission-ready.
 - Registration fails: return the valid local path or Docs link with an explicit registration failure; never claim tracker linkage succeeded.
 - Dossier inspection fails or cannot prove file validity: treat the dossier as incomplete; do not skip or claim readiness based only on filenames.
+- Database identity cannot be verified: stop the scheduled run before discovery-driven intake; never initialize, replace, or fall back during the run.
+- The run lock is held, expired during work, or has the wrong token: stop mutation/material registration, release only a lock owned by the current token, and report the conflict.
+- A guarded ID/status/version precondition fails: treat it as concurrent user or automation activity, make no write, and re-evaluate on a later run rather than overriding the newer state.
+- An automated command encounters a legacy or incomplete schema: fail closed without running schema creation or migration helpers. Manual one-off commands retain their existing migration compatibility.
 - Research source unavailable: disclose the limitation and continue only if the posting itself remains sufficient for scoring.
 - One candidate fails: continue safely with independent candidates and report the isolated failure.
 - Automation run exceeds available time: stop at a clean candidate boundary and report unprocessed discoveries without partially mutating the next candidate.
@@ -266,8 +309,8 @@ The summary must not reproduce private resume content, personal contact details,
 
 ## Compatibility and Migration
 
-- Existing databases, opportunities, statuses, activities, tasks, and artifact records require no schema migration.
-- Existing manual single-link application requests continue through the same coordinator, now with the deterministic score gate.
+- Existing databases, opportunities, statuses, activities, tasks, and artifact records require no schema migration. Deployment adds one stable `jobtracker_instance_id` row to the existing `schema_metadata` table after validating the current database; scheduled runs never add or change it.
+- Existing manual single-link application requests continue through the same coordinator, now with the deterministic score gate. Database-instance initialization and the six-hour run lock are scheduled-mode deployment controls and are not prerequisites for ordinary one-off manual intake on a newly installed tracker.
 - Existing `resume`, `fit_analysis`, and `outreach_message` artifacts remain valid.
 - `cover_letter` and `other` are already accepted artifact types.
 - Existing archived and rejected records remain unchanged.
@@ -277,6 +320,7 @@ The summary must not reproduce private resume content, personal contact details,
 ## Rollback
 
 - Disable or delete the daily Codex automation.
+- Remove the `jobtracker_instance_id` metadata row only if database-instance verification is intentionally retired; ordinary rollback may leave the inert row in place.
 - Remove the evaluator command, tests, and qualification script entry.
 - Revert the three skill contract updates and reinstall personal skill copies if they were refreshed.
 - Existing prepared `wishlist` opportunities and local dossiers remain valid user-owned records and files.
@@ -306,11 +350,17 @@ The summary must not reproduce private resume content, personal contact details,
 20. A created daily automation can be viewed and its returned configuration confirms the expected project, enabled status, cadence, and prompt safety contract.
 21. The automation uses `executionEnvironment=local`, runs readiness from the saved local JobTracker project, and passes the returned absolute `database.path` explicitly to every database command; it never creates or selects a worktree, temporary, fixture, or fallback database.
 22. Localhost port 3000 availability does not alter database selection: an unavailable UI does not trigger a second server or database, and an available UI reflects the same working records after scheduled writes.
+23. Deployment initializes one immutable database instance ID in the existing live tracker; every scheduled run verifies file existence, regular-file status, required columns/primary keys/foreign keys/artifact uniqueness/named indexes, and exact identity before automated intake. Missing, replaced, or named-table lookalike databases fail without creation or migration.
+24. A six-hour lock stored in the verified database prevents overlapping scheduled executions; simultaneous acquisition, transaction-safe expiry takeover and release/acquire, token mismatch, and release behavior are tested.
+25. Guarded real upserts atomically compare expected new/existing identity, status, and version before any mutation; guarded artifact registration atomically requires `wishlist`, so concurrent reject/archive actions remain authoritative.
+26. Temporary-fixture scenario tests exercise `skip_ineligible`, `skip_inactive`, `skip_complete`, `repair_dossier`, `prepare_dossier`, real missing-only dossier commit with valid-file preservation, compare-and-set race failure, overlap prevention, and rejection of submission-style input.
+27. Scheduler deployment looks up the stable name/project key, updates an existing matching automation or creates one only when absent, recovers from ambiguous failures by re-reading state, and leaves exactly one enabled matching daily automation.
+28. A fresh `sol-final-reviewer` examines the complete branch plus sanitized post-deployment evidence—including database identity verification, installed-skill equality, and exact-one automation state—before the native goal is completed.
 
 ## Verification Commands
 
 ```bash
-npm test -- scripts/evaluate-job-match.test.ts scripts/inspect-job-dossier.test.ts scripts/application-workflow-contract.test.ts scripts/upsert-job-posting.test.ts scripts/register-application-artifact.test.ts scripts/install-skills.test.ts
+npm test -- scripts/evaluate-job-match.test.ts scripts/jobtracker-database-identity.test.ts scripts/daily-job-prep-lock.test.ts scripts/inspect-job-dossier.test.ts scripts/commit-job-dossier.test.ts scripts/prepare-qualified-job.test.ts scripts/application-workflow-contract.test.ts scripts/upsert-job-posting.test.ts scripts/register-application-artifact.test.ts scripts/install-skills.test.ts
 npm run verify
 npm run build
 diff -qr skills .claude/skills
@@ -351,6 +401,10 @@ Mandatory workflow checks include:
 - Prepare a full dossier only after eligibility. This spends document-generation effort only on jobs that pass every gate.
 - Treat employer pages as authoritative and fail closed on ambiguity. This reduces false positives at the cost of skipping some potentially viable but unverifiable postings.
 - Use a conservative geographic default derived from the verified resume and never assume relocation or work authorization.
+- Bind automation to a stable database UUID instead of path text alone. This adds one inert metadata row but prevents a missing database from being silently recreated at the configured path and detects replacement with a different tracker instance.
+- Combine a bounded transactionally managed database lock with compare-and-set checks. SQLite serialization prevents stale takeover/release races and overlapping scheduled runs; the status/version checks keep user reject/archive actions authoritative even if they race with a running automation.
+- Put automated intake branching in an executable coordinator while leaving web discovery and document prose agent-driven. This makes mutation ordering and repeat-run behavior testable without building a crawler or document-generation service.
+- Call artifact registration as an imported function and reconcile the exact row after ambiguous exceptions. This avoids deleting a file whose database registration actually committed while preserving cleanup for proven pre-commit failures.
 - Keep scheduling in Codex automation state rather than repository cron configuration. This avoids credentials, daemons, and host-specific scheduler code in the project.
 - Target the saved local checkout rather than an automation worktree. This intentionally shares the user's current ignored SQLite/application state with the daily run while implementation remains isolated in its feature worktree.
 
