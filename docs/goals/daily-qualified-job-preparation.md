@@ -36,7 +36,7 @@ Automate daily public-job discovery while preparing complete application dossier
 | Task | Owner | Write set | Dependencies | Status | Tests | Review |
 |---|---|---|---|---|---|---|
 | `SPEC-REVIEW` | `sol-reviewer` | Read-only | Approved specification and plan | Complete | Document consistency inspection | Seventh review approved; no blocking findings |
-| `MATCH-001` | Fresh `terra-worker` | Evaluator, evaluator tests, package command | Spec/plan review | Pending | Focused evaluator tests and diff check | Pending fresh `sol-reviewer` |
+| `MATCH-001` | Fresh `terra-worker` | Evaluator, evaluator tests, package command | Spec/plan review | Complete (`435d141`, `77778aa`) | RED 21 missing-module failures; GREEN 25/25; CLI error, ESLint, and diff checks pass | Re-review approved; no findings |
 | `GUARD-002` | Fresh `terra-worker` | Database identity and run-lock libraries/CLIs/tests | `MATCH-001` | Pending | Missing/replaced DB, read-only identity, overlap/expiry/token tests | Pending fresh `sol-reviewer` |
 | `DOSSIER-003` | Fresh `terra-worker` | Guarded dossier inspector/tests and artifact validation/tests | `GUARD-002` | Pending | Focused DB/file/status race tests plus related regressions | Pending fresh `sol-reviewer` |
 | `INTAKE-004` | Fresh `terra-worker` | Executable coordinator/tests and automated upsert CAS/tests | Earlier implementation tasks | Pending | Temporary scenario/race/no-submit tests plus manual compatibility | Pending fresh `sol-reviewer` |
@@ -58,6 +58,10 @@ Native collaboration roles are used because the required `terra-worker`, `sol-re
 | `spec-plan-review-5` | `SPEC-REVIEW` | `spec-review` | 5 | `sol-reviewer` | Findings returned; revision required | Native per-dispatch usage unavailable |
 | `spec-plan-review-6` | `SPEC-REVIEW` | `spec-review` | 6 | `sol-reviewer` | Finding returned; revision required | Native per-dispatch usage unavailable |
 | `spec-plan-review-7` | `SPEC-REVIEW` | `spec-review` | 7 | `sol-reviewer` | Approved; no blocking findings | Native per-dispatch usage unavailable |
+| `match-001-implement-1` | `MATCH-001` | `implement` | 1 | `terra-worker` | Complete (`435d141`) | Native per-dispatch usage unavailable; report `match-001-implement-1.md` |
+| `match-001-review-1` | `MATCH-001` | `review` | 1 | `sol-reviewer` | Important evidence-shape finding plus two minor test gaps | Native per-dispatch usage unavailable; report `match-001-review-1.md` |
+| `match-001-fix-1` | `MATCH-001` | `fix` | 1 | `terra-worker` | Complete (`77778aa`) | Native per-dispatch usage unavailable; appended implementation report |
+| `match-001-rereview-1` | `MATCH-001` | `re-review` | 2 | `sol-reviewer` | Approved; no findings | Native per-dispatch usage unavailable; report `match-001-rereview-1.md` |
 
 Review 1 returned five blocking findings: database identity was path-only, scheduler creation was not idempotent/executable, concurrency could race user status, workflow behavior relied too heavily on prose assertions, and the exact-79 case was absent. The specification and plan were revised to add stable DB identity, a six-hour lock, transactional compare-and-set, an executable intake coordinator with temporary scenario tests, exact 79/79.5/80 coverage, and update-or-create scheduler reconciliation. Re-review is required before Task 1.
 
