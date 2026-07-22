@@ -84,6 +84,7 @@ describe("evaluate-job-match", () => {
   });
 
   it("exports an evaluator without executing the CLI", async () => {
+    // @ts-expect-error JavaScript production module intentionally has no declaration file.
     const { evaluateJobMatch } = await import("./evaluate-job-match.mjs");
     expect(evaluateJobMatch(assessment())).toMatchObject({ eligible: true, overallScore: 100 });
   });
@@ -179,9 +180,9 @@ describe("evaluate-job-match", () => {
     ["fractional criterion weight", (input: ReturnType<typeof assessment>) => input.groups[0].criteria[0].weight = 49.5, /positive integer/i],
     ["unknown evidence", (input: ReturnType<typeof assessment>) => input.groups[0].criteria[0].evidence = "likely", /evidence/i],
     ["credited evidence without text", (input: ReturnType<typeof assessment>) => input.groups[0].criteria[0].evidenceText = "", /evidenceText/i],
-    ["unsupported evidence without evidenceText", (input: ReturnType<typeof assessment>) => { input.groups[0].criteria[0].evidence = "unsupported"; delete input.groups[0].criteria[0].evidenceText; }, /evidenceText/i],
+    ["unsupported evidence without evidenceText", (input: ReturnType<typeof assessment>) => { input.groups[0].criteria[0].evidence = "unsupported"; delete (input.groups[0].criteria[0] as { evidenceText?: string }).evidenceText; }, /evidenceText/i],
     ["unsupported evidence with non-string evidenceText", (input: ReturnType<typeof assessment>) => { input.groups[0].criteria[0].evidence = "unsupported"; (input.groups[0].criteria[0] as { evidenceText: unknown }).evidenceText = 1; }, /evidenceText/i],
-    ["non-boolean mandatory", (input: ReturnType<typeof assessment>) => input.groups[0].criteria[0].mandatory = "yes", /mandatory/i],
+    ["non-boolean mandatory", (input: ReturnType<typeof assessment>) => (input.groups[0].criteria[0] as { mandatory: unknown }).mandatory = "yes", /mandatory/i],
     ["no mandatory criteria", (input: ReturnType<typeof assessment>) => input.groups.flatMap(group => group.criteria).forEach(item => item.mandatory = false), /mandatory criterion/i],
     ["malformed blocker", (input: ReturnType<typeof assessment>) => input.blockers = [{ code: "", requirement: "x", evidence: "y" }], /blocker/i]
   ])("rejects %s", (_name, mutate, message) => {

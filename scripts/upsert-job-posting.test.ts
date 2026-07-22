@@ -5,7 +5,9 @@ import path from "node:path";
 
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
 import { acquireDailyJobPrepLock, LOCK_TTL_MS, releaseDailyJobPrepLock } from "./lib/daily-job-prep-lock.mjs";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
 import { initializeDatabaseIdentity } from "./lib/jobtracker-database-identity.mjs";
 
 let tempDir: string;

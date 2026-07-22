@@ -12,7 +12,9 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
 import { acquireDailyJobPrepLock, LOCK_TTL_MS } from "./lib/daily-job-prep-lock.mjs";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
 import { ensureOpportunitySchema } from "./lib/opportunity-schema.mjs";
 
 const projectRoot = path.resolve(__dirname, "..");

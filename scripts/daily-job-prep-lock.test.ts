@@ -4,13 +4,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { tmpdir } from "node:os";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
 import { ensureOpportunitySchema } from "./lib/opportunity-schema.mjs";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
 import { LOCK_TTL_MS, acquireDailyJobPrepLock, releaseDailyJobPrepLock, verifyDailyJobPrepLock } from "./lib/daily-job-prep-lock.mjs";
 
 const directories: string[] = [];
 function fixture() { const d = mkdtempSync(path.join(tmpdir(), "jobtracker-lock-")); directories.push(d); const p = path.join(d, "tracker.sqlite"); const db = new Database(p); ensureOpportunitySchema(db); db.close(); return p; }
 function cli(...args: string[]) { return spawnSync(process.execPath, ["scripts/daily-job-prep-lock.mjs", ...args], { encoding: "utf8", cwd: process.cwd() }); }
-function concurrent(...commands: string[][]): Promise<{ status: number | null; stdout: string; stderr: string }[]> { return Promise.all(commands.map((args) => new Promise((resolve) => { const child = spawn(process.execPath, ["scripts/daily-job-prep-lock.mjs", ...args], { cwd: process.cwd() }); let stdout = "", stderr = ""; child.stdout.on("data", (data) => { stdout += data; }); child.stderr.on("data", (data) => { stderr += data; }); child.on("close", (status) => resolve({ status, stdout, stderr })); }))); }
+function concurrent(...commands: string[][]): Promise<{ status: number | null; stdout: string; stderr: string }[]> { return Promise.all(commands.map((args) => new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => { const child = spawn(process.execPath, ["scripts/daily-job-prep-lock.mjs", ...args], { cwd: process.cwd() }); let stdout = "", stderr = ""; child.stdout.on("data", (data) => { stdout += data; }); child.stderr.on("data", (data) => { stderr += data; }); child.on("close", (status) => resolve({ status, stdout, stderr })); }))); }
 function seed(p: string, lock: unknown) { const db = new Database(p); db.prepare("INSERT INTO schema_metadata VALUES ('daily_job_prep_lock', ?)").run(JSON.stringify(lock)); db.close(); }
 afterEach(() => { while (directories.length) rmSync(directories.pop()!, { recursive: true, force: true }); });
 describe("daily job prep lock", () => {

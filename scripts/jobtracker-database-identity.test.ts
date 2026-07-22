@@ -4,7 +4,9 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { tmpdir } from "node:os";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
 import { ensureOpportunitySchema } from "./lib/opportunity-schema.mjs";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
 import { initializeDatabaseIdentity, verifyDatabaseIdentity } from "./lib/jobtracker-database-identity.mjs";
 
 const directories: string[] = [];

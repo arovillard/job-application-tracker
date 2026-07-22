@@ -13,9 +13,13 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
 import { commitJobDossier } from "./commit-job-dossier.mjs";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
 import { acquireDailyJobPrepLock } from "./lib/daily-job-prep-lock.mjs";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
 import { ensureOpportunitySchema } from "./lib/opportunity-schema.mjs";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
 import { registerApplicationArtifact } from "./register-application-artifact.mjs";
 
 const timestamp = "2026-01-01T00:00:00.000Z";
