@@ -43,7 +43,7 @@ describe("job application workflow contract", () => {
   it("fails closed at the daily readiness gate before identity or discovery", () => {
     const daily = namedSection(workflow, "Daily Qualified Discovery Mode");
     expectInOrder(daily, [
-      "status === `ready`", "saved local project checkout `projectRoot`",
+      "status === \"ready\"", "saved local project checkout `projectRoot`",
       "successful read-only access", "jobtracker-database-identity.mjs verify"
     ]);
     expect(daily).toContain("needs_input");
@@ -67,8 +67,8 @@ describe("job application workflow contract", () => {
     expect(daily).toContain("outer run-level `try`/`finally`");
     expect(daily).toContain("per-candidate failure boundary");
     expect(daily).toContain("continue independent candidates");
-    expect(daily).toContain("time exhaustion stops before starting the next candidate");
-    expect(daily).toContain("incomplete dossiers are never reported as ready");
+    expect(daily).toContain("Time exhaustion stops before starting the next candidate");
+    expect(daily).toContain("Incomplete dossiers are never reported as ready");
   });
 
   it("requires an evaluator gate before supplied-link intake and five-output materials", () => {
@@ -118,6 +118,8 @@ describe("job application workflow contract", () => {
 
     expect(workflow).toContain("intake and materials are forbidden until the executable coordinator returns an eligible `repair_dossier` or `prepare_dossier` decision");
     expect(workflow).toContain("finally");
+    expect(workflow).toContain('node scripts/daily-job-prep-lock.mjs release --db "/absolute/database.path" --token "RUN_TOKEN"');
+    expect(workflow).not.toContain('daily-job-prep-lock.mjs release --db "/absolute/database.path" --lock-token');
     expect(workflow).toContain("stop on identity or lock failure");
   });
 

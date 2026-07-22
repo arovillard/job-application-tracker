@@ -6,7 +6,20 @@ import { REQUIREMENTS, inspectJobDossier } from "./inspect-job-dossier.mjs";
 import { registerApplicationArtifact } from "./register-application-artifact.mjs";
 
 const requirementByKey = new Map(REQUIREMENTS.map((item) => [item.key, item]));
+const artifactTitleByKey = new Map([
+  ["resume", "Tailored Resume"],
+  ["fit_analysis", "Fit Analysis"],
+  ["cover_letter", "Cover Letter"],
+  ["outreach_message", "Outreach Message"],
+  ["submission_guide", "Submission Guide"]
+]);
 function inside(child, parent) { return child === parent || child.startsWith(`${parent}${path.sep}`); }
+
+function artifactTitle(requirement) {
+  const title = artifactTitleByKey.get(requirement.key);
+  if (!title) throw new Error(`Missing artifact title contract: ${requirement.key}`);
+  return title;
+}
 
 function manifestValue(value) {
   if (!value || typeof value !== "object" || Array.isArray(value) || value.schemaVersion !== 1 || !Array.isArray(value.entries) || Object.keys(value).length !== 2) {
@@ -56,7 +69,7 @@ function assertDestinationsUnregistered(databasePath, entries) {
 function exactArtifactExists(databasePath, opportunityId, entry, requirement) {
   const db = new Database(databasePath, { readonly: true, fileMustExist: true });
   try {
-    return Boolean(db.prepare("SELECT 1 FROM opportunity_artifacts WHERE opportunity_id=? AND type=? AND title=? AND file_path=?").get(opportunityId, requirement.type, requirement.requiredTitle || requirement.key, entry.destinationFile));
+    return Boolean(db.prepare("SELECT 1 FROM opportunity_artifacts WHERE opportunity_id=? AND type=? AND title=? AND file_path=?").get(opportunityId, requirement.type, artifactTitle(requirement), entry.destinationFile));
   } finally {
     db.close();
   }
@@ -100,7 +113,7 @@ export function commitJobDossier(options, dependencies = {}) {
     copyFileSync(entry.stagedFile, entry.destinationFile, constants.COPYFILE_EXCL);
     try {
       dependencies.beforeRegister?.(requirement, entry);
-      (dependencies.register || registerApplicationArtifact)({ db: options.db, "opportunity-id": options["opportunity-id"], type: requirement.type, title: requirement.requiredTitle || requirement.key, file: entry.destinationFile, "content-type": entry.contentType, "lock-token": options["lock-token"], "expected-status": options["expected-status"] });
+      (dependencies.register || registerApplicationArtifact)({ db: options.db, "opportunity-id": options["opportunity-id"], type: requirement.type, title: artifactTitle(requirement), file: entry.destinationFile, "content-type": entry.contentType, "lock-token": options["lock-token"], "expected-status": options["expected-status"] });
     } catch (error) {
       if (!exactArtifactExists(options.db, options["opportunity-id"], entry, requirement)) {
         rmSync(entry.destinationFile, { force: true });

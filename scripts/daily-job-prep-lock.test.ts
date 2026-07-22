@@ -53,6 +53,20 @@ describe("daily job prep lock", () => {
     expect(db.prepare("SELECT value FROM schema_metadata WHERE key='daily_job_prep_lock'").get()).toBeUndefined();
     db.close();
   });
+  it("releases the owner row through the documented CLI invocation", () => {
+    const p = fixture();
+    const acquired = cli("acquire", "--db", p);
+    expect(acquired.status).toBe(0);
+    const token = JSON.parse(acquired.stdout).token;
+
+    const released = cli("release", "--db", p, "--token", token);
+
+    expect(released.status).toBe(0);
+    expect(JSON.parse(released.stdout)).toMatchObject({ action: "released" });
+    const db = new Database(p, { readonly: true });
+    expect(db.prepare("SELECT value FROM schema_metadata WHERE key='daily_job_prep_lock'").get()).toBeUndefined();
+    db.close();
+  });
   it("isolates valid database paths", () => { const a = fixture(), b = fixture(); const lock = acquireDailyJobPrepLock(a, 1000); expect(() => verifyDailyJobPrepLock(b, lock.token, 1001)).toThrow(); expect(acquireDailyJobPrepLock(b, 1000)).toBeTruthy(); });
   it("recovers an expired lock at a fixed clock with a new token", () => {
     const p = fixture();

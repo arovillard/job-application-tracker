@@ -24,7 +24,7 @@ import { registerApplicationArtifact } from "./register-application-artifact.mjs
 
 const timestamp = "2026-01-01T00:00:00.000Z";
 const requirements = [
-  { key: "resume", type: "resume", title: "Resume" },
+  { key: "resume", type: "resume", title: "Tailored Resume" },
   { key: "fit_analysis", type: "fit_analysis", title: "Fit Analysis" },
   { key: "cover_letter", type: "cover_letter", title: "Cover Letter" },
   { key: "outreach_message", type: "outreach_message", title: "Outreach Message" },
@@ -138,7 +138,7 @@ describe("commitJobDossier", () => {
       expect(readFileSync(entry.destinationFile, "utf8")).toBe(`staged:${entry.key}`);
       expect(existsSync(entry.stagedFile)).toBe(false);
     }
-    expect(rows(context)).toEqual(expect.arrayContaining(requirements.map((item) => expect.objectContaining({ type: item.type, title: item.key === "submission_guide" ? item.title : item.key }))));
+    expect(rows(context)).toEqual(expect.arrayContaining(requirements.map((item) => expect.objectContaining({ type: item.type, title: item.title }))));
   });
 
   it("repairs only the missing output and preserves valid files byte-for-byte and mtime-for-mtime", () => {

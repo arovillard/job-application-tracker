@@ -87,7 +87,8 @@ describe("agent skill packaging", () => {
       if (skillName === "job-application-workflow") {
         for (const required of [
           "jobtracker-database-identity.mjs verify", "daily-job-prep-lock.mjs acquire",
-          "daily-job-prep-lock.mjs release", "prepare-qualified-job.mjs", "database.path", "never submit"
+          'daily-job-prep-lock.mjs release --db "/absolute/database.path" --token "RUN_TOKEN"',
+          "prepare-qualified-job.mjs", "database.path", "never submit"
         ]) {
           expect(codexSkill).toContain(required);
           expect(claudeSkill).toContain(required);
