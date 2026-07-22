@@ -13,6 +13,22 @@ const readySentence = "Your application workspace is ready. Your master resume i
 const nextLinkSentence = "I'm ready for another job-posting link whenever you are.";
 const successfulCompletionInstruction = `End the final response with exactly: “${nextLinkSentence}” Use this sentence only after tracker intake, verification, and all requested application-material work complete successfully. Do not use this sentence when the workflow is blocked, failed, incomplete, or awaiting user input.`;
 
+function expectInOrder(content: string, tokens: string[]) {
+  let cursor = -1;
+  for (const token of tokens) {
+    const next = content.indexOf(token, cursor + 1);
+    expect(next, `missing or out-of-order token: ${token}`).toBeGreaterThan(cursor);
+    cursor = next;
+  }
+}
+
+function namedSection(content: string, heading: string) {
+  const start = content.indexOf(`## ${heading}`);
+  expect(start, `missing section: ${heading}`).toBeGreaterThan(-1);
+  const end = content.indexOf("\n## ", start + heading.length + 3);
+  return content.slice(start, end === -1 ? undefined : end);
+}
+
 let tempDir: string;
 
 beforeEach(() => {
@@ -24,6 +40,126 @@ afterEach(() => {
 });
 
 describe("job application workflow contract", () => {
+  it("fails closed at the daily readiness gate before identity or discovery", () => {
+    const daily = namedSection(workflow, "Daily Qualified Discovery Mode");
+    expectInOrder(daily, [
+      "status === \"ready\"", "saved local project checkout `projectRoot`",
+      "successful read-only access", "jobtracker-database-identity.mjs verify"
+    ]);
+    expect(daily).toContain("needs_input");
+    expect(daily).toContain("blocked");
+    expect(daily).toContain("do not mutate the tracker or create materials");
+  });
+
+  it("uses a truthful daily assessment before the executable coordinator", () => {
+    const daily = namedSection(workflow, "Daily Qualified Discovery Mode");
+    expectInOrder(daily, [
+      "faithfully", "no optimization for a target score", "prepare-qualified-job.mjs"
+    ]);
+    expect(daily).toContain("Only the evaluator/coordinator computes `overallScore`, `mandatoryMatch`, `seniorityMatch`, and `eligible`");
+    expect(daily).toContain("every otherwise scoreable candidate");
+    expect(daily).toContain("skip_ineligible");
+    expect(daily).toContain("An unavailable localhost port 3000 does not authorize starting a second server or selecting another database.");
+  });
+
+  it("isolates daily candidate failures while retaining the outer lock finally", () => {
+    const daily = namedSection(workflow, "Daily Qualified Discovery Mode");
+    expect(daily).toContain("outer run-level `try`/`finally`");
+    expect(daily).toContain("per-candidate failure boundary");
+    expect(daily).toContain("continue independent candidates");
+    expect(daily).toContain("Time exhaustion stops before starting the next candidate");
+    expect(daily).toContain("Incomplete dossiers are never reported as ready");
+  });
+
+  it("requires an evaluator gate before supplied-link intake and five-output materials", () => {
+    const suppliedLink = namedSection(workflow, "Supplied Public Link Sequence");
+    expectInOrder(suppliedLink, [
+      "truthful assessment", "evaluate-job-match.mjs", "eligible: true",
+      "job-tracker-add-posting", "assessment and evaluator result", "all five outputs"
+    ]);
+    expect(suppliedLink).toContain("invalid or ineligible result stops before intake");
+  });
+
+  it("places the five-output contract in the resume skill itself", () => {
+    const dossier = namedSection(resumeSkill, "Complete Dossier Contract");
+    for (const required of [
+      "Tailored Resume", "Fit Analysis", "Cover Letter", "Outreach Message", "Submission Guide",
+      "--type resume", "--type fit_analysis", "--type cover_letter", "--type outreach_message", "--type other"
+    ]) expect(dossier).toContain(required);
+  });
+
+  it("prohibits every authenticated or submission action in every skill", () => {
+    for (const skill of [workflow, postingSkill, resumeSkill]) {
+      for (const prohibited of ["sign in", "log in", "use credentials", "upload", "fill forms", "attest", "solve captchas", "send", "submit"]) {
+        expect(skill.toLowerCase()).toContain(`never ${prohibited}`);
+      }
+    }
+  });
+  it("orders daily qualified discovery from readiness through lock release", () => {
+    expectInOrder(workflow, [
+      "check-application-readiness.mjs",
+      "jobtracker-database-identity.mjs verify",
+      "daily-job-prep-lock.mjs acquire",
+      "public discovery",
+      "prepare-qualified-job.mjs",
+      "job-application-resume",
+      "daily-job-prep-lock.mjs release"
+    ]);
+
+    for (const required of [
+      "08:00 Etc/UTC", "executionEnvironment=local", "saved local project checkout",
+      "database.path", "jobtracker_instance_id", "six-hour", "applicationsDirectory.path",
+      "never start a second server", "employer career page", "overallScore >= 80",
+      "mandatoryMatch >= 80", "seniorityMatch >= 75", "eligible: true", "skip_ineligible",
+      "skip_inactive", "skip_complete", "repair_dossier", "prepare_dossier",
+      "never pass `--reactivate`", "rejected or archived", "wishlist", "Needs Your Answer",
+      "never submit"
+    ]) expect(workflow).toContain(required);
+
+    expect(workflow).toContain("intake and materials are forbidden until the executable coordinator returns an eligible `repair_dossier` or `prepare_dossier` decision");
+    expect(workflow).toContain("finally");
+    expect(workflow).toContain('node scripts/daily-job-prep-lock.mjs release --db "/absolute/database.path" --token "RUN_TOKEN"');
+    expect(workflow).not.toContain('daily-job-prep-lock.mjs release --db "/absolute/database.path" --lock-token');
+    expect(workflow).toContain("stop on identity or lock failure");
+  });
+
+  it("defines every daily dossier artifact contract", () => {
+    for (const [type, title] of [
+      ["resume", "Tailored Resume"],
+      ["fit_analysis", "Fit Analysis"],
+      ["cover_letter", "Cover Letter"],
+      ["outreach_message", "Outreach Message"],
+      ["other", "Submission Guide"]
+    ]) {
+      expect(`${workflow}\n${resumeSkill}`).toContain(`--type ${type}`);
+      expect(`${workflow}\n${resumeSkill}`).toContain(`--title \"${title}\"`);
+    }
+  });
+
+  it("routes automated posting work through the guarded executable coordinator", () => {
+    for (const required of [
+      "automated discovery mode", "prepare-qualified-job.mjs", "expected-database-id", "lock-token",
+      "transactional precondition", "never pass `--reactivate`", "skip rejected or archived",
+      "preserve existing valid files", "wishlist"
+    ]) expect(postingSkill).toContain(required);
+  });
+
+  it("requires guarded five-artifact materials without submission authority", () => {
+    for (const required of [
+      "overallScore", "mandatoryMatch", "seniorityMatch", "criterion-by-criterion evidence matrix",
+      "cover_letter", "outreach_message", "Submission Guide", "--type other", "Needs Your Answer",
+      "local PDF snapshot", "expected-status wishlist", "expected-updated-at", "lock-token",
+      "commit-job-dossier.mjs", ".staging", "preserve every already-valid artifact",
+      "user—not the automation—must review and submit"
+    ]) expect(resumeSkill).toContain(required);
+
+    expect(resumeSkill).toContain("Keep resumes company-neutral");
+    expect(resumeSkill).toContain("## Areas Where I Am Well-Qualified");
+    expect(resumeSkill).toContain("## Sources");
+    for (const skill of [workflow, postingSkill, resumeSkill]) {
+      expect(skill.toLowerCase()).not.toMatch(/authorize[^\n]*(sign in|upload|attest|submit)/);
+    }
+  });
   it("orders readiness before intake before materials", () => {
     const readiness = workflow.indexOf("check-application-readiness.mjs");
     const intake = workflow.indexOf("job-tracker-add-posting");

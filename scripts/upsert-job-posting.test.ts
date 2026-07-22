@@ -1,13 +1,18 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
+import { acquireDailyJobPrepLock, LOCK_TTL_MS, releaseDailyJobPrepLock } from "./lib/daily-job-prep-lock.mjs";
+// @ts-expect-error JavaScript production module intentionally has no declaration file.
+import { initializeDatabaseIdentity } from "./lib/jobtracker-database-identity.mjs";
 
 let tempDir: string;
 let dbPath: string;
+const timestamp = "2026-01-01T00:00:00.000Z";
 
 function runUpsert(args: string[]) {
   const output = execFileSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", dbPath, ...args], {
@@ -28,6 +33,10 @@ function runUpsert(args: string[]) {
 function query(sql: string, ...params: unknown[]) {
   const db = new Database(dbPath);
   try { return db.prepare(sql).all(...params); } finally { db.close(); }
+}
+
+function automatedWithToken(token: string, args: string[], input = { company: "Example Co", role: "Engineering Manager", url: "https://example.com/job", posting_state: "open" }) {
+  return spawnSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", dbPath, "--automation-mode", "--lock-token", token, ...args, "--input-json", "-"], { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: JSON.stringify(input) });
 }
 
 beforeEach(() => { tempDir = mkdtempSync(path.join(tmpdir(), "jobtracker-upsert-")); dbPath = path.join(tempDir, "jobtracker.sqlite"); });
@@ -163,5 +172,163 @@ describe("upsert-job-posting CLI", () => {
     expect(Object.keys(result).sort()).toEqual(["action", "activityIds", "application", "changes", "opportunity", "taskIds"]);
     expect(result.opportunity.organization).toBe("CLI Co");
     expect(query("SELECT body FROM opportunity_activities WHERE id = ?", result.activityIds[1])[0]).toEqual(expect.objectContaining({ body: expect.stringContaining("Keep this note") }));
+  });
+
+  it("returns an existing pre-mutation snapshot from automated dry-run", () => {
+    const created = runUpsert(["--company", "Example Co", "--role", "Engineering Manager", "--url", "https://example.com/job", "--posting-state", "open"]);
+    initializeDatabaseIdentity(dbPath);
+    const lock = acquireDailyJobPrepLock(dbPath);
+    const bytes = readFileSync(dbPath);
+    const mtime = statSync(dbPath).mtimeMs;
+    const result = automatedWithToken(lock.token, ["--dry-run"]);
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).precondition).toEqual({ existed: true, opportunityId: created.opportunity.id, status: "wishlist", updatedAt: expect.any(String) });
+    expect(readFileSync(dbPath)).toEqual(bytes);
+    expect(statSync(dbPath).mtimeMs).toBe(mtime);
+  });
+
+  it("creates only when expect-new is still true", () => {
+    runUpsert(["--company", "Other", "--role", "Other", "--url", "https://example.com/other", "--posting-state", "open"]);
+    initializeDatabaseIdentity(dbPath);
+    const lock = acquireDailyJobPrepLock(dbPath);
+    const payload = JSON.stringify({ company: "Race Co", role: "Engineer", url: "https://example.com/race", posting_state: "open" });
+    const dry = spawnSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", dbPath, "--automation-mode", "--lock-token", lock.token, "--dry-run", "--input-json", "-"], { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: payload });
+    expect(dry.status).toBe(0);
+    runUpsert(["--company", "Race Co", "--role", "Engineer", "--url", "https://example.com/race", "--posting-state", "open"]);
+    const real = spawnSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", dbPath, "--automation-mode", "--lock-token", lock.token, "--expect-new", "--input-json", "-"], { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: payload });
+    expect(real.status).toBe(1);
+    expect(query("SELECT COUNT(*) AS count FROM opportunities WHERE organization='Race Co'")[0]).toEqual({ count: 1 });
+  });
+
+  it("updates with the exact existing id/status/version", () => {
+    const created = runUpsert(["--company", "Example Co", "--role", "Engineering Manager", "--url", "https://example.com/old", "--posting-state", "open"]);
+    initializeDatabaseIdentity(dbPath);
+    const snapshot = query("SELECT updated_at FROM opportunities WHERE id=?", created.opportunity.id)[0] as { updated_at: string };
+    const lock = acquireDailyJobPrepLock(dbPath);
+    const base = ["scripts/upsert-job-posting.mjs", "--db", dbPath, "--automation-mode", "--lock-token", lock.token, "--expected-opportunity-id", created.opportunity.id, "--expected-status", "wishlist", "--expected-updated-at", snapshot.updated_at, "--input-json", "-"];
+    const good = spawnSync(process.execPath, base, { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: JSON.stringify({ company: "Example Co", role: "Engineering Manager", url: "https://example.com/new", posting_state: "open" }) });
+    expect(good.status).toBe(0);
+    expect(JSON.parse(good.stdout)).toMatchObject({ action: "updated", opportunity: { id: created.opportunity.id, status: "wishlist", url: "https://example.com/new" }, precondition: { existed: true, opportunityId: created.opportunity.id, status: "wishlist", updatedAt: snapshot.updated_at }, activityIds: [expect.any(String)] });
+  });
+
+  it.each([
+    ["id", "wrong-opportunity", null, null],
+    ["status", null, "applied", null],
+    ["version", null, null, "1999-01-01T00:00:00.000Z"]
+  ])("independently rejects an expected-existing %s mismatch without mutation", (_field, wrongId, wrongStatus, wrongVersion) => {
+    const created = runUpsert(["--company", "Example Co", "--role", "Engineering Manager", "--url", "https://example.com/old", "--posting-state", "open"]);
+    initializeDatabaseIdentity(dbPath);
+    const snapshot = query("SELECT status,updated_at FROM opportunities WHERE id=?", created.opportunity.id)[0] as { status: string; updated_at: string };
+    const lock = acquireDailyJobPrepLock(dbPath);
+    const before = readFileSync(dbPath);
+    const mtime = statSync(dbPath).mtimeMs;
+    const result = automatedWithToken(lock.token, [
+      "--expected-opportunity-id", wrongId || created.opportunity.id,
+      "--expected-status", wrongStatus || snapshot.status,
+      "--expected-updated-at", wrongVersion || snapshot.updated_at
+    ], { company: "Example Co", role: "Engineering Manager", url: "https://example.com/new", posting_state: "open" });
+
+    expect(result.status).toBe(1);
+    expect(readFileSync(dbPath)).toEqual(before);
+    expect(statSync(dbPath).mtimeMs).toBe(mtime);
+  });
+
+  it("prevents a released predecessor token from writing after a successor acquires", () => {
+    runUpsert(["--company", "Seed", "--role", "Seed", "--url", "https://example.com/seed", "--posting-state", "open"]);
+    initializeDatabaseIdentity(dbPath);
+    const predecessor = acquireDailyJobPrepLock(dbPath);
+    releaseDailyJobPrepLock(dbPath, predecessor.token);
+    acquireDailyJobPrepLock(dbPath);
+    const before = readFileSync(dbPath);
+    const mtime = statSync(dbPath).mtimeMs;
+
+    const result = automatedWithToken(predecessor.token, ["--expect-new"], { company: "Race Co", role: "Engineer", url: "https://example.com/race", posting_state: "open" });
+
+    expect(result.status).toBe(1);
+    expect(readFileSync(dbPath)).toEqual(before);
+    expect(statSync(dbPath).mtimeMs).toBe(mtime);
+    expect(query("SELECT COUNT(*) AS count FROM opportunities WHERE organization='Race Co'")[0]).toEqual({ count: 0 });
+  });
+
+  it("prevents an expired predecessor token from writing after takeover", () => {
+    runUpsert(["--company", "Seed", "--role", "Seed", "--url", "https://example.com/seed", "--posting-state", "open"]);
+    initializeDatabaseIdentity(dbPath);
+    const predecessor = acquireDailyJobPrepLock(dbPath, Date.now() - LOCK_TTL_MS - 1);
+    acquireDailyJobPrepLock(dbPath);
+    const before = readFileSync(dbPath);
+    const mtime = statSync(dbPath).mtimeMs;
+
+    const result = automatedWithToken(predecessor.token, ["--expect-new"], { company: "Race Co", role: "Engineer", url: "https://example.com/race", posting_state: "open" });
+
+    expect(result.status).toBe(1);
+    expect(readFileSync(dbPath)).toEqual(before);
+    expect(statSync(dbPath).mtimeMs).toBe(mtime);
+    expect(query("SELECT COUNT(*) AS count FROM opportunities WHERE organization='Race Co'")[0]).toEqual({ count: 0 });
+  });
+
+  it.each(["rejected", "archived"])("never mutates an automated %s duplicate", (status) => {
+    const created = runUpsert(["--company", "Example Co", "--role", "Engineering Manager", "--url", "https://example.com/job", "--status", status, "--posting-state", "closed"]);
+    initializeDatabaseIdentity(dbPath);
+    const row = query("SELECT updated_at FROM opportunities WHERE id=?", created.opportunity.id)[0] as { updated_at: string };
+    const lock = acquireDailyJobPrepLock(dbPath);
+    const before = readFileSync(dbPath);
+    const result = spawnSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", dbPath, "--automation-mode", "--lock-token", lock.token, "--expected-opportunity-id", created.opportunity.id, "--expected-status", status, "--expected-updated-at", row.updated_at, "--input-json", "-"], { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: JSON.stringify({ company: "Example Co", role: "Engineering Manager", url: "https://example.com/new", posting_state: "open" }) });
+    expect(result.status).toBe(1); expect(readFileSync(dbPath)).toEqual(before);
+  });
+
+  it("rejects a wrong active-lock token without mutation", () => {
+    runUpsert(["--company", "Example Co", "--role", "Engineer", "--url", "https://example.com/job", "--posting-state", "open"]);
+    initializeDatabaseIdentity(dbPath);
+    acquireDailyJobPrepLock(dbPath);
+    const before = readFileSync(dbPath);
+    const mtime = statSync(dbPath).mtimeMs;
+    const result = automatedWithToken("00000000-0000-4000-8000-000000000000", ["--dry-run"], { company: "Example Co", role: "Engineer", url: "https://example.com/job", posting_state: "open" });
+    expect(result.status).toBe(1);
+    expect(readFileSync(dbPath)).toEqual(before);
+    expect(statSync(dbPath).mtimeMs).toBe(mtime);
+  });
+
+  it("rejects an expired active-lock token without mutation", () => {
+    runUpsert(["--company", "Example Co", "--role", "Engineer", "--url", "https://example.com/job", "--posting-state", "open"]);
+    initializeDatabaseIdentity(dbPath);
+    const expired = acquireDailyJobPrepLock(dbPath, Date.now() - LOCK_TTL_MS - 1);
+    const before = readFileSync(dbPath);
+    const mtime = statSync(dbPath).mtimeMs;
+    const result = automatedWithToken(expired.token, ["--dry-run"], { company: "Example Co", role: "Engineer", url: "https://example.com/job", posting_state: "open" });
+    expect(result.status).toBe(1);
+    expect(readFileSync(dbPath)).toEqual(before);
+    expect(statSync(dbPath).mtimeMs).toBe(mtime);
+  });
+
+  it("rejects an incomplete schema without migrating it", () => {
+    const bad = path.join(tempDir, "legacy.sqlite"); const db = new Database(bad); db.exec("CREATE TABLE applications (id TEXT)"); db.close(); const bytes = readFileSync(bad);
+    expect(spawnSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", bad, "--automation-mode", "--lock-token", "00000000-0000-4000-8000-000000000000", "--dry-run", "--input-json", "-"], { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: JSON.stringify({ company: "Example Co", role: "Engineer", url: "https://example.com/job", posting_state: "open" }) }).status).toBe(1);
+    expect(readFileSync(bad)).toEqual(bytes);
+  });
+
+  it.each([
+    ["lock token", ["--lock-token", "token"]],
+    ["expect new", ["--expect-new"]],
+    ["expected opportunity id", ["--expected-opportunity-id", "job-id"]],
+    ["expected status", ["--expected-status", "wishlist"]],
+    ["expected version", ["--expected-updated-at", timestamp]]
+  ])("rejects automation-only %s in manual mode without writing", (_name, flags) => {
+    const before = existsSync(dbPath) ? readFileSync(dbPath) : null;
+    const result = spawnSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", dbPath, "--company", "No Write", "--role", "Engineer", "--url", "https://example.com/no-write", ...flags], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(existsSync(dbPath) ? readFileSync(dbPath) : null).toEqual(before);
+  });
+
+  it.each([
+    ["status", ["--status", "applied"]],
+    ["reactivate", ["--reactivate"]],
+    ["replace summary", ["--replace-summary"]],
+    ["applied date", ["--applied-date", "2026-07-22"]],
+    ["follow-up date", ["--follow-up-date", "2026-07-23"]]
+  ])("rejects automated manual %s controls without writing", (_name, flags) => {
+    runUpsert(["--company", "Seed", "--role", "Engineer", "--url", "https://example.com/seed", "--posting-state", "open"]); initializeDatabaseIdentity(dbPath);
+    const lock = acquireDailyJobPrepLock(dbPath), before = readFileSync(dbPath);
+    const result = spawnSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", dbPath, "--automation-mode", "--lock-token", lock.token, "--expect-new", ...flags, "--input-json", "-"], { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: JSON.stringify({ company: "No Write", role: "Engineer", url: "https://example.com/no-write", posting_state: "open" }) });
+    expect(result.status).toBe(1); expect(readFileSync(dbPath)).toEqual(before);
   });
 });

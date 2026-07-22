@@ -19,7 +19,7 @@ When no coordinating readiness result is supplied, run and parse `node scripts/c
 4. Verify the script output shows the expected opportunity, URL, status, and action.
 5. If the user is applying or wants interview-ready materials, invoke `job-application-resume` after the tracker record is verified.
 
-Do not submit applications, sign in, or use credentials for the user.
+Never sign in, never log in, never use credentials, never upload, never fill forms, never attest, never solve CAPTCHAs, never send, and never submit for the user.
 
 ## Extract Posting Facts
 
@@ -48,8 +48,7 @@ node scripts/upsert-job-posting.mjs \
   --source "Company careers" \
   --location "Remote" \
   --summary "Short role summary." \
-  --posting-state open \
-  --reactivate
+  --posting-state open
 ```
 
 Script defaults:
@@ -66,7 +65,7 @@ For complex quoting, pass JSON through stdin:
 
 ```bash
 printf '%s\n' '{"company":"Company","role":"Role","url":"https://example.com/job","posting_state":"open"}' |
-  node scripts/upsert-job-posting.mjs --db "/absolute/database/path" --input-json - --reactivate
+  node scripts/upsert-job-posting.mjs --db "/absolute/database/path" --input-json -
 ```
 
 ## Verification
@@ -88,3 +87,21 @@ When a coordinating application workflow invokes this skill:
 1. Use this skill first and verify the tracker record.
 2. Then use `job-application-resume` with the same public posting URL and the verified tracker context.
 3. Tell the user the tracker record was created or updated before discussing resume, cover, or outreach materials.
+
+## Automated Discovery Mode
+
+This automated discovery mode applies only when the daily coordinator supplies an eligible assessment, exact readiness `database.path`, deployment `expected-database-id`, and active `lock-token`. It does not make its own optimistic eligibility decision and never performs an unguarded real upsert.
+
+```text
+same canonical assessment/posting + exact readiness database.path
+    → prepare-qualified-job.mjs with expected database UUID + active lock token
+    → executable evaluator before any posting command
+    → automated dry-run + duplicate/dossier decision
+    → transactional expect-new or exact ID/status/version real write when needed
+    → no real write for inactive, unchanged-complete, or unchanged-incomplete
+    → return verified wishlist identity and material precondition only for prepare/repair
+```
+
+Invoke `node scripts/prepare-qualified-job.mjs --db "/absolute/database.path" --expected-database-id "DEPLOYMENT_UUID" --lock-token "RUN_TOKEN" --input-json -`. Its transactional precondition owns score-before-dry-run, canonical posting/evaluation identity checks, guarded compare-and-set upsert, and inspection. Do not call `upsert-job-posting.mjs` directly in this mode.
+
+Treat `skip_ineligible`, `skip_inactive`, and `skip_complete` as terminal without materials. For `repair_dossier`, preserve existing valid files and return only the verified wishlist material precondition; no posting mutation is permitted. For `prepare_dossier`, return only the verified wishlist identity and exact status/version precondition. Automation must never pass `--reactivate`, must skip rejected or archived records, and must never restore those user decisions. The underlying CLI still supports explicitly requested manual reactivation outside automated discovery.

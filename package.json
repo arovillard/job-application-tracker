@@ -18,6 +18,7 @@
     "application:readiness": "node scripts/check-application-readiness.mjs",
     "application:configure": "node scripts/configure-application-profile.mjs",
     "artifacts:backfill": "node scripts/backfill-application-artifacts.mjs",
+    "job:score": "node scripts/evaluate-job-match.mjs",
     "verify": "npm run lint && npm run typecheck && npm run test"
   },
   "dependencies": {
