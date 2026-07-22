@@ -5,13 +5,15 @@ description: Create tailored resumes, reach-out messages, fit assessments, inter
 
 # Job Application Resume
 
+Never sign in, never log in, never use credentials, never upload, never fill forms, never attest, never solve CAPTCHAs, never send, and never submit. These prohibitions apply to every mode.
+
 ## Input Contract
 
 Require a verified opportunity ID before starting material work. When no coordinating readiness result is supplied, run and parse `node scripts/check-application-readiness.mjs` from the repository root before creating files. Continue only when `status` is `ready` and both the returned absolute `database.path` and absolute `applicationsDirectory.path` are present; never infer either path from process defaults. If readiness is not ready, stop material work and report the missing or blocking issue. If the selected source requires an external Google access check, confirm access through the host before reading or copying it.
 
 ## Core Workflow
 
-Use this workflow for every new job-specific application.
+Use this workflow for every prepared eligible job-specific application. Require the truthful assessment and parsed eligible evaluator result alongside the verified opportunity ID; do not create materials without them.
 
 1. Identify the company name and role title from the posting or user request.
 2. Use the coordinating or directly established readiness result before creating files:
@@ -53,6 +55,20 @@ Use role-specific Markdown filenames to avoid collisions:
 
 Use lowercase hyphenated role slugs for filenames. If the role title is unknown, use `application-fit-analysis.md`. If a file already exists for the same role, update it only when the current request is for that same application; otherwise add a dated suffix.
 
+## Complete Dossier Contract
+
+Every prepared eligible job requires five verified local outputs: a role-specific tailored resume PDF snapshot, fit analysis, cover letter, outreach message, and Submission Guide. The local PDF snapshot is required even when a tailored Google Doc link exists. Preserve the configured source as a read-only master and keep the resume company-neutral.
+
+Register the complete dossier only after every required local file exists:
+
+```bash
+--type resume --title "Tailored Resume"
+--type fit_analysis --title "Fit Analysis"
+--type cover_letter --title "Cover Letter"
+--type outreach_message --title "Outreach Message"
+--type other --title "Submission Guide"
+```
+
 ## Register Files In The Tracker
 
 After creating or updating an application-material file, link it to the existing tracker record:
@@ -66,11 +82,7 @@ node scripts/register-application-artifact.mjs \
   --file "/absolute/path/to/company/role-fit-analysis.md"
 ```
 
-Only register the three material types shown in the app:
-
-- `fit_analysis` for the qualification analysis Markdown file.
-- `outreach_message` for recruiter, hiring-manager, or cold outreach drafts.
-- `resume` for tailored resumes.
+Register all five fixed types/titles from the complete dossier contract. `fit_analysis`, `outreach_message`, and `resume` remain supported tracker types; `cover_letter` and `other` are required for the complete dossier.
 
 Use `--opportunity-id <id>` from the verified tracker record whenever it is available. Company and role matching is a fallback; `--application-id <id>` remains a deprecated alias. The Markdown file remains the source of truth; the database stores only the link and metadata.
 
@@ -149,7 +161,7 @@ node scripts/inspect-job-dossier.mjs \
   --expected-updated-at "EXACT_UPDATED_AT"
 ```
 
-Stop if that snapshot or lock check fails. Preserve every already-valid artifact; preserve every already-valid artifact when repairing a partial dossier, and generate only missing or invalid outputs in `<applications-dir>/.staging/<run-token>/...`; never overwrite a valid destination or directly register/copy automated files.
+Stop if that snapshot or lock check fails. preserve every already-valid artifact and generate only missing or invalid outputs in `<applications-dir>/.staging/<run-token>/...`; the exact missing-only manifest represents invalid or unregistered files. Never overwrite a valid destination or directly register/copy automated files.
 
 Use a role slug and stage exactly these local outputs before guarded commit:
 

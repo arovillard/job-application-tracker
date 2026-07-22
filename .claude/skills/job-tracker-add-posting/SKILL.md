@@ -19,7 +19,7 @@ When no coordinating readiness result is supplied, run and parse `node scripts/c
 4. Verify the script output shows the expected opportunity, URL, status, and action.
 5. If the user is applying or wants interview-ready materials, invoke `job-application-resume` after the tracker record is verified.
 
-Do not submit applications, sign in, or use credentials for the user.
+Never sign in, never log in, never use credentials, never upload, never fill forms, never attest, never solve CAPTCHAs, never send, and never submit for the user.
 
 ## Extract Posting Facts
 
