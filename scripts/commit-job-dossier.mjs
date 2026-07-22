@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { constants, copyFileSync, existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { constants, copyFileSync, existsSync, lstatSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { REQUIREMENTS, inspectJobDossier } from "./inspect-job-dossier.mjs";
@@ -7,12 +7,12 @@ import { registerApplicationArtifact } from "./register-application-artifact.mjs
 
 const requirementByKey = new Map(REQUIREMENTS.map((item) => [item.key, item]));
 function inside(child, parent) { return child === parent || child.startsWith(`${parent}${path.sep}`); }
-function parentRealPath(target) { let current = target; while (!existsSync(current)) { const next = path.dirname(current); if (next === current) throw new Error(`Destination parent does not exist: ${target}`); current = next; } return realpathSync(current); }
 function manifestValue(value) { if (!value || typeof value !== "object" || Array.isArray(value) || value.schemaVersion !== 1 || !Array.isArray(value.entries) || Object.keys(value).length !== 2) throw new Error("Invalid dossier manifest"); return value; }
 export function commitJobDossier(options, dependencies = {}) {
   for (const key of ["db", "opportunity-id", "applications-dir", "lock-token", "expected-status", "expected-updated-at", "manifest"]) if (!options[key]) throw new Error(`${key} is required`);
   if (options["expected-status"] !== "wishlist" || !path.isAbsolute(options.db) || !path.isAbsolute(options["applications-dir"])) throw new Error("Invalid guarded dossier options");
   const applicationsDir = realpathSync(options["applications-dir"]), stagingDir = realpathSync(path.join(applicationsDir, ".staging"));
+  if (!inside(stagingDir, applicationsDir) || stagingDir === applicationsDir) throw new Error("Staging directory must be a strict descendant of applications directory");
   const manifest = manifestValue(options.manifest), inspectionOptions = { db: options.db, "opportunity-id": options["opportunity-id"], "lock-token": options["lock-token"], "expected-status": options["expected-status"], "expected-updated-at": options["expected-updated-at"] };
   let inspection = (dependencies.inspect || inspectJobDossier)(inspectionOptions);
   const invalid = inspection.requirements.filter((item) => !item.valid);
@@ -22,14 +22,18 @@ export function commitJobDossier(options, dependencies = {}) {
   for (const entry of manifest.entries) {
     if (!entry || typeof entry !== "object" || Object.keys(entry).some((key) => !["key", "stagedFile", "destinationFile", "contentType"].includes(key)) || !requirementByKey.has(entry.key) || keys.has(entry.key) || typeof entry.stagedFile !== "string" || typeof entry.destinationFile !== "string" || typeof entry.contentType !== "string") throw new Error("Invalid dossier manifest entry");
     keys.add(entry.key); const requirement = inspection.requirements.find((item) => item.key === entry.key); if (requirement.valid) throw new Error(`Manifest attempts to replace valid requirement: ${entry.key}`);
-    const staged = realpathSync(entry.stagedFile); if (!inside(staged, stagingDir)) throw new Error("Staged file must remain inside applications staging directory");
-    if (!path.isAbsolute(entry.destinationFile) || existsSync(entry.destinationFile)) throw new Error("Destination file must be absolute and must not exist");
-    const destinationParent = parentRealPath(path.dirname(entry.destinationFile)); if (!inside(destinationParent, applicationsDir) || inside(destinationParent, stagingDir)) throw new Error("Destination file must remain inside applications directory outside staging");
-    const destination = path.join(destinationParent, path.basename(entry.destinationFile));
+    if (!existsSync(entry.stagedFile) || !lstatSync(entry.stagedFile).isFile()) throw new Error("Staged source must be a regular file");
+    const staged = realpathSync(entry.stagedFile); if (!inside(staged, stagingDir) || staged === stagingDir) throw new Error("Staged file must remain inside applications staging directory");
+    if (!path.isAbsolute(entry.destinationFile) || existsSync(entry.destinationFile) || [...entries.values()].some((value) => value.destinationFile === path.normalize(entry.destinationFile))) throw new Error("Destination file must be absolute, unique, and must not exist");
+    const destination = path.normalize(entry.destinationFile), immediateParent = path.dirname(destination);
+    if (!existsSync(immediateParent)) throw new Error("Destination immediate parent must exist");
+    const destinationParent = realpathSync(immediateParent); if (!inside(destinationParent, applicationsDir) || inside(destinationParent, stagingDir) || destination !== path.join(immediateParent, path.basename(destination))) throw new Error("Destination file must remain inside applications directory outside staging");
     entries.set(entry.key, { ...entry, stagedFile: staged, destinationFile: destination });
   }
   for (const requirement of invalid) if (!entries.has(requirement.key)) throw new Error(`Missing dossier manifest entry: ${requirement.key}`);
-  const rowExists = (entry, requirement) => { const db = new Database(options.db, { readonly: true, fileMustExist: true }); try { return Boolean(db.prepare("SELECT 1 FROM opportunity_artifacts WHERE opportunity_id=? AND type=? AND file_path=?").get(options["opportunity-id"], requirement.type, entry.destinationFile)); } finally { db.close(); } };
+  const collisionDb = new Database(options.db, { readonly: true, fileMustExist: true });
+  try { for (const entry of entries.values()) if (collisionDb.prepare("SELECT 1 FROM opportunity_artifacts WHERE file_path=?").get(entry.destinationFile)) throw new Error(`Destination is already registered: ${entry.destinationFile}`); } finally { collisionDb.close(); }
+  const rowExists = (entry, requirement) => { const db = new Database(options.db, { readonly: true, fileMustExist: true }); try { return Boolean(db.prepare("SELECT 1 FROM opportunity_artifacts WHERE opportunity_id=? AND type=? AND title=? AND file_path=?").get(options["opportunity-id"], requirement.type, requirement.requiredTitle || requirement.key, entry.destinationFile)); } finally { db.close(); } };
   let expectedUpdatedAt = options["expected-updated-at"];
   for (const requirement of REQUIREMENTS) {
     const entry = entries.get(requirement.key); if (!entry) continue;

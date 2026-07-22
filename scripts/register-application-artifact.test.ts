@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ensureOpportunitySchema } from "./lib/opportunity-schema.mjs";
+import { acquireDailyJobPrepLock } from "./lib/daily-job-prep-lock.mjs";
 
 let tempDir: string; let dbPath: string;
 function run(args: string[]) { return JSON.parse(execFileSync(process.execPath, ["scripts/register-application-artifact.mjs", "--db", dbPath, ...args], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" })) as { action: string; opportunity: { id: string; type: string }; application: unknown; artifact: { opportunityId: string; applicationId: string } }; }
@@ -12,6 +14,12 @@ function tableExists(name: string) { const db = new Database(dbPath); try { retu
 beforeEach(() => { tempDir = mkdtempSync(path.join(tmpdir(), "jobtracker-artifact-cli-")); dbPath = path.join(tempDir, "test.sqlite"); });
 afterEach(() => { rmSync(tempDir, { force: true, recursive: true }); });
 describe("register-application-artifact CLI", () => {
+  it("rejects an automated non-wishlist expected status before mutation", () => {
+    const db = new Database(dbPath); ensureOpportunitySchema(db); db.prepare("INSERT INTO opportunities VALUES ('job-id','job','Role','Acme','rejected','medium',NULL,NULL,?,?)").run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"); db.prepare("INSERT INTO job_opportunity_details VALUES ('job-id',NULL,NULL,NULL,NULL,NULL)").run(); db.close();
+    const file = path.join(tempDir, "resume.pdf"); writeFileSync(file, "resume"); const lock = acquireDailyJobPrepLock(dbPath);
+    const result = spawnSync(process.execPath, ["scripts/register-application-artifact.mjs", "--db", dbPath, "--opportunity-id", "job-id", "--type", "resume", "--title", "Resume", "--file", file, "--lock-token", lock.token, "--expected-status", "rejected"], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" });
+    expect(result.status).toBe(1); const verify = new Database(dbPath); expect(verify.prepare("SELECT COUNT(*) AS count FROM opportunity_artifacts").get()).toEqual({ count: 0 }); verify.close();
+  });
   it("rejects a missing artifact path before database mutation", () => {
     job();
     const result = spawnSync(process.execPath, ["scripts/register-application-artifact.mjs", "--db", dbPath, "--opportunity-id", "job-id", "--type", "resume", "--title", "Resume", "--file", path.join(tempDir, "missing.pdf")], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" });
