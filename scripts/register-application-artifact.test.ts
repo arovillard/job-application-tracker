@@ -5,15 +5,114 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ensureOpportunitySchema } from "./lib/opportunity-schema.mjs";
-import { acquireDailyJobPrepLock } from "./lib/daily-job-prep-lock.mjs";
+import { acquireDailyJobPrepLock, LOCK_TTL_MS, releaseDailyJobPrepLock } from "./lib/daily-job-prep-lock.mjs";
 
 let tempDir: string; let dbPath: string;
 function run(args: string[]) { return JSON.parse(execFileSync(process.execPath, ["scripts/register-application-artifact.mjs", "--db", dbPath, ...args], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" })) as { action: string; opportunity: { id: string; type: string }; application: unknown; artifact: { opportunityId: string; applicationId: string } }; }
 function job(id = "job-id") { const db = new Database(dbPath); try { db.exec("CREATE TABLE opportunities (id TEXT PRIMARY KEY, type TEXT NOT NULL, label TEXT NOT NULL, organization TEXT, status TEXT NOT NULL, priority TEXT NOT NULL, summary TEXT, origin_opportunity_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE job_opportunity_details (opportunity_id TEXT PRIMARY KEY, url TEXT, source TEXT, location TEXT, contact TEXT, applied_date TEXT);"); db.prepare("INSERT INTO opportunities VALUES (?, 'job', 'Frontend Engineer', 'Acme', 'wishlist', 'medium', NULL, NULL, ?, ?)").run(id, "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"); db.prepare("INSERT INTO job_opportunity_details VALUES (?, NULL, NULL, NULL, NULL, NULL)").run(id); } finally { db.close(); } return id; }
 function tableExists(name: string) { const db = new Database(dbPath); try { return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name)); } finally { db.close(); } }
+function currentJob(status = "wishlist") {
+  const db = new Database(dbPath);
+  ensureOpportunitySchema(db);
+  db.prepare("INSERT INTO opportunities VALUES ('job-id','job','Role','Acme',?,'medium',NULL,NULL,?,?)").run(status, "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
+  db.prepare("INSERT INTO job_opportunity_details VALUES ('job-id',NULL,NULL,NULL,NULL,NULL)").run();
+  db.close();
+}
+function automated(file: string, token: string, ...extra: string[]) {
+  return spawnSync(process.execPath, ["scripts/register-application-artifact.mjs", "--db", dbPath, "--opportunity-id", "job-id", "--type", "resume", "--title", "Resume", "--file", file, "--lock-token", token, "--expected-status", "wishlist", ...extra], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" });
+}
+function databaseState() {
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    return JSON.stringify({
+      schema: db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name").all(),
+      metadata: tableExists("schema_metadata") ? db.prepare("SELECT * FROM schema_metadata ORDER BY key").all() : [],
+      opportunity: db.prepare("SELECT status,updated_at FROM opportunities WHERE id='job-id'").get(),
+      artifacts: tableExists("opportunity_artifacts") ? db.prepare("SELECT * FROM opportunity_artifacts ORDER BY id").all() : []
+    });
+  } finally {
+    db.close();
+  }
+}
 beforeEach(() => { tempDir = mkdtempSync(path.join(tmpdir(), "jobtracker-artifact-cli-")); dbPath = path.join(tempDir, "test.sqlite"); });
 afterEach(() => { rmSync(tempDir, { force: true, recursive: true }); });
 describe("register-application-artifact CLI", () => {
+  it("registers for a matching active lock and wishlist status", () => {
+    currentJob();
+    const file = path.join(tempDir, "resume.pdf");
+    writeFileSync(file, "resume");
+    const lock = acquireDailyJobPrepLock(dbPath);
+
+    const result = automated(file, lock.token);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ action: "registered", opportunity: { id: "job-id", status: "wishlist" }, artifact: { type: "resume", title: "Resume", filePath: file } });
+  });
+
+  it.each(["rejected", "archived"])("does not mutate an opportunity changed to %s after lock acquisition", (status) => {
+    currentJob();
+    const file = path.join(tempDir, "resume.pdf");
+    writeFileSync(file, "resume");
+    const lock = acquireDailyJobPrepLock(dbPath);
+    const db = new Database(dbPath);
+    db.prepare("UPDATE opportunities SET status=?, updated_at='2026-01-02T00:00:00.000Z' WHERE id='job-id'").run(status);
+    db.close();
+    const before = databaseState();
+
+    const result = automated(file, lock.token);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/status/i);
+    expect(databaseState()).toBe(before);
+  });
+
+  it("rejects a wrong and an expired lock without registering", () => {
+    currentJob();
+    const file = path.join(tempDir, "resume.pdf");
+    writeFileSync(file, "resume");
+    const active = acquireDailyJobPrepLock(dbPath);
+    const activeState = databaseState();
+
+    expect(automated(file, "00000000-0000-4000-8000-000000000000").status).toBe(1);
+    expect(databaseState()).toBe(activeState);
+    releaseDailyJobPrepLock(dbPath, active.token);
+    const expired = acquireDailyJobPrepLock(dbPath, Date.now() - LOCK_TTL_MS - 1);
+    const expiredState = databaseState();
+    expect(automated(file, expired.token).status).toBe(1);
+    expect(databaseState()).toBe(expiredState);
+  });
+
+  it("requires complete guarded options and rejects unknown or non-absolute automated arguments", () => {
+    currentJob();
+    const file = path.join(tempDir, "resume.pdf");
+    writeFileSync(file, "resume");
+    const lock = acquireDailyJobPrepLock(dbPath);
+    const base = ["scripts/register-application-artifact.mjs", "--db", dbPath, "--opportunity-id", "job-id", "--type", "resume", "--title", "Resume", "--file", file];
+    const cases = [
+      [...base, "--lock-token", lock.token],
+      [...base, "--expected-status", "wishlist"],
+      [...base, "--lock-token", lock.token, "--expected-status", "wishlist", "--unknown", "x"],
+      [...base.slice(0, 2), path.relative(path.resolve(__dirname, ".."), dbPath), ...base.slice(3), "--lock-token", lock.token, "--expected-status", "wishlist"]
+    ];
+    for (const args of cases) {
+      const result = spawnSync(process.execPath, args, { cwd: path.resolve(__dirname, ".."), encoding: "utf8" });
+      expect(result.status).toBe(1);
+      expect(result.stdout).toBe("");
+    }
+  });
+
+  it("does not create or migrate schema in automated mode", () => {
+    job();
+    const file = path.join(tempDir, "resume.pdf");
+    writeFileSync(file, "resume");
+    const before = databaseState();
+
+    const result = automated(file, "00000000-0000-4000-8000-000000000000");
+
+    expect(result.status).toBe(1);
+    expect(databaseState()).toBe(before);
+    expect(tableExists("opportunity_artifacts")).toBe(false);
+  });
   it("rejects an automated non-wishlist expected status before mutation", () => {
     const db = new Database(dbPath); ensureOpportunitySchema(db); db.prepare("INSERT INTO opportunities VALUES ('job-id','job','Role','Acme','rejected','medium',NULL,NULL,?,?)").run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"); db.prepare("INSERT INTO job_opportunity_details VALUES ('job-id',NULL,NULL,NULL,NULL,NULL)").run(); db.close();
     const file = path.join(tempDir, "resume.pdf"); writeFileSync(file, "resume"); const lock = acquireDailyJobPrepLock(dbPath);
