@@ -37,7 +37,7 @@ Automate daily public-job discovery while preparing complete application dossier
 |---|---|---|---|---|---|---|
 | `SPEC-REVIEW` | `sol-reviewer` | Read-only | Approved specification and plan | Complete | Document consistency inspection | Seventh review approved; no blocking findings |
 | `MATCH-001` | Fresh `terra-worker` | Evaluator, evaluator tests, package command | Spec/plan review | Complete (`435d141`, `77778aa`) | RED 21 missing-module failures; GREEN 25/25; CLI error, ESLint, and diff checks pass | Re-review approved; no findings |
-| `GUARD-002` | Fresh `terra-worker` | Database identity and run-lock libraries/CLIs/tests | `MATCH-001` | Pending | Missing/replaced DB, read-only identity, overlap/expiry/token tests | Pending fresh `sol-reviewer` |
+| `GUARD-002` | Fresh `terra-worker`, controller escalation | Database identity and run-lock libraries/CLIs/tests | `MATCH-001` | Complete (`af53815`, `ff492dd`, `19aa539`) | RED missing-module and unique-index proofs; GREEN 24/24 focused; 43/43 related regressions; ESLint/diff checks pass | Final escalation review approved; one non-blocking defensive injected-clock note accepted |
 | `DOSSIER-003` | Fresh `terra-worker` | Guarded dossier inspector/tests and artifact validation/tests | `GUARD-002` | Pending | Focused DB/file/status race tests plus related regressions | Pending fresh `sol-reviewer` |
 | `INTAKE-004` | Fresh `terra-worker` | Executable coordinator/tests and automated upsert CAS/tests | Earlier implementation tasks | Pending | Temporary scenario/race/no-submit tests plus manual compatibility | Pending fresh `sol-reviewer` |
 | `WORKFLOW-005` | Fresh `terra-worker` | Three source skills, three Claude mirrors, workflow/installer tests | `INTAKE-004` | Pending | Contract tests, mirror diff, focused regressions | Pending fresh `sol-reviewer` |
@@ -62,6 +62,12 @@ Native collaboration roles are used because the required `terra-worker`, `sol-re
 | `match-001-review-1` | `MATCH-001` | `review` | 1 | `sol-reviewer` | Important evidence-shape finding plus two minor test gaps | Native per-dispatch usage unavailable; report `match-001-review-1.md` |
 | `match-001-fix-1` | `MATCH-001` | `fix` | 1 | `terra-worker` | Complete (`77778aa`) | Native per-dispatch usage unavailable; appended implementation report |
 | `match-001-rereview-1` | `MATCH-001` | `re-review` | 2 | `sol-reviewer` | Approved; no findings | Native per-dispatch usage unavailable; report `match-001-rereview-1.md` |
+| `guard-002-implement-1` | `GUARD-002` | `implement` | 1 | `terra-worker` | Complete (`af53815`) | Native per-dispatch usage unavailable; report `guard-002-implement-1.md` |
+| `guard-002-review-1` | `GUARD-002` | `review` | 1 | `sol-reviewer` | Five important findings returned; revision required | Native per-dispatch usage unavailable; report `guard-002-review-1.md` |
+| `guard-002-fix-1` | `GUARD-002` | `fix` | 1 | `terra-worker` | Complete (`ff492dd`) | Native per-dispatch usage unavailable; appended implementation report |
+| `guard-002-rereview-1` | `GUARD-002` | `re-review` | 2 | `sol-reviewer` | Two important findings returned; escalated to controller | Native per-dispatch usage unavailable; report `guard-002-rereview-1.md` |
+| `guard-002-escalation-fix` | `GUARD-002` | `escalation-fix` | 2 | Root controller | Complete (`19aa539`) | Native per-dispatch usage unavailable; report `guard-002-escalation-fix.md` |
+| `guard-002-final-review-1` | `GUARD-002` | `escalation-review` | 3 | `sol-reviewer` | Approved; one non-blocking injected-clock robustness note accepted | Native per-dispatch usage unavailable; report `guard-002-final-review-1.md` |
 
 Review 1 returned five blocking findings: database identity was path-only, scheduler creation was not idempotent/executable, concurrency could race user status, workflow behavior relied too heavily on prose assertions, and the exact-79 case was absent. The specification and plan were revised to add stable DB identity, a six-hour lock, transactional compare-and-set, an executable intake coordinator with temporary scenario tests, exact 79/79.5/80 coverage, and update-or-create scheduler reconciliation. Re-review is required before Task 1.
 
