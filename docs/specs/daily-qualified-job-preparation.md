@@ -12,6 +12,7 @@ The user wants a daily, local-first workflow that searches for roles aligned wit
 - Job discovery is based on demonstrated scope and experience rather than a fixed title list.
 - No job is added to the active review queue or receives application materials unless a deterministic gate confirms at least an 80% overall match, at least an 80% mandatory-qualification match, adequate seniority alignment, and no unmet non-negotiable requirement.
 - Passing opportunities are saved as `wishlist` jobs and include a complete application dossier.
+- All scheduled reads and writes use the user's existing working JobTracker database—the same SQLite data shown by the local app—not a worktree, temporary, fixture, or fallback database.
 - The user can review every prepared opportunity in the existing tracker, choose which to submit manually, and reject or archive the rest.
 - The master resume remains private, read-only, and unchanged.
 - The workflow produces exact manual submission instructions but never performs the final submission or any authenticated application-site action.
@@ -27,6 +28,7 @@ This change includes:
 - Duplicate and repeat-run controls that use the existing posting dry-run behavior before mutating the tracker.
 - Contract and behavioral tests for scoring, workflow ordering, artifact requirements, fail-closed behavior, and submission safety.
 - A daily Codex automation for the local JobTracker project at 08:00 in `Etc/UTC`.
+- Explicit live-database binding through the readiness result returned from the saved local project checkout.
 
 The existing tracker UI, job lifecycle, artifact viewer, and archive/reject controls remain the human review surface.
 
@@ -54,12 +56,18 @@ The existing tracker UI, job lifecycle, artifact viewer, and archive/reject cont
 - `skills/job-application-resume/SKILL.md` already requires a candid evidence-based fit analysis, role-specific files, company-neutral resume content, web research when helpful, file verification, and explicit artifact registration.
 - The application workflow currently has no discovery policy, numeric score, scoring command, daily scheduler, cover-letter requirement, submission-guide requirement, or repeat-run dossier completeness rule.
 - The configured private resume has been validated read-only through the signed-in host. It establishes 10+ years of product delivery, progression from JavaScript Engineer to Technical Lead, Director-level engineering and operations experience, people leadership, React/React Native/TypeScript/Node/AWS depth, platform/developer-experience work, customer translation, and AI-assisted workflows.
+- Current local readiness has confirmed an absolute project root, working SQLite path, and applications-materials path in the saved local checkout. These ignored paths are the user's working tracker state and materials directory; the specification intentionally does not commit machine-specific personal paths.
+- The user identifies the app normally served on `http://localhost:3000` as the UI for this working database. The server may not be running at every scheduled execution, so the validated SQLite path—not server reachability—is the database identity contract.
 
 ## Proposed Behavior
 
 ### Daily Discovery
 
-At 08:00 `Etc/UTC`, a standalone local Codex automation runs against the JobTracker project. Every run begins from the repository root and uses the repository source coordinator as authoritative, even when a personal installed skill copy is absent or stale.
+At 08:00 `Etc/UTC`, a standalone Codex automation runs with `executionEnvironment=local` against the saved JobTracker project. It must not run in the implementation worktree because ignored `.env.local`, the live SQLite database, and generated application materials belong to the saved local checkout.
+
+Every run begins from that repository root, uses the repository source coordinator as authoritative, and runs `node scripts/check-application-readiness.mjs` before discovery-driven mutation. It must parse and preserve the returned absolute `projectRoot`, `database.path`, and `applicationsDirectory.path`. Every dry run, real posting upsert, dossier inspection, and artifact registration receives that exact `database.path` through `--db`; every material command receives the exact `applicationsDirectory.path` through `--applications-dir`. Process defaults and synthesized fallback paths are forbidden.
+
+The local Next.js app at `http://localhost:3000` is a presentation surface over the working SQLite state, not a second data service. The automation may use the public local API for read-only corroboration when it is already available, but it does not require the development server to be running and must never start a second server or choose another database when port 3000 is unavailable.
 
 The automation searches broadly across public sources:
 
@@ -136,7 +144,7 @@ The scoring command is the mutation boundary. Tracker intake and material genera
 
 ### Repeat-Run and Duplicate Controls
 
-Before a real tracker write, the workflow invokes the existing posting command with `--dry-run` and the exact readiness database path. When the dry-run result identifies an existing opportunity, `node scripts/inspect-job-dossier.mjs --db "/absolute/database/path" --opportunity-id "ID"` returns its status and the validity of every required registered artifact without mutating the database.
+Before a real tracker write, the workflow invokes the existing posting command with `--dry-run` and the exact live database path returned by local readiness. When the dry-run result identifies an existing opportunity, `node scripts/inspect-job-dossier.mjs --db "/absolute/database/path" --opportunity-id "ID"` returns its status and the validity of every required registered artifact without mutating the database.
 
 - A new candidate may proceed to real intake.
 - An existing candidate with material posting changes may be refreshed and rescored.
@@ -229,6 +237,8 @@ The summary must not reproduce private resume content, personal contact details,
 ## Failure Paths
 
 - Readiness not `ready`: stop the run before discovery-driven mutation and report the exact issue.
+- Readiness returns a database path different from the saved local project's configured working path: stop and report the configuration change; never silently use the worktree or a default database.
+- `http://localhost:3000` is unavailable but local readiness remains `ready`: continue through the validated SQLite commands because server availability does not change database identity.
 - Private Google Doc inaccessible: preserve the configured URL, do not weaken privacy, and fail the run or use an already configured valid local fallback.
 - Posting description unavailable or incomplete: skip without scoring or tracker mutation.
 - Official source contradicts a job-board listing: treat the official source as authoritative.
@@ -262,6 +272,7 @@ The summary must not reproduce private resume content, personal contact details,
 - `cover_letter` and `other` are already accepted artifact types.
 - Existing archived and rejected records remain unchanged.
 - The scheduler is external Codex automation state and can be disabled without changing repository data.
+- The feature worktree and automated worktree environments do not receive or replace the ignored working database. Scheduled execution intentionally targets the saved local checkout.
 
 ## Rollback
 
@@ -293,6 +304,8 @@ The summary must not reproduce private resume content, personal contact details,
 18. Codex and Claude skill mirrors remain byte-identical after installation refresh.
 19. Focused evaluator and workflow contract tests, `npm run verify`, `npm run build`, `git diff --check`, and privacy/status checks pass.
 20. A created daily automation can be viewed and its returned configuration confirms the expected project, enabled status, cadence, and prompt safety contract.
+21. The automation uses `executionEnvironment=local`, runs readiness from the saved local JobTracker project, and passes the returned absolute `database.path` explicitly to every database command; it never creates or selects a worktree, temporary, fixture, or fallback database.
+22. Localhost port 3000 availability does not alter database selection: an unavailable UI does not trigger a second server or database, and an available UI reflects the same working records after scheduled writes.
 
 ## Verification Commands
 
@@ -301,6 +314,7 @@ npm test -- scripts/evaluate-job-match.test.ts scripts/inspect-job-dossier.test.
 npm run verify
 npm run build
 diff -qr skills .claude/skills
+node scripts/check-application-readiness.mjs
 git diff --check
 git status --short
 ```
@@ -338,6 +352,7 @@ Mandatory workflow checks include:
 - Treat employer pages as authoritative and fail closed on ambiguity. This reduces false positives at the cost of skipping some potentially viable but unverifiable postings.
 - Use a conservative geographic default derived from the verified resume and never assume relocation or work authorization.
 - Keep scheduling in Codex automation state rather than repository cron configuration. This avoids credentials, daemons, and host-specific scheduler code in the project.
+- Target the saved local checkout rather than an automation worktree. This intentionally shares the user's current ignored SQLite/application state with the daily run while implementation remains isolated in its feature worktree.
 
 ## Open Decisions
 
