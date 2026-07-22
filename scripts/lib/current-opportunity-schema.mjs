@@ -39,7 +39,7 @@ export function assertCurrentOpportunitySchema(db) {
   }
   for (const [name, [table, expected]] of Object.entries(namedIndexes)) {
     const listed = pragma(db, `PRAGMA index_list('${table}')`).find((row) => row.name === name);
-    if (!listed || listed.partial !== 0 || !same(indexColumns(db, name), expected)) throw new Error(`index mismatch: ${name}`);
+    if (!listed || listed.unique !== 0 || listed.origin !== "c" || listed.partial !== 0 || !same(indexColumns(db, name), expected)) throw new Error(`index mismatch: ${name}`);
   }
   const uniqueArtifact = pragma(db, "PRAGMA index_list('opportunity_artifacts')").some((row) => row.unique === 1 && row.partial === 0 && same(indexColumns(db, row.name), [["opportunity_id", 0], ["type", 0], ["file_path", 0]]));
   if (!uniqueArtifact) throw new Error("unique artifact index missing");

@@ -16,8 +16,52 @@ afterEach(() => { while (directories.length) rmSync(directories.pop()!, { recurs
 describe("daily job prep lock", () => {
   it("allows one active token and rejects an overlapping acquire", () => { const p = fixture(); const first = cli("acquire", "--db", p); expect(first.status).toBe(0); const second = cli("acquire", "--db", p); expect(second.status).toBe(1); expect(second.stderr).toMatch(/lock/i); });
   it("serializes real child-process contenders for an expired row", async () => { const p = fixture(); const now = Date.now(); seed(p, { schemaVersion: 1, token: "00000000-0000-4000-8000-000000000000", acquiredAt: now - LOCK_TTL_MS - 10, expiresAt: now - 10 }); const results = await concurrent(["acquire", "--db", p], ["acquire", "--db", p]); expect(results.filter((r) => r.status === 0)).toHaveLength(1); expect(results.filter((r) => r.status === 1)).toHaveLength(1); const winner = JSON.parse(results.find((r) => r.status === 0)!.stdout); const db = new Database(p, { readonly: true }); expect(JSON.parse((db.prepare("SELECT value FROM schema_metadata WHERE key='daily_job_prep_lock'").get() as { value: string }).value).token).toBe(winner.token); db.close(); });
-  it("serializes owner release and contender acquire without deleting a successor", async () => { const p = fixture(); const owner = acquireDailyJobPrepLock(p); const [released, acquired] = await concurrent(["release", "--db", p, "--token", owner.token], ["acquire", "--db", p]); expect(released.status).toBe(0); if (acquired.status === 0) { const successor = JSON.parse(acquired.stdout); expect(verifyDailyJobPrepLock(p, successor.token)).toMatchObject({ token: successor.token }); } else expect(acquired.status).toBe(1); });
-  it("verifies matching token and isolates valid database paths", () => { const a = fixture(), b = fixture(); const lock = acquireDailyJobPrepLock(a, 1000); expect(verifyDailyJobPrepLock(a, lock.token, 1001)).toMatchObject({ token: lock.token }); expect(() => verifyDailyJobPrepLock(b, lock.token, 1001)).toThrow(); expect(acquireDailyJobPrepLock(b, 1000)).toBeTruthy(); });
+  it("serializes owner release and contender acquire without deleting a successor", async () => {
+    const p = fixture();
+    const owner = acquireDailyJobPrepLock(p);
+    const [released, acquired] = await concurrent(
+      ["release", "--db", p, "--token", owner.token],
+      ["acquire", "--db", p]
+    );
+
+    expect(released.status).toBe(0);
+    const db = new Database(p, { readonly: true });
+    const finalRow = db.prepare("SELECT value FROM schema_metadata WHERE key='daily_job_prep_lock'").get() as { value: string } | undefined;
+    db.close();
+    if (acquired.status === 0) {
+      const successor = JSON.parse(acquired.stdout);
+      expect(JSON.parse(finalRow!.value).token).toBe(successor.token);
+    } else {
+      expect(acquired.status).toBe(1);
+      expect(finalRow).toBeUndefined();
+    }
+  });
+  it("verifies and releases only the matching owner token", () => {
+    const p = fixture();
+    const owner = acquireDailyJobPrepLock(p, 1000);
+    const wrongToken = "00000000-0000-4000-8000-000000000000";
+
+    expect(verifyDailyJobPrepLock(p, owner.token, 1001)).toMatchObject({ token: owner.token });
+    expect(() => verifyDailyJobPrepLock(p, wrongToken, 1001)).toThrow(/not held/i);
+    expect(() => releaseDailyJobPrepLock(p, wrongToken)).toThrow(/not held/i);
+    expect(verifyDailyJobPrepLock(p, owner.token, 1001)).toMatchObject({ token: owner.token });
+
+    expect(releaseDailyJobPrepLock(p, owner.token)).toMatchObject({ action: "released" });
+    const db = new Database(p, { readonly: true });
+    expect(db.prepare("SELECT value FROM schema_metadata WHERE key='daily_job_prep_lock'").get()).toBeUndefined();
+    db.close();
+  });
+  it("isolates valid database paths", () => { const a = fixture(), b = fixture(); const lock = acquireDailyJobPrepLock(a, 1000); expect(() => verifyDailyJobPrepLock(b, lock.token, 1001)).toThrow(); expect(acquireDailyJobPrepLock(b, 1000)).toBeTruthy(); });
+  it("recovers an expired lock at a fixed clock with a new token", () => {
+    const p = fixture();
+    const expiredToken = "00000000-0000-4000-8000-000000000000";
+    seed(p, { schemaVersion: 1, token: expiredToken, acquiredAt: 0, expiresAt: LOCK_TTL_MS });
+
+    const recovered = acquireDailyJobPrepLock(p, LOCK_TTL_MS + 1);
+
+    expect(recovered).toMatchObject({ action: "recovered", acquiredAt: LOCK_TTL_MS + 1 });
+    expect(recovered.token).not.toBe(expiredToken);
+  });
   it("rejects missing, non-file, and relative guarded paths", () => { const p = fixture(); for (const target of [path.join(path.dirname(p), "missing.sqlite"), path.dirname(p), "relative.sqlite"]) { expect(() => acquireDailyJobPrepLock(target)).toThrow(); expect(() => verifyDailyJobPrepLock(target, "00000000-0000-4000-8000-000000000000")).toThrow(); expect(() => releaseDailyJobPrepLock(target, "00000000-0000-4000-8000-000000000000")).toThrow(); } });
   it("rejects malformed lock rows including TTL and extra fields", () => { for (const bad of [{ schemaVersion: 1, token: "00000000-0000-4000-8000-000000000000", acquiredAt: 0, expiresAt: 1 }, { schemaVersion: 1, token: "00000000-0000-4000-8000-000000000000", acquiredAt: 0, expiresAt: LOCK_TTL_MS + 1 }, { schemaVersion: 1, token: "00000000-0000-4000-8000-000000000000", acquiredAt: 0, expiresAt: LOCK_TTL_MS, extra: true }]) { const p = fixture(); seed(p, bad); expect(() => acquireDailyJobPrepLock(p)).toThrow(/malformed/i); } });
   it("has strict action-specific CLI JSON and errors", () => { const p = fixture(); const acquired = cli("acquire", "--db", p); expect(acquired.status).toBe(0); const token = JSON.parse(acquired.stdout).token; expect(cli("verify", "--db", p, "--token", token).status).toBe(0); for (const args of [["acquire", "--db", p, "--token", token], ["acquire", "--db", p, "--db", p], ["verify", "--db", p], ["release", "--db", p, "--token", token, "--extra", "x"], ["wat", "--db", p]]) { const result = cli(...args); expect(result.status).toBe(1); expect(result.stdout).toBe(""); expect(result.stderr.trim().length).toBeGreaterThan(0); } });
