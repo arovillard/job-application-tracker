@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+import { initializeDatabaseIdentity, verifyDatabaseIdentity } from "./lib/jobtracker-database-identity.mjs";
+function options(args) { const out = {}; for (let i = 0; i < args.length; i += 2) { if (!args[i].startsWith("--") || !args[i + 1]) throw new Error("invalid options"); out[args[i].slice(2)] = args[i + 1]; } return out; }
+try { const [action, ...args] = process.argv.slice(2); const opts = options(args); if (!opts.db || (action === "verify" && !opts["expected-id"]) || !["initialize", "verify"].includes(action)) throw new Error("usage: initialize --db PATH | verify --db PATH --expected-id UUID"); const result = action === "initialize" ? initializeDatabaseIdentity(opts.db) : verifyDatabaseIdentity(opts.db, opts["expected-id"]); process.stdout.write(`${JSON.stringify(result)}\n`); } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }

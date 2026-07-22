@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+import { acquireDailyJobPrepLock, releaseDailyJobPrepLock, verifyDailyJobPrepLock } from "./lib/daily-job-prep-lock.mjs";
+function options(args) { const out = {}; for (let i = 0; i < args.length; i += 2) { if (!args[i].startsWith("--") || !args[i + 1]) throw new Error("invalid options"); out[args[i].slice(2)] = args[i + 1]; } return out; }
+try { const [action, ...args] = process.argv.slice(2); const opts = options(args); if (!opts.db || !["acquire", "verify", "release"].includes(action) || (action !== "acquire" && !opts.token)) throw new Error("usage: acquire|verify|release --db PATH [--token TOKEN]"); const result = action === "acquire" ? acquireDailyJobPrepLock(opts.db) : action === "verify" ? verifyDailyJobPrepLock(opts.db, opts.token) : releaseDailyJobPrepLock(opts.db, opts.token); process.stdout.write(`${JSON.stringify(result)}\n`); } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }
