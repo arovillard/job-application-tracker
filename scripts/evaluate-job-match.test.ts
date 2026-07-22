@@ -83,6 +83,11 @@ describe("evaluate-job-match", () => {
     });
   });
 
+  it("exports an evaluator without executing the CLI", async () => {
+    const { evaluateJobMatch } = await import("./evaluate-job-match.mjs");
+    expect(evaluateJobMatch(assessment())).toMatchObject({ eligible: true, overallScore: 100 });
+  });
+
   it.each([["closed", "posting_not_open"], ["unknown", "posting_not_open"]])("rejects posting state %s", (state, code) => {
     const input = assessment();
     input.posting.state = state;
@@ -135,6 +140,21 @@ describe("evaluate-job-match", () => {
     expect(result.reasons[0].code).toBe("non_negotiable_blocker");
   });
 
+  it("reports simultaneous gate failures in stable order", () => {
+    const input = assessment();
+    input.posting.state = "closed";
+    input.groups[0].criteria = [criterion("required-miss", 50, "unsupported", true)];
+    input.groups[1].criteria = [criterion("seniority-miss", 20, "unsupported")];
+    input.blockers = [{ code: "work_authorization", requirement: "US work authorization", evidence: "not verified" }];
+    expect(score(input).reasons.map((reason: { code: string }) => reason.code)).toEqual([
+      "posting_not_open",
+      "overall_below_threshold",
+      "mandatory_below_threshold",
+      "seniority_below_threshold",
+      "non_negotiable_blocker"
+    ]);
+  });
+
   it("awards adjacent evidence exactly half credit", () => {
     const input = assessment();
     input.groups[2].criteria = [criterion("technical-adjacent", 15, "adjacent")];
@@ -159,6 +179,8 @@ describe("evaluate-job-match", () => {
     ["fractional criterion weight", (input: ReturnType<typeof assessment>) => input.groups[0].criteria[0].weight = 49.5, /positive integer/i],
     ["unknown evidence", (input: ReturnType<typeof assessment>) => input.groups[0].criteria[0].evidence = "likely", /evidence/i],
     ["credited evidence without text", (input: ReturnType<typeof assessment>) => input.groups[0].criteria[0].evidenceText = "", /evidenceText/i],
+    ["unsupported evidence without evidenceText", (input: ReturnType<typeof assessment>) => { input.groups[0].criteria[0].evidence = "unsupported"; delete input.groups[0].criteria[0].evidenceText; }, /evidenceText/i],
+    ["unsupported evidence with non-string evidenceText", (input: ReturnType<typeof assessment>) => { input.groups[0].criteria[0].evidence = "unsupported"; (input.groups[0].criteria[0] as { evidenceText: unknown }).evidenceText = 1; }, /evidenceText/i],
     ["non-boolean mandatory", (input: ReturnType<typeof assessment>) => input.groups[0].criteria[0].mandatory = "yes", /mandatory/i],
     ["no mandatory criteria", (input: ReturnType<typeof assessment>) => input.groups.flatMap(group => group.criteria).forEach(item => item.mandatory = false), /mandatory criterion/i],
     ["malformed blocker", (input: ReturnType<typeof assessment>) => input.blockers = [{ code: "", requirement: "x", evidence: "y" }], /blocker/i]

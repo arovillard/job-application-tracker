@@ -51,6 +51,7 @@ function validate(input) {
       nonEmptyString(item.rationale, "criterion.rationale");
       if (typeof item.mandatory !== "boolean") fail("criterion.mandatory must be a boolean");
       if (!Object.hasOwn(CREDIT, item.evidence)) fail("criterion.evidence is invalid");
+      if (typeof item.evidenceText !== "string") fail("criterion.evidenceText must be a string");
       if ((item.evidence === "direct" || item.evidence === "adjacent")) nonEmptyString(item.evidenceText, "criterion.evidenceText");
       if (!Number.isInteger(item.weight) || item.weight <= 0) fail("criterion.weight must be a positive integer");
       total += item.weight;
