@@ -133,3 +133,46 @@ When finished, report:
 - The resume or Google Docs link, if created.
 - The application analysis Markdown path.
 - Any important caveat, such as unavailable research or a qualification gap that should be prepared for in interviews.
+
+## Automated Complete Dossier Mode
+
+Use this mode only after `prepare-qualified-job.mjs` has returned an eligible `repair_dossier` or `prepare_dossier` decision. Require the verified opportunity ID, exact absolute `database.path`, exact absolute `applicationsDirectory.path`, active `lock-token`, `expected-status wishlist`, `expected-updated-at`, original assessment, and eligible evaluator result. Do not create materials when any value is absent or the decision is another outcome.
+
+Before creating files, perform the guarded read-only precondition:
+
+```bash
+node scripts/inspect-job-dossier.mjs \
+  --db "/absolute/database.path" \
+  --opportunity-id "VERIFIED_OPPORTUNITY_ID" \
+  --lock-token "RUN_TOKEN" \
+  --expected-status wishlist \
+  --expected-updated-at "EXACT_UPDATED_AT"
+```
+
+Stop if that snapshot or lock check fails. Preserve every already-valid artifact; preserve every already-valid artifact when repairing a partial dossier, and generate only missing or invalid outputs in `<applications-dir>/.staging/<run-token>/...`; never overwrite a valid destination or directly register/copy automated files.
+
+Use a role slug and stage exactly these local outputs before guarded commit:
+
+```text
+<role-slug>-resume.pdf
+<role-slug>-fit-analysis.md
+<role-slug>-cover-letter.md
+<role-slug>-outreach-message.md
+<role-slug>-submission-guide.md
+```
+
+The local PDF snapshot is mandatory for the tailored resume; a Google Doc link is supplemental only. Keep resumes company-neutral. The fit analysis must retain the ordered headings above and add `overallScore`, `mandatoryMatch`, `seniorityMatch`, the eligibility decision, blockers considered, partial/unsupported requirements, and a criterion-by-criterion evidence matrix matching the assessment and evaluator result.
+
+Write a grounded cover letter and concise outreach draft from verified posting and source evidence only. The submission guide must give canonical URL and verified status, exact upload-field/file mapping, human manual steps that end before final submission, supported suggested answers, qualification caveats, attachment checklist, and a separate `Needs Your Answer` section for salary, availability, demographic disclosures, legal attestations, work authorization, relocation, references, and other unverified facts. State that the user—not the automation—must review and submit.
+
+Pass an exact missing-only manifest to `node scripts/commit-job-dossier.mjs` with the active lock and expected status/version. It is the sole automated copy/registration route and must register fixed contracts:
+
+```bash
+--type resume --title "Tailored Resume"
+--type fit_analysis --title "Fit Analysis"
+--type cover_letter --title "Cover Letter"
+--type outreach_message --title "Outreach Message"
+--type other --title "Submission Guide"
+```
+
+Parse the commit response, then rerun guarded dossier inspection. Call the dossier ready only when that final response reports `complete: true`; otherwise report an incomplete private dossier. Never sign in, use credentials, upload files, fill forms, attest, solve CAPTCHAs, send outreach, or submit an application.

@@ -74,6 +74,25 @@ describe("agent skill packaging", () => {
           expect(claudeSkill).toContain(required);
         }
       }
+      if (skillName === "job-application-resume") {
+        for (const required of [
+          "expected-status wishlist", "expected-updated-at", "lock-token", "commit-job-dossier.mjs",
+          "Tailored Resume", "Fit Analysis", "Cover Letter", "Outreach Message", "Submission Guide",
+          "Needs Your Answer"
+        ]) {
+          expect(codexSkill).toContain(required);
+          expect(claudeSkill).toContain(required);
+        }
+      }
+      if (skillName === "job-application-workflow") {
+        for (const required of [
+          "jobtracker-database-identity.mjs verify", "daily-job-prep-lock.mjs acquire",
+          "daily-job-prep-lock.mjs release", "prepare-qualified-job.mjs", "database.path", "never submit"
+        ]) {
+          expect(codexSkill).toContain(required);
+          expect(claudeSkill).toContain(required);
+        }
+      }
     }
   });
 
