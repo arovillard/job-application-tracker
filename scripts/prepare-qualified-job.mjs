@@ -1,0 +1,29 @@
+#!/usr/bin/env node
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { evaluateJobMatch } from "./evaluate-job-match.mjs";
+import { verifyDatabaseIdentity } from "./lib/jobtracker-database-identity.mjs";
+import { verifyDailyJobPrepLock } from "./lib/daily-job-prep-lock.mjs";
+
+const POSTING_KEYS = new Set(["company", "role", "url", "source", "location", "contact", "summary", "note", "posting_state"]);
+const compact = value => typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+const url = value => { try { const parsed = new URL(value); parsed.hash = ""; return parsed.href; } catch { throw new Error("posting url must be a valid URL"); } };
+function parse(argv) { const options = {}; for (let i = 0; i < argv.length; i += 2) { const flag = argv[i], value = argv[i + 1]; if (!flag?.startsWith("--") || !value || value.startsWith("--") || Object.hasOwn(options, flag.slice(2))) throw new Error("Invalid command arguments"); options[flag.slice(2)] = value; } if (Object.keys(options).length !== 4 || !options.db || !options["expected-database-id"] || !options["lock-token"] || !options["input-json"] || !path.isAbsolute(options.db)) throw new Error("Invalid command arguments"); return options; }
+function validate(input) { if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 2 || !Object.hasOwn(input, "assessment") || !Object.hasOwn(input, "posting")) throw new Error("input must contain exactly assessment and posting"); if (!input.posting || typeof input.posting !== "object" || Array.isArray(input.posting) || Object.keys(input.posting).some(key => !POSTING_KEYS.has(key))) throw new Error("invalid posting input"); const posting = input.posting; for (const key of ["company", "role", "url", "posting_state"]) if (!compact(posting[key])) throw new Error(`posting.${key} is required`); if (!["open", "closed", "unknown"].includes(posting.posting_state)) throw new Error("posting_state is invalid"); const evaluated = input.assessment?.posting; if (!evaluated || compact(posting.company) !== compact(evaluated.organization) || compact(posting.role) !== compact(evaluated.role) || url(posting.url) !== url(evaluated.url) || posting.posting_state !== evaluated.state) throw new Error("posting facts must exactly match assessment"); return posting; }
+function invoke(script, args, input) {
+  const result = spawnSync(process.execPath, [script, ...args], { encoding: "utf8", input: JSON.stringify(input) });
+  if (!result) throw new Error(`${script} did not start`);
+  if (result.status !== 0) throw new Error(result.stderr?.trim() || `${script} failed`);
+  return JSON.parse(result.stdout);
+}
+function inspect(db, id) { const child = spawnSync(process.execPath, ["scripts/inspect-job-dossier.mjs", "--db", db, "--opportunity-id", id], { encoding: "utf8" }); if (child.status !== 0) throw new Error(child.stderr.trim() || "dossier inspection failed"); return JSON.parse(child.stdout); }
+function output(decision, evaluation, opportunity = null, dossier = null, precondition = null) { return { schemaVersion: 1, decision, evaluation, opportunity, dossier, preparationPrecondition: precondition }; }
+function main() { const options = parse(process.argv.slice(2)); const raw = options["input-json"] === "-" ? readFileSync(0, "utf8") : readFileSync(options["input-json"], "utf8"); const input = JSON.parse(raw), posting = validate(input); verifyDatabaseIdentity(options.db, options["expected-database-id"]); verifyDailyJobPrepLock(options.db, options["lock-token"]); const evaluation = evaluateJobMatch(input.assessment); if (!evaluation.eligible) return output("skip_ineligible", evaluation);
+  const base = ["--db", options.db, "--automation-mode", "--lock-token", options["lock-token"], "--input-json", "-"];
+  const dry = invoke("scripts/upsert-job-posting.mjs", [...base, "--dry-run"], posting); const snapshot = dry.precondition;
+  if (snapshot.existed && ["rejected", "archived"].includes(snapshot.status)) return output("skip_inactive", evaluation, dry.opportunity);
+  if (snapshot.existed) { const dossier = inspect(options.db, snapshot.opportunityId); const unchanged = dry.changes.length === 0; const precondition = { opportunityId: snapshot.opportunityId, status: "wishlist", updatedAt: dossier.opportunity.updatedAt }; if (unchanged && dossier.complete) return output("skip_complete", evaluation, dry.opportunity, dossier); if (unchanged) return output("repair_dossier", evaluation, dry.opportunity, dossier, precondition); const real = invoke("scripts/upsert-job-posting.mjs", [...base, "--expected-opportunity-id", snapshot.opportunityId, "--expected-status", snapshot.status, "--expected-updated-at", snapshot.updatedAt], posting); return output("prepare_dossier", evaluation, real.opportunity, null, { opportunityId: real.opportunity.id, status: "wishlist", updatedAt: real.opportunity.updatedAt }); }
+  const real = invoke("scripts/upsert-job-posting.mjs", [...base, "--expect-new"], posting); return output("prepare_dossier", evaluation, real.opportunity, null, { opportunityId: real.opportunity.id, status: "wishlist", updatedAt: real.opportunity.updatedAt });
+}
+try { process.stdout.write(`${JSON.stringify(main())}\n`); } catch (error) { process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`); process.exit(1); }

@@ -1,10 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { acquireDailyJobPrepLock } from "./lib/daily-job-prep-lock.mjs";
+import { initializeDatabaseIdentity } from "./lib/jobtracker-database-identity.mjs";
 
 let tempDir: string;
 let dbPath: string;
@@ -28,6 +30,12 @@ function runUpsert(args: string[]) {
 function query(sql: string, ...params: unknown[]) {
   const db = new Database(dbPath);
   try { return db.prepare(sql).all(...params); } finally { db.close(); }
+}
+
+function automated(args: string[], input = { company: "Example Co", role: "Engineering Manager", url: "https://example.com/job", posting_state: "open" }) {
+  const lock = acquireDailyJobPrepLock(dbPath);
+  const child = require("node:child_process").spawnSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", dbPath, "--automation-mode", "--lock-token", lock.token, ...args, "--input-json", "-"], { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: JSON.stringify(input) });
+  return child;
 }
 
 beforeEach(() => { tempDir = mkdtempSync(path.join(tmpdir(), "jobtracker-upsert-")); dbPath = path.join(tempDir, "jobtracker.sqlite"); });
@@ -163,5 +171,59 @@ describe("upsert-job-posting CLI", () => {
     expect(Object.keys(result).sort()).toEqual(["action", "activityIds", "application", "changes", "opportunity", "taskIds"]);
     expect(result.opportunity.organization).toBe("CLI Co");
     expect(query("SELECT body FROM opportunity_activities WHERE id = ?", result.activityIds[1])[0]).toEqual(expect.objectContaining({ body: expect.stringContaining("Keep this note") }));
+  });
+
+  it("returns an existing pre-mutation snapshot from automated dry-run", () => {
+    const created = runUpsert(["--company", "Example Co", "--role", "Engineering Manager", "--url", "https://example.com/job", "--posting-state", "open"]);
+    initializeDatabaseIdentity(dbPath);
+    const result = automated(["--dry-run"]);
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).precondition).toEqual({ existed: true, opportunityId: created.opportunity.id, status: "wishlist", updatedAt: expect.any(String) });
+  });
+
+  it("creates only when expect-new is still true", () => {
+    runUpsert(["--company", "Other", "--role", "Other", "--url", "https://example.com/other", "--posting-state", "open"]);
+    initializeDatabaseIdentity(dbPath);
+    const lock = acquireDailyJobPrepLock(dbPath);
+    const payload = JSON.stringify({ company: "Race Co", role: "Engineer", url: "https://example.com/race", posting_state: "open" });
+    const dry = require("node:child_process").spawnSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", dbPath, "--automation-mode", "--lock-token", lock.token, "--dry-run", "--input-json", "-"], { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: payload });
+    expect(dry.status).toBe(0);
+    runUpsert(["--company", "Race Co", "--role", "Engineer", "--url", "https://example.com/race", "--posting-state", "open"]);
+    const real = require("node:child_process").spawnSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", dbPath, "--automation-mode", "--lock-token", lock.token, "--expect-new", "--input-json", "-"], { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: payload });
+    expect(real.status).toBe(1);
+    expect(query("SELECT COUNT(*) AS count FROM opportunities WHERE organization='Race Co'")[0]).toEqual({ count: 1 });
+  });
+
+  it("updates only the exact existing id/status/version", () => {
+    const created = runUpsert(["--company", "Example Co", "--role", "Engineering Manager", "--url", "https://example.com/old", "--posting-state", "open"]);
+    initializeDatabaseIdentity(dbPath);
+    const snapshot = query("SELECT updated_at FROM opportunities WHERE id=?", created.opportunity.id)[0] as { updated_at: string };
+    const lock = acquireDailyJobPrepLock(dbPath);
+    const base = ["scripts/upsert-job-posting.mjs", "--db", dbPath, "--automation-mode", "--lock-token", lock.token, "--expected-opportunity-id", created.opportunity.id, "--expected-status", "wishlist", "--expected-updated-at", snapshot.updated_at, "--input-json", "-"];
+    const good = require("node:child_process").spawnSync(process.execPath, base, { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: JSON.stringify({ company: "Example Co", role: "Engineering Manager", url: "https://example.com/new", posting_state: "open" }) });
+    expect(good.status).toBe(0);
+    for (const [flag, value] of [["--expected-opportunity-id", "wrong"], ["--expected-status", "applied"], ["--expected-updated-at", snapshot.updated_at]]) {
+      const args = [...base]; args[args.indexOf(flag) + 1] = value;
+      const bad = require("node:child_process").spawnSync(process.execPath, args, { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: JSON.stringify({ company: "Example Co", role: "Engineering Manager", url: "https://example.com/newer", posting_state: "open" }) });
+      expect(bad.status).toBe(1);
+    }
+  });
+
+  it.each(["rejected", "archived"])("never mutates an automated %s duplicate", (status) => {
+    const created = runUpsert(["--company", "Example Co", "--role", "Engineering Manager", "--url", "https://example.com/job", "--status", status, "--posting-state", "closed"]);
+    initializeDatabaseIdentity(dbPath);
+    const row = query("SELECT updated_at FROM opportunities WHERE id=?", created.opportunity.id)[0] as { updated_at: string };
+    const lock = acquireDailyJobPrepLock(dbPath);
+    const before = readFileSync(dbPath);
+    const result = require("node:child_process").spawnSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", dbPath, "--automation-mode", "--lock-token", lock.token, "--expected-opportunity-id", created.opportunity.id, "--expected-status", status, "--expected-updated-at", row.updated_at, "--input-json", "-"], { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: JSON.stringify({ company: "Example Co", role: "Engineering Manager", url: "https://example.com/new", posting_state: "open" }) });
+    expect(result.status).toBe(1); expect(readFileSync(dbPath)).toEqual(before);
+  });
+
+  it("rejects automated mode without a valid active lock and an incomplete schema without migrating it", () => {
+    runUpsert(["--company", "Example Co", "--role", "Engineer", "--url", "https://example.com/job", "--posting-state", "open"]); initializeDatabaseIdentity(dbPath);
+    expect(require("node:child_process").spawnSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", dbPath, "--automation-mode", "--lock-token", "00000000-0000-4000-8000-000000000000", "--dry-run", "--input-json", "-"], { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: JSON.stringify({ company: "Example Co", role: "Engineer", url: "https://example.com/job", posting_state: "open" }) }).status).toBe(1);
+    const bad = path.join(tempDir, "legacy.sqlite"); const db = new Database(bad); db.exec("CREATE TABLE applications (id TEXT)"); db.close(); const bytes = readFileSync(bad);
+    expect(require("node:child_process").spawnSync(process.execPath, ["scripts/upsert-job-posting.mjs", "--db", bad, "--automation-mode", "--lock-token", "00000000-0000-4000-8000-000000000000", "--dry-run", "--input-json", "-"], { cwd: path.resolve(__dirname, ".."), encoding: "utf8", input: JSON.stringify({ company: "Example Co", role: "Engineer", url: "https://example.com/job", posting_state: "open" }) }).status).toBe(1);
+    expect(readFileSync(bad)).toEqual(bytes);
   });
 });
