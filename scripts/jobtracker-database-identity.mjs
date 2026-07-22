@@ -1,4 +1,28 @@
 #!/usr/bin/env node
 import { initializeDatabaseIdentity, verifyDatabaseIdentity } from "./lib/jobtracker-database-identity.mjs";
-function options(args) { const out = {}; for (let i = 0; i < args.length; i += 2) { if (!args[i].startsWith("--") || !args[i + 1]) throw new Error("invalid options"); out[args[i].slice(2)] = args[i + 1]; } return out; }
-try { const [action, ...args] = process.argv.slice(2); const opts = options(args); if (!opts.db || (action === "verify" && !opts["expected-id"]) || !["initialize", "verify"].includes(action)) throw new Error("usage: initialize --db PATH | verify --db PATH --expected-id UUID"); const result = action === "initialize" ? initializeDatabaseIdentity(opts.db) : verifyDatabaseIdentity(opts.db, opts["expected-id"]); process.stdout.write(`${JSON.stringify(result)}\n`); } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }
+
+function parseOptions(action, args) {
+  const allowed = action === "initialize" ? new Set(["db"]) : action === "verify" ? new Set(["db", "expected-id"]) : null;
+  if (!allowed) throw new Error("usage: initialize --db PATH | verify --db PATH --expected-id UUID");
+  const options = {};
+  for (let index = 0; index < args.length; index += 2) {
+    const flag = args[index];
+    const value = args[index + 1];
+    if (!flag?.startsWith("--") || !value || !allowed.has(flag.slice(2)) || Object.hasOwn(options, flag.slice(2))) throw new Error("invalid options");
+    options[flag.slice(2)] = value;
+  }
+  if (!options.db || (action === "verify" && !options["expected-id"])) throw new Error("invalid options");
+  return options;
+}
+
+try {
+  const [action, ...args] = process.argv.slice(2);
+  const options = parseOptions(action, args);
+  const result = action === "initialize"
+    ? initializeDatabaseIdentity(options.db)
+    : verifyDatabaseIdentity(options.db, options["expected-id"]);
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+} catch (error) {
+  process.stderr.write(`${error.message}\n`);
+  process.exitCode = 1;
+}

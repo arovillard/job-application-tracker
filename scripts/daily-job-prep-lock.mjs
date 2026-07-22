@@ -1,4 +1,30 @@
 #!/usr/bin/env node
 import { acquireDailyJobPrepLock, releaseDailyJobPrepLock, verifyDailyJobPrepLock } from "./lib/daily-job-prep-lock.mjs";
-function options(args) { const out = {}; for (let i = 0; i < args.length; i += 2) { if (!args[i].startsWith("--") || !args[i + 1]) throw new Error("invalid options"); out[args[i].slice(2)] = args[i + 1]; } return out; }
-try { const [action, ...args] = process.argv.slice(2); const opts = options(args); if (!opts.db || !["acquire", "verify", "release"].includes(action) || (action !== "acquire" && !opts.token)) throw new Error("usage: acquire|verify|release --db PATH [--token TOKEN]"); const result = action === "acquire" ? acquireDailyJobPrepLock(opts.db) : action === "verify" ? verifyDailyJobPrepLock(opts.db, opts.token) : releaseDailyJobPrepLock(opts.db, opts.token); process.stdout.write(`${JSON.stringify(result)}\n`); } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }
+
+function parseOptions(action, args) {
+  const allowed = action === "acquire" ? new Set(["db"]) : ["verify", "release"].includes(action) ? new Set(["db", "token"]) : null;
+  if (!allowed) throw new Error("usage: acquire|verify|release --db PATH [--token TOKEN]");
+  const options = {};
+  for (let index = 0; index < args.length; index += 2) {
+    const flag = args[index];
+    const value = args[index + 1];
+    if (!flag?.startsWith("--") || !value || !allowed.has(flag.slice(2)) || Object.hasOwn(options, flag.slice(2))) throw new Error("invalid options");
+    options[flag.slice(2)] = value;
+  }
+  if (!options.db || (action !== "acquire" && !options.token)) throw new Error("invalid options");
+  return options;
+}
+
+try {
+  const [action, ...args] = process.argv.slice(2);
+  const options = parseOptions(action, args);
+  const result = action === "acquire"
+    ? acquireDailyJobPrepLock(options.db)
+    : action === "verify"
+      ? verifyDailyJobPrepLock(options.db, options.token)
+      : releaseDailyJobPrepLock(options.db, options.token);
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+} catch (error) {
+  process.stderr.write(`${error.message}\n`);
+  process.exitCode = 1;
+}

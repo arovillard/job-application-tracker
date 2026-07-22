@@ -1,61 +1,34 @@
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { ensureOpportunitySchema } from "./lib/opportunity-schema.mjs";
 import { initializeDatabaseIdentity, verifyDatabaseIdentity } from "./lib/jobtracker-database-identity.mjs";
 
 const directories: string[] = [];
-function fixture() {
-  const directory = mkdtempSync(path.join(tmpdir(), "jobtracker-identity-"));
-  directories.push(directory);
-  const databasePath = path.join(directory, "tracker.sqlite");
+function fixture() { const directory = mkdtempSync(path.join(tmpdir(), "jobtracker-identity-")); directories.push(directory); const databasePath = path.join(directory, "tracker.sqlite"); const db = new Database(databasePath); ensureOpportunitySchema(db); db.close(); return databasePath; }
+function cli(...args: string[]) { return spawnSync(process.execPath, ["scripts/jobtracker-database-identity.mjs", ...args], { encoding: "utf8", cwd: process.cwd() }); }
+function corrupt(databasePath: string, defect: string) {
   const db = new Database(databasePath);
-  ensureOpportunitySchema(db);
+  if (defect === "missing required column") db.exec("ALTER TABLE opportunities DROP COLUMN summary");
+  if (defect === "wrong declared column type or primary key") db.exec("DROP TABLE schema_metadata; CREATE TABLE schema_metadata (key TEXT PRIMARY KEY, value INTEGER NOT NULL)");
+  if (defect === "wrong foreign-key target or delete action") db.exec("DROP TABLE job_opportunity_details; CREATE TABLE job_opportunity_details (opportunity_id TEXT PRIMARY KEY, url TEXT, source TEXT, location TEXT, contact TEXT, applied_date TEXT, FOREIGN KEY(opportunity_id) REFERENCES opportunities(id) ON DELETE SET NULL)");
+  if (defect === "missing artifact uniqueness index") db.exec("DROP TABLE opportunity_artifacts; CREATE TABLE opportunity_artifacts (id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, file_path TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT 'text/markdown', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(opportunity_id) REFERENCES opportunities(id) ON DELETE CASCADE)");
+  if (defect === "missing or wrong-column named index") db.exec("DROP INDEX opportunities_status_idx; CREATE INDEX opportunities_status_idx ON opportunities(label)");
+  if (defect === "wrong ASC/DESC direction on a named index") db.exec("DROP INDEX opportunities_updated_at_idx; CREATE INDEX opportunities_updated_at_idx ON opportunities(updated_at ASC)");
+  if (defect === "partial named index") db.exec("DROP INDEX opportunities_status_idx; CREATE INDEX opportunities_status_idx ON opportunities(status) WHERE status = 'wishlist'");
+  if (defect === "partial artifact unique index") db.exec("DROP TABLE opportunity_artifacts; CREATE TABLE opportunity_artifacts (id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, file_path TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT 'text/markdown', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(opportunity_id) REFERENCES opportunities(id) ON DELETE CASCADE); CREATE UNIQUE INDEX artifact_partial ON opportunity_artifacts(opportunity_id,type,file_path) WHERE type='resume'");
   db.close();
-  return databasePath;
 }
 afterEach(() => { while (directories.length) rmSync(directories.pop()!, { recursive: true, force: true }); });
 
 describe("jobtracker database identity", () => {
-  it("initializes one stable UUID only in an existing valid tracker database", () => {
-    const databasePath = fixture();
-    const first = initializeDatabaseIdentity(databasePath);
-    const second = initializeDatabaseIdentity(databasePath);
-    expect(first).toMatchObject({ schemaVersion: 1, action: "initialized", databasePath });
-    expect(second).toMatchObject({ schemaVersion: 1, action: "existing", instanceId: first.instanceId });
-    expect(first.instanceId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-    const db = new Database(databasePath, { readonly: true });
-    expect(db.prepare("SELECT COUNT(*) AS count FROM schema_metadata WHERE key='jobtracker_instance_id'").get()).toEqual({ count: 1 });
-    db.close();
-  });
-
-  it("verifies the exact initialized identity read-only", () => {
-    const databasePath = fixture(); const identity = initializeDatabaseIdentity(databasePath);
-    const bytes = readFileSync(databasePath); const mtime = statSync(databasePath).mtimeMs;
-    expect(verifyDatabaseIdentity(databasePath, identity.instanceId)).toMatchObject({ action: "verified", instanceId: identity.instanceId });
-    expect(readFileSync(databasePath)).toEqual(bytes); expect(statSync(databasePath).mtimeMs).toBe(mtime);
-  });
-
-  it("rejects a missing database without creating it", () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "jobtracker-identity-")); directories.push(directory);
-    const databasePath = path.join(directory, "absent.sqlite");
-    expect(() => initializeDatabaseIdentity(databasePath)).toThrow();
-    expect(() => statSync(databasePath)).toThrow();
-  });
-  it("rejects a directory path", () => { const databasePath = fixture(); expect(() => initializeDatabaseIdentity(path.dirname(databasePath))).toThrow(/regular file/i); });
-  it("rejects a valid SQLite file without tracker tables", () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "jobtracker-identity-")); directories.push(directory); const databasePath = path.join(directory, "empty.sqlite"); new Database(databasePath).close();
-    expect(() => initializeDatabaseIdentity(databasePath)).toThrow(/required table/i);
-  });
-  it("rejects a lookalike schema before identity mutation", () => {
-    const databasePath = fixture(); const db = new Database(databasePath);
-    db.exec("DROP INDEX opportunities_updated_at_idx; CREATE INDEX opportunities_updated_at_idx ON opportunities(updated_at ASC)"); db.close();
-    expect(() => initializeDatabaseIdentity(databasePath)).toThrow(/index/i);
-    const read = new Database(databasePath, { readonly: true }); expect(read.prepare("SELECT value FROM schema_metadata WHERE key='jobtracker_instance_id'").get()).toBeUndefined(); read.close();
-  });
-  it("rejects a tracker database without an initialized identity in verify mode", () => expect(() => verifyDatabaseIdentity(fixture(), "00000000-0000-4000-8000-000000000000")).toThrow(/identity/i));
-  it("rejects a different expected UUID", () => { const id = initializeDatabaseIdentity(fixture()); expect(() => verifyDatabaseIdentity(id.databasePath, "00000000-0000-4000-8000-000000000000")).toThrow(/does not match/i); });
-  it("rejects a relative database path", () => expect(() => initializeDatabaseIdentity("tracker.sqlite")).toThrow(/absolute/i));
+  it("initializes one stable UUID only in an existing valid tracker database", () => { const databasePath = fixture(); const first = initializeDatabaseIdentity(databasePath); const second = initializeDatabaseIdentity(databasePath); expect(first).toMatchObject({ schemaVersion: 1, action: "initialized", databasePath }); expect(second).toMatchObject({ action: "existing", instanceId: first.instanceId }); const db = new Database(databasePath, { readonly: true }); expect(db.prepare("SELECT COUNT(*) AS count FROM schema_metadata WHERE key='jobtracker_instance_id'").get()).toEqual({ count: 1 }); db.close(); });
+  it("verifies the exact initialized identity read-only", () => { const databasePath = fixture(); const identity = initializeDatabaseIdentity(databasePath); const bytes = readFileSync(databasePath); const mtime = statSync(databasePath).mtimeMs; expect(verifyDatabaseIdentity(databasePath, identity.instanceId)).toMatchObject({ action: "verified" }); expect(readFileSync(databasePath)).toEqual(bytes); expect(statSync(databasePath).mtimeMs).toBe(mtime); });
+  it("rejects missing, directory, relative, and malformed SQLite paths without creation", () => { const databasePath = fixture(); const missing = path.join(path.dirname(databasePath), "missing.sqlite"); const malformed = path.join(path.dirname(databasePath), "bad.sqlite"); writeFileSync(malformed, "not sqlite"); for (const target of [missing, path.dirname(databasePath), "relative.sqlite", malformed]) expect(() => initializeDatabaseIdentity(target)).toThrow(); expect(() => statSync(missing)).toThrow(); });
+  it.each(["missing required column", "wrong declared column type or primary key", "wrong foreign-key target or delete action", "missing artifact uniqueness index", "missing or wrong-column named index", "wrong ASC/DESC direction on a named index", "partial named index", "partial artifact unique index"])("rejects %s before identity mutation in initialize and verify", (defect) => { const databasePath = fixture(); corrupt(databasePath, defect); const snapshot = readFileSync(databasePath); expect(() => initializeDatabaseIdentity(databasePath)).toThrow(); expect(() => verifyDatabaseIdentity(databasePath, "00000000-0000-4000-8000-000000000000")).toThrow(); expect(readFileSync(databasePath)).toEqual(snapshot); const db = new Database(databasePath, { readonly: true }); expect(db.prepare("SELECT 1 FROM schema_metadata WHERE key='jobtracker_instance_id'").get()).toBeUndefined(); db.close(); });
+  it("rejects missing identity and mismatched identity", () => { const p = fixture(); expect(() => verifyDatabaseIdentity(p, "00000000-0000-4000-8000-000000000000")).toThrow(/identity/i); const id = initializeDatabaseIdentity(p); expect(() => verifyDatabaseIdentity(p, "00000000-0000-4000-8000-000000000000")).toThrow(/does not match/i); expect(id.instanceId).toMatch(/^[0-9a-f-]{36}$/); });
+  it("has strict action-specific CLI JSON and errors", () => { const p = fixture(); const valid = cli("initialize", "--db", p); expect(valid.status).toBe(0); expect(JSON.parse(valid.stdout)).toMatchObject({ action: "initialized" }); const id = JSON.parse(valid.stdout).instanceId; const verify = cli("verify", "--db", p, "--expected-id", id); expect(verify.status).toBe(0); expect(JSON.parse(verify.stdout)).toMatchObject({ action: "verified" }); for (const args of [["initialize", "--db", p, "--token", "x"], ["initialize", "--db", p, "--db", p], ["verify", "--db", p], ["verify", "--db", p, "--expected-id", id, "extra"], ["unknown", "--db", p]]) { const result = cli(...args); expect(result.status).toBe(1); expect(result.stdout).toBe(""); expect(result.stderr.trim().length).toBeGreaterThan(0); } });
 });
