@@ -7,7 +7,7 @@ const CONTENT_RULES = [
   { id: "linux_home_path", pattern: /\/home\/[^/\s"'`<>]+/g },
   { id: "windows_home_path", pattern: /[A-Za-z]:\\Users\\[^\\\s"'`<>]+/gi },
   { id: "local_orchestration_path", pattern: /\.codex[/\\]orchestration(?:[/\\]|$)/gi },
-  { id: "local_worktree_path", pattern: /\<isolated-worktrees>(?:[/\\]|$)/gi },
+  { id: "local_worktree_path", pattern: /\.worktrees(?:[/\\]|$)/gi },
   { id: "desktop_path", pattern: /(?:^|[/\\])Desktop(?:[/\\]|$)/gi }
 ];
 
