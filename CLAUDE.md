@@ -19,3 +19,13 @@ When setting up this project for a new user or new machine:
 5. Run `npm install`, `npm run setup`, `npm run skills:install`, `npm run verify`, and `npm run build`.
 6. Start the app with `npm run dev`, give the local URL, and tell the user setup is ready for the first job posting link.
 7. Confirm `.env.local`, `data/*.sqlite`, resumes, and generated `applications/*` content remain private and uncommitted.
+
+# Daily Discovery Setup Workflow
+
+When the user asks to set up, enable, configure, repair, verify, or migrate recurring or daily qualified-job discovery:
+
+1. Read and follow the repository source coordinator at `.claude/skills/daily-job-discovery-setup/SKILL.md` first, even if the personal installed copy is absent. Invoke `/daily-job-discovery-setup` when available.
+2. Keep resume-derived preferences, locations, seniority, schedule, database identity, and local paths in ignored local configuration only.
+3. Configure one scheduler owner even when both Codex and Claude skills are installed.
+4. Reuse the existing JobTracker database and never create a fallback database.
+5. Never submit applications or modify the master resume.

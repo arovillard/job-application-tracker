@@ -12,11 +12,8 @@
 - Specification: `docs/specs/attention-context-handoff.md`
 - Plan: `docs/plans/attention-context-handoff.md`
 - Approval artifact commit: `36aacda80a5e01daea951d852f52a60a27a457bc`
-- Worktree: `<isolated-worktree>/attention-context`
 - Branch: `codex/attention-context`
 - Baseline: `npm install` completed with 0 vulnerabilities; `npm test -- --run` passed 24 files and 257 tests.
-
-CLI-routed agents below are independent external processes. Their usage is not guaranteed to be included in native Goal token accounting.
 
 ## Tasks
 
@@ -29,9 +26,6 @@ CLI-routed agents below are independent external processes. Their usage is not g
 - Commit range: `93789fa1e6a678c82e6dad5309088906b74a26c2..bde08143ddcff613dc99a0a0dbb1f975b4a5f036`
 - Tests: TDD red confirmed; focused suite passed 3 files / 12 tests; full suite passed 25 files / 264 tests; `npm run typecheck` passed; `git diff --check` passed.
 - Review: initial Sol review identified the final 44px CSS guarantee as Important; controller verified the approved plan assigns that exact test and implementation to ACH-4's exclusive write set. Fresh Sol re-review approved ACH-1 with no Critical, Important, or Minor findings and retained the 44px requirement as ACH-4/final-acceptance residual risk.
-- Terra routing: dispatch `ach1-terra-implement-1`; prompt `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach1-terra-worker.prompt.md`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach1-terra-worker.report.md`; requested/observed `gpt-5.6-terra`; role `terra-worker`; effort `medium`; sandbox `workspace-write`; phase verified; telemetry reported; exit 0; 580615 dispatch tokens; 192230ms.
-- Sol review routing: dispatch `ach1-sol-review-1`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach1-sol-review.report.md`; requested/observed `gpt-5.6-sol`; role `sol-reviewer`; effort `medium`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 155678 dispatch tokens; 140204ms.
-- Sol re-review routing: dispatch `ach1-sol-rereview-2`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach1-sol-rereview.report.md`; requested/observed `gpt-5.6-sol`; role `sol-reviewer`; effort `medium`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 169915 dispatch tokens; 54482ms.
 
 ### ACH-2 — Contextual presentation and targetable task rows
 
@@ -42,8 +36,6 @@ CLI-routed agents below are independent external processes. Their usage is not g
 - Commit range: `521fc2e..ffa0c72`
 - Tests: TDD red confirmed; focused suite passed 2 files / 9 tests; `npm run typecheck` passed; `git diff --check` passed; controller independently reran the same checks.
 - Review: fresh Sol review approved ACH-2 with no Critical or Important findings. One Minor residual notes that static-render tests do not directly dispatch callbacks or assert ref attachment/pending-state interaction; ACH-3 integration coverage remains mandatory.
-- Terra routing: dispatch `ach2-terra-implement-1`; prompt `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach2-terra-worker.prompt.md`; detailed report `.superpowers/sdd/task-ACH-2-report.md`; runner report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach2-terra-run.report.md`; requested/observed `gpt-5.6-terra`; role `terra-worker`; effort `medium`; sandbox `workspace-write`; phase verified; telemetry reported; exit 0; 631783 dispatch tokens; 188487ms.
-- Sol routing: dispatch `ach2-sol-review-1`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach2-sol-review.report.md`; requested/observed `gpt-5.6-sol`; role `sol-reviewer`; effort `medium`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 186644 dispatch tokens; 86385ms.
 
 ### ACH-3 — Route and detail-page attention orchestration
 
@@ -54,12 +46,6 @@ CLI-routed agents below are independent external processes. Their usage is not g
 - Commit range: `0509583..e03eb88` (implementation, bounded Terra race fix, root escalation corrections)
 - Tests: TDD red confirmed; final route/detail suite passed 2 files / 67 tests; focused attention/detail suite passed 5 files / 81 tests; final full suite with ACH-4 contracts passed 27 files / 296 tests; `npm run verify`, `npm run build`, and `git diff --check` passed. Controller independently reran every final command.
 - Review: initial Sol review found a Critical pre-passive-effect stale-result/redirect race. One bounded Terra fix added current-opportunity identity guards and RED regressions; the first Sol re-review confirmed the original race resolved but found an Important abandoned-render risk from render-phase ref publication. Per review policy this escalated to the root controller, which moved identity publication to an unconditional layout effect. The Sol escalation audit approved with no findings. ACH-4's required `npm run verify` then exposed the approved plan's synchronous state resets as a `react-hooks/set-state-in-effect` lint violation; the root controller replaced them with a controller keyed by `opportunityId` and commit-time layout cleanup. A dedicated Sol correction audit approved that architecture with no findings.
-- Terra implementation routing: dispatch `ach3-terra-implement-1`; prompt `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach3-terra-worker.prompt.md`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach3-terra-run.report.md`; requested/observed `gpt-5.6-terra`; role `terra-worker`; effort `medium`; sandbox `workspace-write`; phase verified; telemetry reported; exit 0; 1322231 dispatch tokens; 281230ms.
-- Sol initial routing: dispatch `ach3-sol-review-1`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach3-sol-review.report.md`; requested/observed `gpt-5.6-sol`; role `sol-reviewer`; effort `medium`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 479321 dispatch tokens; 143989ms.
-- Terra fix routing: dispatch `ach3-terra-fix-2`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach3-terra-fix-run.report.md`; requested/observed `gpt-5.6-terra`; role `terra-worker`; effort `medium`; sandbox `workspace-write`; phase verified; telemetry reported; exit 0; 1195595 dispatch tokens; 280548ms.
-- Sol re-review routing: dispatch `ach3-sol-rereview-2`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach3-sol-rereview.report.md`; requested/observed `gpt-5.6-sol`; role `sol-reviewer`; effort `medium`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 196697 dispatch tokens; 110433ms.
-- Sol escalation routing: dispatch `ach3-sol-escalation-3`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach3-sol-escalation-review.report.md`; requested/observed `gpt-5.6-sol`; role `sol-reviewer`; effort `medium`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 290556 dispatch tokens; 104106ms.
-- Sol lint-correction routing: dispatch `ach3-sol-lint-correction-4`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach3-sol-lint-correction-review.report.md`; requested/observed `gpt-5.6-sol`; role `sol-reviewer`; effort `medium`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 67382 dispatch tokens; 73628ms.
 
 ### ACH-4 — Responsive visual integration and acceptance suite
 
@@ -70,8 +56,6 @@ CLI-routed agents below are independent external processes. Their usage is not g
 - Commit range: `e03eb88..7e59876`
 - Tests: TDD red confirmed; CSS suite passed 1 file / 23 tests; focused attention suite passed 8 files / 111 tests; after the separate lifecycle lint correction, `npm run verify` passed lint, typecheck, and 27 files / 296 tests; `npm run build` and `git diff --check` passed.
 - Review: fresh Sol review approved with no Critical, Important, or Minor findings. Runtime desktop/760px/320px, light/dark, overflow, and keyboard-focus appearance remain explicitly tracked final visual residuals; no pixels were claimed inspected.
-- Terra routing: dispatch `ach4-terra-implement-1`; prompt `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach4-terra-worker.prompt.md`; detailed report `.superpowers/sdd/task-ACH-4-report.md`; runner report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach4-terra-run.report.md`; requested/observed `gpt-5.6-terra`; role `terra-worker`; effort `medium`; sandbox `workspace-write`; phase verified; telemetry reported; exit 0; 1250152 dispatch tokens; 515304ms.
-- Sol routing: dispatch `ach4-sol-review-1`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/ach4-sol-review.report.md`; requested/observed `gpt-5.6-sol`; role `sol-reviewer`; effort `medium`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 240984 dispatch tokens; 92957ms.
 
 ## Final acceptance
 
@@ -79,10 +63,7 @@ CLI-routed agents below are independent external processes. Their usage is not g
 - `npm run verify`: passed ESLint, TypeScript, and 27 files / 297 tests with 0 failures after the bounded final fix
 - `npm run build`: passed production compile, typecheck, static generation, and route finalization; only the known multi-lockfile workspace-root warning remains
 - Privacy/scope inspection: passed; full Goal range contains only 19 approved spec/plan/ledger/source/test files; the final fix changes only `OpportunityDetailPage.tsx` and its integration test; clean diff/status verified after restoring generated `next-env.d.ts`
-- Initial Sol final review: one Important keyed post-Complete focus-intent blocker, no other findings; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/sol-final-acceptance.report.md`; requested/observed `gpt-5.6-sol`; role `sol-final-reviewer`; effort `high`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 994665 dispatch tokens; 321090ms.
-- Terra final fix: dispatch `final-terra-focus-fix-2`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/final-terra-focus-fix-run.report.md`; requested/observed `gpt-5.6-terra`; role `terra-worker`; effort `medium`; sandbox `workspace-write`; phase verified; telemetry reported; exit 0; 1105760 dispatch tokens; 199796ms.
 - Final fix commit: `c4285f9` (`fix: scope resolved focus to attention target`); keyed intent regression RED then GREEN.
-- Sol final re-review: dispatch `sol-final-rereview-2`; report `<user-home>/<local-orchestration-output>/jobtracker-attention-20260713/sol-final-rereview.report.md`; requested/observed `gpt-5.6-sol`; role `sol-final-reviewer`; effort `high`; sandbox `read-only`; phase verified; telemetry reported; exit 0; 567367 dispatch tokens; 223090ms; no Critical, Important, or Minor findings; criteria 7, 13, and 17 passed; Goal approved.
 
 ## Decisions and blockers
 

@@ -29,6 +29,24 @@ Replace the examples with the human's values. For a local file, use `Master resu
 
 Fresh local sessions reload these values. For Codex Cloud, configure the same names as cloud environment variables because ignored `.env.local` is not cloned. A saved Google Docs URL identifies the resume but does not replace Google Drive authorization.
 
+## Optional Daily Qualified-Job Discovery
+
+After the normal application workspace is ready, paste this prompt into Codex or Claude from the repository:
+
+```text
+Set up daily qualified job discovery for this JobTracker project.
+
+Use the repository's daily-job-discovery-setup skill. Guide me through configuring my private job-search preferences, resume source, target roles and seniority, location and remote-work constraints, mandatory qualifications, schedule, timezone, and whether I use Codex, Claude, or both. If I use both, help me choose one agent to own the active schedule so jobs are not processed twice.
+
+You may suggest preferences derived from my resume, but ask me to confirm them before saving. Keep all personal information in ignored local configuration and never commit it.
+
+Configure a daily local scheduled task that searches complete public job postings, accepts only jobs with both an overall match score and qualification score of at least 80%, prepares all expected application documents and submission instructions, and adds the opportunity to my local JobTracker database for review. Never submit an application on my behalf.
+
+Verify the configuration, database connection, installed skills, and scheduled task when finished.
+```
+
+The skill stores targeting and schedule preferences in ignored `data/job-discovery.json` and reuses the same SQLite database shown by the local app. Codex and Claude skills can both be installed, but only one agent should own the active schedule. The web server may be closed during a run; the computer must be awake and the selected desktop agent must be running because private local files are unavailable to cloud tasks.
+
 ## Collect From The Human
 
 Ask for these values before configuring the project:
@@ -108,7 +126,7 @@ The configuration command accepts only `applicationsDirectory`, `baseResumeUrl`,
 ```dotenv
 JOBTRACKER_APPLICATIONS_DIR="./applications"
 JOBTRACKER_APPLICATIONS_DIR="./private-output"
-JOBTRACKER_APPLICATIONS_DIR="<user-home>/Documents/job-application-materials"
+JOBTRACKER_APPLICATIONS_DIR="<external-applications-directory>"
 ```
 
 Relative values are relative to the repository. Preserve them as entered rather than converting them to absolute paths in `.env.local`.
@@ -156,6 +174,8 @@ When changing the application-materials folder after setup:
 ```bash
 npm run verify
 ```
+
+`npm run verify` includes `npm run privacy:check`, which rejects tracked private-state files and machine-specific paths. A user may keep additional sensitive terms in ignored `data/privacy-denylist.txt`, one term per line, so local verification also prevents those values from entering tracked content.
 
 7. Start the app:
 

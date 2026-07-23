@@ -35,8 +35,8 @@ The result is functionally capable but visually quieter, less self-explanatory, 
 
 ## Visual baseline evidence
 
-- Create form screenshot: `<reference-input>/Screenshot 2026-07-12 at 7.42.06 AM.png`
-- Job detail screenshot: `<reference-input>/Screenshot 2026-07-12 at 7.42.38 AM.png`
+- Create form screenshot: `<create-form-reference-screenshot>`
+- Job detail screenshot: `<job-detail-reference-screenshot>`
 - Source implementation baseline: `f1855f3c8f86f42188a172dfc01058af1e2e24dd`
 
 The form baseline establishes narrow centred content, an oversized page title, one bordered card, a two-column identity grid, a blue-tinted Next move surface, a collapsed Optional details row, and a right-aligned primary footer action.

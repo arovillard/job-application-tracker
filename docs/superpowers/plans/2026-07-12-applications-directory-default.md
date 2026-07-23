@@ -398,19 +398,19 @@ git commit -m "docs: explain applications directory defaults and moves"
 
 **Files:**
 - Modify ignored local file: `.env.local`
-- Move ignored private folder: `/Applications/Example Company` to `<user-home>/Documents/JobTracker/applications/Example Company`
+- Move ignored private folder: `<legacy-applications-directory>/<example-company-folder>` to `<project-root>/applications/<example-company-folder>`
 
 **Interfaces:**
 - Consumes: safe configuration writer and backfill behavior from Tasks 1–3.
-- Produces: current workspace readiness points at `<user-home>/Documents/JobTracker/applications` and no generated Example Company folder remains in `/Applications`.
+- Produces: current workspace readiness points at `<project-root>/applications` and no generated example-company folder remains in the legacy location.
 
 - [ ] **Step 1: Verify migration preconditions**
 
 Run:
 
 ```bash
-test -d /Applications/Example Company
-test ! -e <user-home>/Documents/JobTracker/applications/Example Company
+test -d "<legacy-applications-directory>/<example-company-folder>"
+test ! -e "<project-root>/applications/<example-company-folder>"
 ```
 
 Expected: both commands exit zero. If the destination exists, stop without overwriting it.
@@ -420,10 +420,10 @@ Expected: both commands exit zero. If the destination exists, stop without overw
 Run:
 
 ```bash
-mv /Applications/Example Company <user-home>/Documents/JobTracker/applications/Example Company
+mv "<legacy-applications-directory>/<example-company-folder>" "<project-root>/applications/<example-company-folder>"
 ```
 
-Expected: the source is absent, the destination contains the three Example Company material files, and all `.app` bundles under `/Applications` remain untouched.
+Expected: the source is absent, the destination contains the three example-company material files, and unrelated applications remain untouched.
 
 - [ ] **Step 3: Safely rewrite the ignored local setting**
 
@@ -433,17 +433,17 @@ Run:
 printf '%s\n' '{"applicationsDirectory":"./applications"}' | npm run application:configure -- --input-json -
 ```
 
-Expected: redacted JSON reports `applicationsDirectory.path` as `<user-home>/Documents/JobTracker/applications` and `.env.local` contains `JOBTRACKER_APPLICATIONS_DIR="./applications"`.
+Expected: redacted JSON reports `applicationsDirectory.path` under `<project-root>/applications` and `.env.local` contains `JOBTRACKER_APPLICATIONS_DIR="./applications"`.
 
 - [ ] **Step 4: Refresh moved artifact links**
 
 Run:
 
 ```bash
-npm run artifacts:backfill -- --applications-dir <user-home>/Documents/JobTracker/applications
+npm run artifacts:backfill -- --applications-dir "<project-root>/applications"
 ```
 
-Expected: JSON reports the repository applications directory, scans existing materials, removes any missing `/Applications/Example Company` links, and registers recognized Example Company files.
+Expected: JSON reports the repository applications directory, scans existing materials, removes missing legacy links, and registers recognized example-company files.
 
 - [ ] **Step 5: Run fresh full verification**
 

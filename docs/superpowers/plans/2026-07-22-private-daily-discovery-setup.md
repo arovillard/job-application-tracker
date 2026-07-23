@@ -127,7 +127,7 @@
 1. Read the current application readiness and existing database identity.
 2. Write the current user's confirmed/previously authorized preferences to ignored `data/job-discovery.json` through the configuration command.
 3. Refresh installed personal Codex and Claude skills.
-4. Update the existing local Codex automation so its prompt is generic and loads the private profile; preserve the intended daily schedule.
+4. Update the existing local ChatGPT Scheduled task so its prompt is generic and loads the private profile; preserve the intended daily schedule.
 5. Verify exactly one active scheduler owner and run non-mutating readiness checks.
 
 ## Task 9: Verify implementation before history rewriting

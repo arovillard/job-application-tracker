@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const projectRoot = path.resolve(__dirname, "..");
 const skillNames = [
+  "daily-job-discovery-setup",
   "job-application-resume",
   "job-application-workflow",
   "job-tracker-add-posting"
@@ -87,7 +88,7 @@ describe("agent skill packaging", () => {
       if (skillName === "job-application-workflow") {
         for (const required of [
           "jobtracker-database-identity.mjs verify", "daily-job-prep-lock.mjs acquire",
-          'daily-job-prep-lock.mjs release --db "/absolute/database.path" --token "RUN_TOKEN"',
+          'daily-job-prep-lock.mjs release --db "<database-path>" --token "RUN_TOKEN"',
           "prepare-qualified-job.mjs", "database.path", "never submit"
         ]) {
           expect(codexSkill).toContain(required);

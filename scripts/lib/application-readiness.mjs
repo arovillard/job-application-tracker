@@ -33,6 +33,7 @@ const SETUP_CONFIG_KEYS = Object.freeze({
 const DEFAULT_APPLICATIONS_DIRECTORY = "./applications";
 
 const REQUIRED_SKILLS = Object.freeze([
+  "daily-job-discovery-setup",
   "job-application-resume",
   "job-application-workflow",
   "job-tracker-add-posting"

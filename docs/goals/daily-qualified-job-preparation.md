@@ -109,7 +109,7 @@ Review 7 approved the full specification/plan pair with no blocking or material 
 - Deployment adds one immutable identity row to the existing database; scheduled verification fails closed on missing/replaced/malformed state.
 - One database-keyed run lock prevents overlap, while transaction-local status/version checks keep user reject/archive actions authoritative.
 - Automated intake branching is executable and scenario-tested; dossier inspection is read-only and artifact registration rejects missing/non-file/inactive paths before mutation.
-- Scheduling is reconciled through the Codex automation interface at 08:00 `Etc/UTC` with local execution against the saved checkout and exactly one enabled matching entry.
+- Scheduling is reconciled through the Codex automation interface at 08:00 `<configured-timezone>` with local execution against the saved checkout and exactly one enabled matching entry.
 - Deployment verification will not force-run discovery against the live database.
 
 ## Blockers

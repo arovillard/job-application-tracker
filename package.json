@@ -17,9 +17,13 @@
     "skills:install:claude": "node scripts/install-skills.mjs --claude",
     "application:readiness": "node scripts/check-application-readiness.mjs",
     "application:configure": "node scripts/configure-application-profile.mjs",
+    "daily-discovery:configure": "node scripts/configure-daily-discovery.mjs --input-json -",
+    "daily-discovery:readiness": "node scripts/check-daily-discovery-readiness.mjs",
     "artifacts:backfill": "node scripts/backfill-application-artifacts.mjs",
     "job:score": "node scripts/evaluate-job-match.mjs",
-    "verify": "npm run lint && npm run typecheck && npm run test"
+    "privacy:check": "node scripts/privacy-check.mjs",
+    "privacy:check:history": "node scripts/privacy-check.mjs --history",
+    "verify": "npm run privacy:check && npm run lint && npm run typecheck && npm run test"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

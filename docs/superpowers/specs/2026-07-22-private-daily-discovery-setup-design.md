@@ -100,7 +100,7 @@ The local web server does not need to be running because the workflow writes the
 
 The skill will choose one scheduler owner:
 
-- **Codex Desktop:** create or update a local Codex Automation in the current saved project, using the user's confirmed daily time and timezone.
+- **Codex in ChatGPT Desktop:** create or update a local Scheduled task in the current saved project, using the user's confirmed daily time and timezone.
 - **Claude Desktop:** create or update a local scheduled task in the current saved project. Do not use session-scoped `/loop` as the durable schedule.
 - **Unsupported host surface:** produce the exact provider-specific prompt and UI steps, mark scheduling as incomplete, and stop short of claiming full readiness.
 

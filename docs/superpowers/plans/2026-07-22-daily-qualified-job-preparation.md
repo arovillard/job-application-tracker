@@ -929,7 +929,7 @@ Add assertions for:
 
 ```ts
 for (const required of [
-  "08:00 Etc/UTC",
+  "08:00 <configured-timezone>",
   "executionEnvironment=local",
   "saved local project checkout",
   "database.path",
@@ -1019,11 +1019,11 @@ Expected: FAIL on the new identity, lock, executable coordinator, guarded materi
 
 Add a `## Daily Qualified Discovery Mode` section to `skills/job-application-workflow/SKILL.md` with these executable phases:
 
-1. Run only as a local automation at `08:00 Etc/UTC` from the saved local project checkout; never use a feature worktree.
+1. Run only as local automation at the privately configured time from the saved local project checkout; never use a feature worktree.
 2. Parse readiness and bind every `--db` and `--applications-dir` from the returned paths; lack of localhost port 3000 does not authorize a new server or fallback database.
 3. Verify the deployment-provided `jobtracker_instance_id` with `jobtracker-database-identity.mjs verify`; never initialize during a scheduled run.
 4. Acquire one six-hour run lock, retain its token locally, require it for all automated commands, and release it in `finally` even when a candidate fails.
-5. Discover only complete public postings; prioritize employer pages; use varied management/technical-leadership titles; enforce the pre-score exclusions and conservative Example Country/Example Region logistics policy.
+5. Discover only complete public postings; prioritize employer pages; use the private confirmed target/seniority/location policies; enforce the pre-score exclusions.
 6. Construct `{ assessment, posting }` and invoke `prepare-qualified-job.mjs` with the exact database, expected database identity, and lock token. That command owns evaluator-before-dry-run and guarded real intake.
 7. Stop for `skip_ineligible`, `skip_inactive`, or `skip_complete`; invoke the resume skill only for `repair_dossier` or `prepare_dossier` with the returned exact material precondition.
 8. Produce the counts and per-candidate summary required by the spec without reproducing private resume content, then release the lock.
@@ -1123,7 +1123,7 @@ git commit -m "feat: enforce qualified daily application workflow"
 - Automation name: `Daily qualified job preparation`.
 - Stable automation key: exact name `Daily qualified job preparation` plus the existing local JobTracker `projectId` returned by the app.
 - Project root: the absolute `projectRoot` returned by readiness from that same existing Codex project; no personal path is committed in this plan.
-- Cadence: daily at `08:00`, timezone `Etc/UTC`.
+- Cadence: daily at `08:00`, timezone `<configured-timezone>`.
 - Status: enabled/active.
 - Execution: local, against the saved checkout.
 - Model/reasoning: `gpt-5.6-sol` with `high` reasoning for qualification and document judgment.
@@ -1210,24 +1210,10 @@ This reconciliation is idempotent: every retry converges to exactly one matching
 
 - [ ] **Step 7: Update or create the local daily automation with this prompt template**
 
-Call `codex_app__automation_update` in `update` mode with the retained ID or `create` mode when absent. Supply the full cron automation fields: exact name, resolved project ID, `executionEnvironment="local"`, `destination="local"`, active/enabled status, daily 08:00 `Etc/UTC` recurrence, model `gpt-5.6-sol`, reasoning effort `high`, and the prompt below after interpolating the literal `databaseIdentity.instanceId`. Do not put notification preferences in the prompt.
+Call the selected provider's local scheduler update capability with the retained ID or create mode when absent. Supply the exact name, saved project, local execution, active status, and the privately configured schedule. The prompt is provider-neutral and contains no personal values, machine paths, database identity, or notification preferences.
 
 ```text
-Run the Daily Qualified Discovery Mode in skills/job-application-workflow/SKILL.md from this saved local JobTracker project. Begin by running and parsing node scripts/check-application-readiness.mjs. Require its projectRoot to be this saved checkout, preserve its exact absolute database.path and applicationsDirectory.path, pass that database.path with --db to every identity, lock, automated intake, dossier inspection, and artifact registration command, and pass that applicationsDirectory.path to every material operation. Never use a worktree, temporary, fixture, process-default, synthesized, or fallback database. The app at localhost:3000 may be offline; do not start another server and do not change database selection because the UI is unavailable.
-
-Before discovery-driven intake, run node scripts/jobtracker-database-identity.mjs verify against that exact database path with expected ID ${databaseIdentity.instanceId}. Stop without initializing or writing if the file is missing, not a regular file, has the wrong schema, lacks the identity, or does not match. Acquire node scripts/daily-job-prep-lock.mjs for that same database, retain the returned token for every automated command, and always release your matching token in a finally path. Stop if another unexpired run owns the lock or if your token expires.
-
-Search complete public postings broadly, prioritizing authoritative employer career pages and using public job boards only for discovery or corroboration. Vary titles while preserving the configured candidate's demonstrated seniority and scope: engineering management, senior engineering management, director-level engineering/operations, technical leadership, platform, integrations, developer experience, and adjacent product-engineering leadership. Apply the conservative Example Country/Example City/Example City/Example Region logistics policy and all pre-score exclusions in the skill.
-
-For each verifiable open candidate, build the schema-v1 evidence assessment from the read-only configured resume/profile and matching posting JSON. Pass exactly { assessment, posting } to node scripts/prepare-qualified-job.mjs with the exact database path, expected database ID, and current lock token. That command must evaluate before any dry run and is the only automated route to a real upsert. Do not mutate the tracker or create materials unless it returns repair_dossier or prepare_dossier with eligible: true, overallScore >= 80, mandatoryMatch >= 80, seniorityMatch >= 75, no blocker, a verified wishlist opportunity, and an exact material status/version precondition. Never invent evidence.
-
-Honor prepare-qualified-job decisions exactly: skip skip_ineligible, skip_inactive, and skip_complete; repair only missing or invalid files for repair_dossier while preserving valid files; prepare the full dossier for prepare_dossier. Never pass --reactivate. The executable coordinator owns dry-run-before-write, inactive preservation, and transactional ID/status/version compare-and-set.
-
-Invoke job-application-resume only for a verified eligible repair_dossier or prepare_dossier opportunity. Immediately before creating files, run guarded dossier inspection with the current lock token and the exact returned expected wishlist status and updated_at version; stop if it changed. Preserve every valid existing artifact. Generate only missing/invalid outputs into the exact applications directory's private .staging subtree: company-neutral tailored resume with local PDF snapshot, scored fit analysis, targeted cover letter, outreach draft, and type=other/title=Submission Guide. Put unsupported application questions in Needs Your Answer. Verify staged paths are regular files, then invoke commit-job-dossier.mjs with the exact missing-only manifest, current lock token, and wishlist status/version. Let that command copy without overwrite, register atomically guarded outputs, and prove final complete: true before calling the dossier ready.
-
-Never sign in to a job site, use credentials, make a private document public, edit the master resume, upload files, fill an authenticated form, accept an attestation, solve a CAPTCHA, send a message, change a job to applied, or submit an application. The human will review wishlist jobs and submit or archive them.
-
-Finish with the daily summary contract from the skill: sources and counts, every prepared job's company/role/scores/wishlist tracker identity/material locations, skipped reason categories, isolated failures, and any incomplete or human-answer requirements. Do not reproduce private resume content, contact details, credentials, private source URLs, the database identity, or the lock token in the summary.
+Use the repository's job-application-workflow skill in Daily Qualified Discovery Mode. Begin with node scripts/check-daily-discovery-readiness.mjs --include-private-config and follow the repository coordinator exactly. Use only the returned existing database and ignored applications directory, prepare only eligible dossiers, and never submit an application.
 ```
 
 - [ ] **Step 8: Verify exactly one returned automation and live-data safety**
@@ -1238,7 +1224,7 @@ View the created automation and confirm its returned configuration shows:
 - the existing local JobTracker project;
 - enabled/active status;
 - local execution;
-- daily 08:00 `Etc/UTC` cadence;
+- daily 08:00 `<configured-timezone>` cadence;
 - the complete prompt safety contract above.
 - exactly one enabled registry entry with the stable exact name/project key and no duplicate matching entry.
 

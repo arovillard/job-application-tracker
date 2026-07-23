@@ -17,7 +17,7 @@ Optional:
 - A custom SQLite database path. The default is `data/jobtracker.sqlite`.
 - A public profile URL, usually LinkedIn. It improves context but is not required.
 
-This repo does not store API keys, provider credentials, private resumes, generated application dossiers, or the user's live SQLite database.
+This repo does not store API keys, provider credentials, private resumes, private discovery preferences, generated application dossiers, or the user's live SQLite database.
 
 ## Starting A Fresh Agent Session
 
@@ -45,6 +45,24 @@ Save these in the project's private local configuration, verify readiness, and t
 Replace the example links with your own. For a local resume, use `Master resume file:` followed by its full path. The agent saves the resume under `JOBTRACKER_BASE_RESUME_URL` or `JOBTRACKER_BASE_RESUME_PATH` and the profile under `JOBTRACKER_LINKEDIN_URL` in the ignored `.env.local` file. It saves every supplied value together and leaves settings you did not mention unchanged.
 
 A local fresh session reuses the ignored `.env.local` and local files, then validates them again. For Codex Cloud, configure the same setting names as cloud environment variables because a cloud checkout does not receive the private `.env.local` file. Saving the Google Docs URL remembers which document to use but does not replace Google Drive authorization, so Google access may still need to be reconnected in a new host session.
+
+## Optional Daily Qualified-Job Discovery
+
+After the normal application workspace is ready, paste this prompt into Codex or Claude from the repository:
+
+```text
+Set up daily qualified job discovery for this JobTracker project.
+
+Use the repository's daily-job-discovery-setup skill. Guide me through configuring my private job-search preferences, resume source, target roles and seniority, location and remote-work constraints, mandatory qualifications, schedule, timezone, and whether I use Codex, Claude, or both. If I use both, help me choose one agent to own the active schedule so jobs are not processed twice.
+
+You may suggest preferences derived from my resume, but ask me to confirm them before saving. Keep all personal information in ignored local configuration and never commit it.
+
+Configure a daily local scheduled task that searches complete public job postings, accepts only jobs with both an overall match score and qualification score of at least 80%, prepares all expected application documents and submission instructions, and adds the opportunity to my local JobTracker database for review. Never submit an application on my behalf.
+
+Verify the configuration, database connection, installed skills, and scheduled task when finished.
+```
+
+The skill stores targeting and schedule preferences in ignored `data/job-discovery.json` and reuses the same SQLite database shown by the local app. Codex and Claude skills can both be installed, but only one agent should own the active schedule. The web server may be closed during a run; the computer must be awake and the selected desktop agent must be running because private local files are unavailable to cloud tasks.
 
 ## Quick Start
 
@@ -112,7 +130,7 @@ Application-materials paths can use the repository-local default, a custom relat
 ```dotenv
 JOBTRACKER_APPLICATIONS_DIR="./applications"
 JOBTRACKER_APPLICATIONS_DIR="./private-output"
-JOBTRACKER_APPLICATIONS_DIR="<user-home>/Documents/job-application-materials"
+JOBTRACKER_APPLICATIONS_DIR="<external-applications-directory>"
 ```
 
 Relative values are relative to the repository and remain portable when the repository moves. Absolute values are useful when materials must live elsewhere. `/applications` is a root-level path, not another spelling of `applications`; do not use it for the repository-local default.
@@ -180,6 +198,7 @@ The skills are packaged for both supported agents:
 - `job-tracker-add-posting`: extracts public posting facts, creates or updates a job opportunity, avoids duplicate organization+role records, and records update activities.
 - `job-application-workflow`: checks readiness, gathers only missing setup details, and coordinates tracker intake before application materials.
 - `job-application-resume`: creates tailored application materials and a candid fit analysis from verified user source material.
+- `daily-job-discovery-setup`: privately configures qualified-job targeting and one local Codex or Claude daily schedule.
 
 Install or refresh them with:
 
@@ -202,6 +221,7 @@ npm run skills:install:claude
 npm run lint
 npm run typecheck
 npm run test
+npm run privacy:check
 npm run verify
 npm run build
 ```
@@ -213,7 +233,7 @@ Useful local state:
 - `skills/` stores the distributable Codex skill source.
 - `.claude/skills/` stores the distributable Claude Code project skills.
 
-`data/*.sqlite`, `.env.local`, and `applications/*` are ignored so private user state is not published.
+`data/*.sqlite`, `data/job-discovery.json`, `data/privacy-denylist.txt`, `.env.local`, and `applications/*` are ignored so private user state is not published.
 
 ## License
 

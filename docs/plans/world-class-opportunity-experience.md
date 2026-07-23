@@ -4,7 +4,7 @@
 
 - Spec: `docs/specs/world-class-opportunity-experience.md`
 - Baseline: `f1855f3c8f86f42188a172dfc01058af1e2e24dd`
-- Screenshots: `<reference-input>/Screenshot 2026-07-12 at 7.42.06 AM.png`, `<reference-input>/Screenshot 2026-07-12 at 7.42.38 AM.png`
+- Screenshots: `<create-form-reference-screenshot>`, `<job-detail-reference-screenshot>`
 - Preserve model, storage, route paths, artifacts, themes, and brand.
 - No dependencies, migrations, schema changes, generated artifacts, or browser automation.
 - TDD; at most two disjoint writers; serialize CSS and destructive workflows.

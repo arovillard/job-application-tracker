@@ -16,6 +16,11 @@ tsconfig.tsbuildinfo
 data/*.sqlite
 data/*.sqlite-*
 
+# Private daily-discovery preferences
+data/job-discovery.json
+data/.job-discovery.json.tmp-*
+data/privacy-denylist.txt
+
 # Private/generated application materials
 applications/*
 !applications/.gitkeep

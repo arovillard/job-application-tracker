@@ -30,7 +30,7 @@ This change includes:
 - An executable automated-intake coordinator with scenario tests for sub-threshold, inactive, unchanged-complete, incomplete-repair, race, and no-submit paths.
 - Duplicate and repeat-run controls that use the existing posting dry-run behavior before mutating the tracker.
 - Contract and behavioral tests for scoring, workflow ordering, artifact requirements, fail-closed behavior, and submission safety.
-- A daily Codex automation for the local JobTracker project at 08:00 in `Etc/UTC`.
+- A daily Codex automation for the local JobTracker project at 08:00 in `<configured-timezone>`.
 - Explicit live-database binding through the readiness result returned from the saved local project checkout.
 
 The existing tracker UI, job lifecycle, artifact viewer, and archive/reject controls remain the human review surface.
@@ -58,7 +58,7 @@ The existing tracker UI, job lifecycle, artifact viewer, and archive/reject cont
 - `skills/job-application-workflow/SKILL.md` already enforces readiness before intake, intake before materials, explicit absolute paths, master-resume protection, and no submission.
 - `skills/job-application-resume/SKILL.md` already requires a candid evidence-based fit analysis, role-specific files, company-neutral resume content, web research when helpful, file verification, and explicit artifact registration.
 - The application workflow currently has no discovery policy, numeric score, scoring command, daily scheduler, cover-letter requirement, submission-guide requirement, or repeat-run dossier completeness rule.
-- The configured private resume has been validated read-only through the signed-in host. It establishes 10+ years of product delivery, progression from JavaScript Engineer to Technical Lead, Director-level engineering and operations experience, people leadership, React/React Native/TypeScript/Node/AWS depth, platform/developer-experience work, customer translation, and AI-assisted workflows.
+- The configured private resume is validated read-only through the signed-in host. Its contents, inferred seniority, role families, and location policy are intentionally absent from repository documentation and belong only to ignored local configuration.
 - Current local readiness has confirmed an absolute project root, working SQLite path, and applications-materials path in the saved local checkout. These ignored paths are the user's working tracker state and materials directory; the specification intentionally does not commit machine-specific personal paths.
 - Readiness currently validates the configured database parent but does not prove that the database file exists, is a regular SQLite file, has the current tracker schema, or is the same database instance selected at deployment. The scheduled workflow therefore needs a stronger fail-closed identity command before any automated intake.
 - The user identifies the app normally served on `http://localhost:3000` as the UI for this working database. The server may not be running at every scheduled execution, so the validated SQLite path—not server reachability—is the database identity contract.
@@ -67,7 +67,7 @@ The existing tracker UI, job lifecycle, artifact viewer, and archive/reject cont
 
 ### Daily Discovery
 
-At 08:00 `Etc/UTC`, a standalone Codex automation runs with `executionEnvironment=local` against the saved JobTracker project. It must not run in the implementation worktree because ignored `.env.local`, the live SQLite database, and generated application materials belong to the saved local checkout.
+At the privately configured daily time, one selected desktop agent runs a local task against the saved JobTracker project. It must not run in an implementation worktree because ignored `.env.local`, `data/job-discovery.json`, the live SQLite database, and generated application materials belong to the saved local checkout.
 
 Every run begins from that repository root, uses the repository source coordinator as authoritative, and runs `node scripts/check-application-readiness.mjs` before discovery-driven mutation. It must parse and preserve the returned absolute `projectRoot`, `database.path`, and `applicationsDirectory.path`. Every dry run, real posting upsert, dossier inspection, and artifact registration receives that exact `database.path` through `--db`; every material command receives the exact `applicationsDirectory.path` through `--applications-dir`. Process defaults and synthesized fallback paths are forbidden.
 
@@ -86,9 +86,9 @@ The automation searches broadly across public sources:
 3. A board result must be resolved to a complete public posting whenever possible.
 4. Login-only descriptions, snippets without complete requirements, expired pages, and unverifiable reposts are not eligible for scoring.
 
-Search queries vary titles while preserving seniority and scope. Relevant title families include Engineering Manager, Senior Engineering Manager, Director of Engineering, Director of Engineering and Operations, Technical Lead, Platform or Integrations Engineering Lead, Developer Experience Lead, and adjacent product-engineering leadership roles. A title alone never creates eligibility.
+Search queries vary titles within `privateConfig.targets`, preserving only the seniority and scope the user confirmed privately. A title alone never creates eligibility.
 
-The default geographic policy is conservative: accept remote roles that explicitly permit employment from Example Country and hybrid or onsite roles whose stated location is compatible with Example City, Example City, or the Example Region without assuming relocation. If the posting is ambiguous about Canadian eligibility or required presence, treat logistics as unresolved and fail closed unless another authoritative public source resolves it.
+Apply `privateConfig.locationPolicy` conservatively. If a posting is ambiguous about jurisdiction eligibility, remote/onsite requirements, travel, relocation, or required presence, treat logistics as unresolved and fail closed unless another authoritative public source resolves it.
 
 ### Pre-Score Exclusions
 
@@ -328,8 +328,8 @@ The command rejects posting facts that do not match the evaluated organization, 
 
 ## Acceptance Criteria
 
-1. The workflow runs once daily at 08:00 in `Etc/UTC` against the local JobTracker project.
-2. Discovery uses public sources, prioritizes employer career pages, varies titles, and preserves management/technical-leadership seniority.
+1. The workflow runs once daily at the private configured time against the local JobTracker project.
+2. Discovery uses public sources, prioritizes employer career pages, and varies titles within the privately confirmed targeting and seniority policy.
 3. Readiness and private resume access are verified before any candidate mutation.
 4. Closed, incomplete, junior, geographically incompatible, and clearly blocker-qualified postings are excluded before scoring.
 5. The evaluator rejects malformed assessments and accepts only fixed category totals summing to 100.

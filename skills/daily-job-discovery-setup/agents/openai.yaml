@@ -1,0 +1,4 @@
+interface:
+  display_name: "Daily Job Discovery Setup"
+  short_description: "Configure private daily job discovery"
+  default_prompt: "Use $daily-job-discovery-setup to configure private daily qualified-job discovery for this JobTracker project."

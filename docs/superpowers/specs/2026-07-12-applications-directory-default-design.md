@@ -33,7 +33,7 @@ README documentation will include two cases:
 
 The artifact backfill will remove local artifact records whose referenced files no longer exist before registering files found in the selected directory. This prevents a directory move from leaving broken duplicate links while retaining valid artifact records.
 
-For the current workspace only, move `/Applications/Example Company` to `<project-root>/applications/Example Company`, change `.env.local` to `JOBTRACKER_APPLICATIONS_DIR="./applications"`, and refresh artifact links. Do not touch any macOS applications or unrelated files under `/Applications`.
+For the current workspace only, move `<legacy-applications-directory>/Example Company` to `<project-root>/applications/Example Company`, change `.env.local` to `JOBTRACKER_APPLICATIONS_DIR="./applications"`, and refresh artifact links. Do not touch any macOS applications or unrelated files under `/Applications`.
 
 ## Documentation and Agent Guidance
 

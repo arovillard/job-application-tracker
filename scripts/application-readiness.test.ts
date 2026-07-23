@@ -17,7 +17,7 @@ function fixture() {
   writeFileSync(path.join(root, ".env.example"), "");
   writeFileSync(path.join(root, ".gitignore"), ".env.local\ndata/*.sqlite\napplications/*\n");
   execFileSync("git", ["init", "-q"], { cwd: root });
-  for (const skill of ["job-application-resume", "job-application-workflow", "job-tracker-add-posting"]) {
+  for (const skill of ["daily-job-discovery-setup", "job-application-resume", "job-application-workflow", "job-tracker-add-posting"]) {
     for (const sourceRoot of ["skills", path.join(".claude", "skills")]) {
       const directory = path.join(root, sourceRoot, skill);
       mkdirSync(directory, { recursive: true });
@@ -220,7 +220,7 @@ describe("evaluateApplicationReadiness", () => {
     const root = fixture();
     const codexHome = path.join(root, "codex-home");
     const claudeHome = path.join(root, "claude-home");
-    for (const skill of ["job-application-resume", "job-application-workflow", "job-tracker-add-posting"]) {
+    for (const skill of ["daily-job-discovery-setup", "job-application-resume", "job-application-workflow", "job-tracker-add-posting"]) {
       const source = `# ${skill}\n`;
       for (const home of [codexHome, claudeHome]) {
         const directory = path.join(home, "skills", skill);

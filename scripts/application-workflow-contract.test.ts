@@ -43,6 +43,7 @@ describe("job application workflow contract", () => {
   it("fails closed at the daily readiness gate before identity or discovery", () => {
     const daily = namedSection(workflow, "Daily Qualified Discovery Mode");
     expectInOrder(daily, [
+      "check-daily-discovery-readiness.mjs --include-private-config",
       "status === \"ready\"", "saved local project checkout `projectRoot`",
       "successful read-only access", "jobtracker-database-identity.mjs verify"
     ]);
@@ -107,19 +108,32 @@ describe("job application workflow contract", () => {
     ]);
 
     for (const required of [
-      "08:00 Etc/UTC", "executionEnvironment=local", "saved local project checkout",
+      "privateConfig.targets", "privateConfig.locationPolicy", "privateConfig.qualificationPolicy",
+      "privateConfig.thresholds", "saved local project checkout",
       "database.path", "jobtracker_instance_id", "six-hour", "applicationsDirectory.path",
-      "never start a second server", "employer career page", "overallScore >= 80",
-      "mandatoryMatch >= 80", "seniorityMatch >= 75", "eligible: true", "skip_ineligible",
+      "never start a second server", "employer career page",
+      "overallScore >= privateConfig.thresholds.overallMatch",
+      "mandatoryMatch >= privateConfig.thresholds.qualificationMatch",
+      "seniorityMatch >= privateConfig.thresholds.seniorityMatch",
+      "eligible: true", "skip_ineligible",
       "skip_inactive", "skip_complete", "repair_dossier", "prepare_dossier",
       "never pass `--reactivate`", "rejected or archived", "wishlist", "Needs Your Answer",
       "never submit"
     ]) expect(workflow).toContain(required);
 
+    for (const forbidden of [
+      ["Squ", "amish"].join(""),
+      ["Van", "couver"].join(""),
+      ["Lower", " Mainland"].join(""),
+      "08:00",
+      "Engineering Manager",
+      "Director of Engineering"
+    ]) expect(workflow).not.toContain(forbidden);
+
     expect(workflow).toContain("intake and materials are forbidden until the executable coordinator returns an eligible `repair_dossier` or `prepare_dossier` decision");
     expect(workflow).toContain("finally");
-    expect(workflow).toContain('node scripts/daily-job-prep-lock.mjs release --db "/absolute/database.path" --token "RUN_TOKEN"');
-    expect(workflow).not.toContain('daily-job-prep-lock.mjs release --db "/absolute/database.path" --lock-token');
+    expect(workflow).toContain('node scripts/daily-job-prep-lock.mjs release --db "<database-path>" --token "RUN_TOKEN"');
+    expect(workflow).not.toContain('daily-job-prep-lock.mjs release --db "<database-path>" --lock-token');
     expect(workflow).toContain("stop on identity or lock failure");
   });
 
