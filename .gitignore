@@ -27,7 +27,7 @@ applications/*
 
 # Local orchestration scratch space
 .ringer-work/
-<isolated-worktrees>/
+.worktrees/
 
 # OS/editor files
 .DS_Store
